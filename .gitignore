@@ -1,0 +1,15 @@
+node_modules/
+dist/
+release/
+.runtime/
+.artifacts/
+.DS_Store
+*.log
+*.sqlite*
+*.db*
+.env
+.env.*
+!.env.example
+coverage/
+playwright-report/
+test-results/
