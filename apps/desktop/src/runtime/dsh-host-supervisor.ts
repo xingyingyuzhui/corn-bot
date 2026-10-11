@@ -4,7 +4,11 @@ import { createRequire } from 'node:module'
 import { dirname, join } from 'node:path'
 import { DSH_VERSION } from '../../../../packages/contracts/src/runtime.ts'
 import { HostAuth } from './host-auth.ts'
-import { parseReadinessLine, redactHostDiagnostic } from './host-readiness.ts'
+import {
+  parseReadinessLine,
+  parseSkippedBundleLine,
+  redactHostDiagnostic,
+} from './host-readiness.ts'
 import {
   type CornModelConfig,
   resolveCornModelConfig,
@@ -20,8 +24,11 @@ import { materializeProfile } from './profile-template.ts'
 import { HostStoppedError, RuntimeFailure } from './runtime-failure.ts'
 
 const require = createRequire(import.meta.url)
-const cliManifest = require.resolve('@deepseek-ai/dsh/package.json')
-const cliEntry = join(dirname(cliManifest), 'lib', 'bin.js')
+/** DSH's own first bundle resolution anchor (`INSTALL_ANCHOR` in its CLI). */
+export const DSH_INSTALL_ANCHOR = require.resolve(
+  '@deepseek-ai/dsh/package.json',
+)
+const cliEntry = join(dirname(DSH_INSTALL_ANCHOR), 'lib', 'bin.js')
 const READINESS_TIMEOUT_MS = 45_000
 const STOP_GRACE_MS = 8_000
 
@@ -31,7 +38,23 @@ export type SpawnHost = (
   options: SpawnOptions,
 ) => ChildProcess
 
+export interface AdmissionContext {
+  readonly auth: HostAuth
+  /** Aborted when this child exits or a stop is requested. */
+  readonly signal: AbortSignal
+  /** Profile bundles this child reported as skipped on stderr. */
+  readonly skippedBundles: ReadonlySet<string>
+}
+
+/** What a Host must satisfy before and after authentication to count as started. */
+export interface HostAdmission {
+  beforeSpawn(home: string, profile: string): Promise<void>
+  afterAuth(context: AdmissionContext): Promise<void>
+}
+
 export interface SupervisorOptions {
+  /** Chosen explicitly by every caller: the App's governed entry or a setup-only bootstrap. */
+  readonly admission: HostAdmission
   readonly onFailure?: (message: string) => void
   /** `undefined` resolves the private Corn model configuration at each start; `null` boots keyless. */
   readonly model?: CornModelConfig | null
@@ -48,6 +71,18 @@ export interface SupervisorOptions {
   ) => Promise<HostAuth>
 }
 
+async function seedProfile(template: string, profile: string): Promise<void> {
+  try {
+    await materializeProfile(template, profile)
+  } catch (error) {
+    throw new RuntimeFailure(
+      'claw_missing',
+      'Bundled Corn profile template failed verification',
+      { cause: error },
+    )
+  }
+}
+
 /** One spawned Host process; every startup step is bound to its lifetime. */
 class ChildLife {
   readonly child: ChildProcess
@@ -58,6 +93,8 @@ class ChildLife {
   committed = false
   stopping = false
   reported = false
+  readonly skippedBundles = new Set<string>()
+  stderrPending = ''
 
   constructor(child: ChildProcess) {
     this.child = child
@@ -88,14 +125,16 @@ export class DshHostSupervisor {
   readonly model: CornModelConfig | null | undefined
   readonly modelEnvFile: string | undefined
   readonly profileTemplate: string | undefined
+  readonly #admission: HostAdmission
   readonly #spawnHost: SpawnHost
   readonly #exchangeAuth: (
     launch: URL,
     signal: AbortSignal,
   ) => Promise<HostAuth>
 
-  constructor(home: string, options: SupervisorOptions = {}) {
+  constructor(home: string, options: SupervisorOptions) {
     this.home = home
+    this.#admission = options.admission
     this.onFailure = options.onFailure ?? (() => {})
     this.model = options.model
     this.modelEnvFile = options.modelEnvFile
@@ -131,7 +170,7 @@ export class DshHostSupervisor {
 
   async #start(): Promise<HostAuth> {
     this.#diagnostic = ''
-    const manifest = require(cliManifest) as { version: string }
+    const manifest = require(DSH_INSTALL_ANCHOR) as { version: string }
     if (manifest.version !== DSH_VERSION)
       throw new RuntimeFailure(
         'runtime_version_mismatch',
@@ -161,16 +200,22 @@ export class DshHostSupervisor {
       const patch = await writeIsolationPatch(this.home, model)
       const args = [cliEntry, CORN_PROFILE]
       const profile = join(this.home, 'profiles', CORN_PROFILE)
-      if (this.profileTemplate)
-        await materializeProfile(this.profileTemplate, profile)
+      if (this.profileTemplate) await seedProfile(this.profileTemplate, profile)
       // Otherwise DSH creates this named profile from its own shipped template, never the user's profile.
       else if (!existsSync(join(profile, 'package.json')))
         args.push('--from-default-profile', 'web')
       args.push('--patch', patch, '--no-open', '--port', '0')
+      await this.#admission.beforeSpawn(this.home, profile)
       this.#throwIfStopRequested()
       const life = this.#spawn(args, model)
       const launch = await this.#readiness(life)
       const auth = await this.#exchangeAuth(launch, life.signal)
+      life.signal.throwIfAborted()
+      await this.#admission.afterAuth({
+        auth,
+        signal: life.signal,
+        skippedBundles: life.skippedBundles,
+      })
       life.signal.throwIfAborted()
       life.committed = true
       return auth
@@ -223,6 +268,12 @@ export class DshHostSupervisor {
       this.#diagnostic = redactHostDiagnostic(
         (this.#diagnostic + chunk).slice(-16_384),
       )
+      const lines = (life.stderrPending + chunk).split(/\r?\n/u)
+      life.stderrPending = (lines.pop() ?? '').slice(-16_384)
+      for (const line of lines) {
+        const skipped = parseSkippedBundleLine(line)
+        if (skipped !== undefined) life.skippedBundles.add(skipped)
+      }
     })
     return life
   }

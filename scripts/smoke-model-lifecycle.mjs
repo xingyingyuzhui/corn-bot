@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import { randomUUID } from 'node:crypto'
 import { mkdir, writeFile } from 'node:fs/promises'
 import { setTimeout as delay } from 'node:timers/promises'
-import { DshHostSupervisor } from '../apps/desktop/src/runtime/dsh-host-supervisor.ts'
+import { createGovernedHost } from '../apps/desktop/src/runtime/claw-runtime-check.ts'
 import { resolveCornModelConfig } from '../apps/desktop/src/runtime/model-provider.ts'
 import { defaultDevelopmentHome } from '../apps/desktop/src/runtime/profile-bootstrap.ts'
 import { record } from '../packages/dsh-adapter/src/remote-error.ts'
@@ -26,7 +26,7 @@ const TOOL_PROMPT = `Use the bash tool exactly once to run this exact command: $
 const TURN_TIMEOUT = 150_000
 
 let unexpectedExit = false
-const host = new DshHostSupervisor(
+const host = createGovernedHost(
   process.env.CORN_DSH_HOME ?? defaultDevelopmentHome(),
   {
     onFailure: () => {

@@ -3,15 +3,17 @@ import { existsSync } from 'node:fs'
 import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { DshHostSupervisor } from '../apps/desktop/src/runtime/dsh-host-supervisor.ts'
+import { createBootstrapHost } from '../apps/desktop/src/runtime/host-bootstrap.ts'
 import { HostStoppedError } from '../apps/desktop/src/runtime/runtime-failure.ts'
 import { SessionClient } from '../packages/dsh-adapter/src/session-client.ts'
 import { HostTransport } from '../packages/dsh-adapter/src/transport.ts'
 
-// Empty, disposable homes; no profile, settings, model key or Claw import.
+// Basic-engine evidence only: the bootstrap Host on empty, disposable homes with
+// no profile, settings, model key or Claw. Not App readiness and not a
+// substitute for the governed packaged cold start (smoke:packaged).
 for (let round = 1; round <= 3; round++) {
   const home = await mkdtemp(join(tmpdir(), 'corn-cold-start-'))
-  const host = new DshHostSupervisor(home, { model: null })
+  const host = createBootstrapHost(home)
   try {
     const auth = await host.start()
     await new SessionClient(new HostTransport(auth)).list()
@@ -27,7 +29,7 @@ for (let round = 1; round <= 3; round++) {
 }
 
 const home = await mkdtemp(join(tmpdir(), 'corn-early-stop-'))
-const host = new DshHostSupervisor(home, { model: null })
+const host = createBootstrapHost(home)
 try {
   const startup = host.start()
   await assert.rejects(host.start(), /already started/u)
@@ -42,5 +44,5 @@ try {
   await rm(home, { recursive: true, force: true })
 }
 console.log(
-  'Scope: DSH baseline cold boot only; full Claw cold boot remains separate.',
+  'Scope: basic-engine evidence (bootstrap Host, no Claw); governed Claw cold boot is smoke:packaged.',
 )

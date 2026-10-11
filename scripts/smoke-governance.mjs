@@ -14,8 +14,15 @@ import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { setTimeout as delay } from 'node:timers/promises'
 import { fileURLToPath } from 'node:url'
+import {
+  checkClawRuntime,
+  verifyClawProfile,
+} from '../apps/desktop/src/runtime/claw-runtime-check.ts'
 import { HostAuth } from '../apps/desktop/src/runtime/host-auth.ts'
-import { parseReadinessLine } from '../apps/desktop/src/runtime/host-readiness.ts'
+import {
+  parseReadinessLine,
+  parseSkippedBundleLine,
+} from '../apps/desktop/src/runtime/host-readiness.ts'
 import {
   assertIsolatedHome,
   cornHostEnvironment,
@@ -212,6 +219,9 @@ try {
   )
   await writeFile(join(profile, 'cordis.yml'), '')
   await writeFile(join(profile, 'cordis.patch.yml'), '[]\n')
+  // The disposable test profile passes the same formal admission as the App.
+  await verifyClawProfile(profile, home)
+  check('formal-claw-profile-admission')
   const patch = join(home, 'probe.patch.yml')
   const fixture = new URL(
     '../tests/fixtures/dsh-corn-m0-probe/host.js',
@@ -240,6 +250,19 @@ try {
     },
   )
   exited = new Promise((resolve) => child.once('close', resolve))
+  const lifetime = new AbortController()
+  child.once('close', () => lifetime.abort(new Error('Disposable Host exited')))
+  const skippedBundles = new Set()
+  let stderrPending = ''
+  // Scan for skipped bundles without retaining tokens, cookies, local paths or logs.
+  child.stderr.setEncoding('utf8').on('data', (chunk) => {
+    const lines = (stderrPending + chunk).split(/\r?\n/u)
+    stderrPending = (lines.pop() || '').slice(-16_384)
+    for (const line of lines) {
+      const skipped = parseSkippedBundleLine(line)
+      if (skipped !== undefined) skippedBundles.add(skipped)
+    }
+  })
   const launch = await new Promise((resolve, reject) => {
     let pending = ''
     const timer = setTimeout(
@@ -272,11 +295,11 @@ try {
         }
       }
     })
-    // Drain diagnostics without retaining tokens, cookies, local paths or logs.
-    child.stderr.resume()
   })
-  auth = await HostAuth.exchange(launch)
+  auth = await HostAuth.exchange(launch, lifetime.signal)
   check('disposable-keyless-rc2-host-authenticated')
+  await checkClawRuntime({ auth, signal: lifetime.signal, skippedBundles })
+  check('formal-claw-runtime-admission')
   transport = new HostTransport(auth)
   const registry = new ClawRegistryClient(transport)
   const sessions = new SessionClient(transport)

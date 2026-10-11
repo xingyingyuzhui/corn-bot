@@ -94,6 +94,7 @@ export class HostTransport {
       | 'session/bind'
       | 'session/state',
     body: Record<string, unknown>,
+    options: { readonly signal?: AbortSignal } = {},
   ): Promise<Record<string, unknown>> {
     const response = await fetch(
       this.authority.url(`/api/dsh-claw/registry/${action}`),
@@ -105,7 +106,7 @@ export class HostTransport {
         },
         body: JSON.stringify(body),
         redirect: 'error',
-        signal: AbortSignal.timeout(30_000),
+        signal: options.signal ?? AbortSignal.timeout(30_000),
       },
     )
     const result = record(await response.json())

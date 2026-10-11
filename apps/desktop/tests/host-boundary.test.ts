@@ -4,6 +4,7 @@ import { test } from 'node:test'
 import { HostAuth } from '../src/runtime/host-auth.ts'
 import {
   parseReadinessLine,
+  parseSkippedBundleLine,
   redactHostDiagnostic,
   validateLaunchUrl,
 } from '../src/runtime/host-readiness.ts'
@@ -20,6 +21,24 @@ test('readiness only trusts the exact child loopback root authentication URL', (
   ]) {
     assert.throws(() => validateLaunchUrl(invalid))
   }
+})
+
+test('skipped profile bundle lines name exactly the bundle DSH did not load', () => {
+  assert.equal(
+    parseSkippedBundleLine(
+      'dsh: skipping profile bundle "dsh-claw-suite": Error: cannot resolve',
+    ),
+    'dsh-claw-suite',
+  )
+  assert.equal(
+    parseSkippedBundleLine('dsh: skipping profile bundle "a\\"b": x'),
+    'a"b',
+  )
+  assert.equal(parseSkippedBundleLine('dsh-claw-suite loaded'), undefined)
+  assert.equal(
+    parseSkippedBundleLine('x dsh: skipping profile bundle "dsh-claw-suite":'),
+    undefined,
+  )
 })
 
 test('diagnostics redact launch tokens, cookies and common API key forms', () => {

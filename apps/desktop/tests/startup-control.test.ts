@@ -150,31 +150,67 @@ test(
   },
 )
 
-test('exit after ready schedules exactly one recovery', TIMEOUT, async () => {
-  await withHarness({}, async (harness) => {
-    await harness.control.start()
-    assert.equal(harness.control.view.status, 'ready')
-    const first = harness.children[0]
-    assert.ok(first)
-    first.emit('error', new Error('fixture child error'))
-    first.exit(null, 'SIGKILL')
-    assert.equal(harness.control.view.status, 'recovering')
-    assert.equal(harness.schedules.length, 1)
-    assert.equal(harness.control.auth, undefined)
-    harness.runRecovery()
-    await harness.nextChild()
-    const second = await harness.nextChild()
-    assert.notEqual(second, first)
-    await within(
-      (async () => {
-        while (harness.control.view.status !== 'ready')
-          await new Promise((resolve) => setImmediate(resolve))
-      })(),
-      'recovered ready',
-    )
-    assert.equal(harness.schedules.length, 1)
-  })
-})
+test(
+  'exit while the Claw check is pending fails the start once',
+  TIMEOUT,
+  async () => {
+    await withHarness({}, async (harness) => {
+      harness.host.gateRegistry = true
+      const started = harness.control.start()
+      const child = await harness.nextChild()
+      const stage = await within(
+        Promise.race([
+          harness.host.registryArrived().then(() => 'claw-check'),
+          started.then(() => 'boot-settled'),
+        ]),
+        'Claw check',
+      )
+      assert.equal(
+        stage,
+        'claw-check',
+        'formal start must check Claw after auth',
+      )
+      child.exit(1)
+      harness.host.openRegistry()
+      await within(started, 'start')
+      assert.equal(harness.control.view.status, 'recovering')
+      assert.equal(harness.schedules.length, 1)
+      assert.equal(harness.control.auth, undefined)
+    })
+  },
+)
+
+test(
+  'exit after ready schedules exactly one recovery that re-validates',
+  TIMEOUT,
+  async () => {
+    await withHarness({}, async (harness) => {
+      await harness.control.start()
+      assert.equal(harness.control.view.status, 'ready')
+      const first = harness.children[0]
+      assert.ok(first)
+      first.emit('error', new Error('fixture child error'))
+      first.exit(null, 'SIGKILL')
+      assert.equal(harness.control.view.status, 'recovering')
+      assert.equal(harness.schedules.length, 1)
+      assert.equal(harness.control.auth, undefined)
+      const callsBefore = harness.host.registryCalls
+      harness.runRecovery()
+      await harness.nextChild()
+      const second = await harness.nextChild()
+      assert.notEqual(second, first)
+      await within(
+        (async () => {
+          while (harness.control.view.status !== 'ready')
+            await new Promise((resolve) => setImmediate(resolve))
+        })(),
+        'recovered ready',
+      )
+      assert.equal(harness.host.registryCalls, callsBefore + 1)
+      assert.equal(harness.schedules.length, 1)
+    })
+  },
+)
 
 test(
   'late callbacks from a replaced child never touch the new generation',
@@ -231,7 +267,7 @@ test('each start begins with an empty diagnostic buffer', TIMEOUT, async () => {
   })
 })
 
-for (const stage of ['readiness', 'authentication'] as const) {
+for (const stage of ['readiness', 'authentication', 'Claw check'] as const) {
   test(
     `quit during ${stage} stops the child without a late ready or retry`,
     TIMEOUT,
@@ -242,13 +278,29 @@ for (const stage of ['readiness', 'authentication'] as const) {
           gateExchange: stage === 'authentication',
         },
         async (harness) => {
+          harness.host.gateRegistry = stage === 'Claw check'
           const started = harness.control.start()
           const child = await harness.nextChild()
           let signal: AbortSignal | undefined
           if (stage === 'authentication')
             signal = (await harness.nextExchange()).signal
+          if (stage === 'Claw check') {
+            const reached = await within(
+              Promise.race([
+                harness.host.registryArrived().then(() => true),
+                started.then(() => false),
+              ]),
+              'Claw check',
+            )
+            assert.equal(
+              reached,
+              true,
+              'formal start must check Claw after auth',
+            )
+          }
           const quit = harness.control.shutdown()
           harness.exchanges.at(-1)?.gate.resolve()
+          harness.host.openRegistry()
           await within(quit, 'quit')
           await within(started, 'start')
           assert.equal(harness.control.view.status, 'stopped')

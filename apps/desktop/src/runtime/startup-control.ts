@@ -5,9 +5,10 @@ import {
   type RuntimeView,
 } from '../../../../packages/contracts/src/runtime.ts'
 import type { AppPaths } from '../app-paths.ts'
-import {
+import { createGovernedHost } from './claw-runtime-check.ts'
+import type {
   DshHostSupervisor,
-  type SupervisorOptions,
+  SupervisorOptions,
 } from './dsh-host-supervisor.ts'
 import type { HostAuth } from './host-auth.ts'
 import { redactHostDiagnostic } from './host-readiness.ts'
@@ -220,13 +221,13 @@ export interface AppRuntime {
   readonly host: DshHostSupervisor
 }
 
-/** The App's formal runtime: one supervisor and its startup control. */
+/** The App's formal runtime: one governed supervisor and its startup control. */
 export function createAppRuntime(
   paths: Pick<AppPaths, 'home' | 'modelEnvFile' | 'profileTemplate'>,
   { schedule, ...hostSeams }: AppRuntimeSeams = {},
 ): AppRuntime {
   let control: StartupControl | undefined
-  const host = new DshHostSupervisor(paths.home, {
+  const host = createGovernedHost(paths.home, {
     ...hostSeams,
     modelEnvFile: paths.modelEnvFile,
     profileTemplate: paths.profileTemplate,
