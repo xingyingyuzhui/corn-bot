@@ -5,6 +5,7 @@ import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { build, Platform } from 'electron-builder'
 import { cornBuilderConfig } from '../apps/desktop/electron-builder.config.ts'
+import { generateAppIcons } from './lib/app-icons.mjs'
 import { buildProfileTemplate } from './lib/profile-template-build.mjs'
 
 // Unsigned arm64 developer package. Run: pnpm package:mac
@@ -32,6 +33,9 @@ async function run(command, args) {
 await run('pnpm', ['build'])
 await rm(staging, { recursive: true, force: true })
 await mkdir(staging, { recursive: true })
+const { icns, hashes: iconHashes } = await generateAppIcons(root)
+for (const [file, hash] of Object.entries(iconHashes))
+  console.log(`${hash}  ${file}`)
 
 // Production dependencies as a plain hoisted tree: no pnpm links for electron-builder to resolve.
 // `pnpm deploy` records its prod/hoisted settings as the workspace install state, which
@@ -100,6 +104,7 @@ await build({
       'dist',
     ),
     profileTemplate: template,
+    icon: icns,
   }),
 })
 console.log(`Unsigned Corn Bot.app written to ${join(output, 'mac-arm64')}`)

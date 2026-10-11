@@ -67,6 +67,11 @@
   },
   "migrated": [
     {
+      "path": "apps/desktop/assets/app-icon-source.png",
+      "from": "assets/app-icon.png",
+      "sha256": "4b783687756c2c104b94ced8e609ca170d3c609108052665e4faa2f3354d2942"
+    },
+    {
       "path": "packages/ui/assets/catalog.json",
       "from": "assets/catalog.json",
       "sha256": "a539555892cb2ec1521fe2e99a6ac188185716ad05d63396772968b446e5536f"

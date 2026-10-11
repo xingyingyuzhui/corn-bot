@@ -39,10 +39,10 @@ const sha256 = async (path: string) =>
 test('migrated Corn assets are byte-identical to the locked kit files', async () => {
   for (const entry of lock.migrated)
     assert.equal(await sha256(entry.path), entry.sha256, entry.path)
-  const catalog = lock.migrated.find(
-    (entry) => entry.from === 'assets/catalog.json',
-  )
-  assert.equal(catalog?.sha256, lock.sourceInputs['assets/catalog.json'])
+  for (const source of ['assets/catalog.json', 'assets/app-icon.png']) {
+    const entry = lock.migrated.find((migrated) => migrated.from === source)
+    assert.equal(entry?.sha256, lock.sourceInputs[source], source)
+  }
 })
 
 test('adapted code matches its recorded hash; re-review provenance before updating it', async () => {

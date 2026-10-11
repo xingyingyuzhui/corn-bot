@@ -28,6 +28,7 @@
     "smoke:review-desktop": "node scripts/smoke-review-desktop.mjs",
     "smoke:review": "node scripts/smoke-review.mjs",
     "dev:desktop": "pnpm build && electron apps/desktop",
+    "icons:mac": "node scripts/generate-app-icons.mjs",
     "package:mac": "node scripts/package-macos.mjs",
     "smoke:packaged": "node scripts/smoke-packaged.mjs",
     "check": "pnpm lint && pnpm typecheck && pnpm test"
