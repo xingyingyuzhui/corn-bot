@@ -1,4 +1,4 @@
-import { type FormEvent, useEffect, useId, useRef, useState } from 'react'
+import { type FormEvent, useId, useRef, useState } from 'react'
 import { useRepository, useWorkspace } from '../../app/workspace-context.tsx'
 import { NAME_MAX } from '../../model/limits.ts'
 import type { BotDraft } from '../../model/repository.ts'
@@ -32,10 +32,6 @@ export function CreateBotDialog({ onClose, onCreated }: CreateBotDialogProps) {
   const [form, setForm] = useState<CreateBotForm>(EMPTY_CREATE_BOT_FORM)
   const [errors, setErrors] = useState<CreateBotErrors>({})
   const [pending, setPending] = useState(false)
-
-  useEffect(() => {
-    formRef.current?.querySelector<HTMLInputElement>('input')?.focus()
-  }, [])
 
   const edit = (patch: Partial<CreateBotForm>) => {
     setForm((current) => ({ ...current, ...patch }))
@@ -112,6 +108,7 @@ export function CreateBotDialog({ onClose, onCreated }: CreateBotDialogProps) {
           value={form.name}
           required
           placeholder="例如：数据分析师"
+          autoFocus
           hint={`${nameLength}/${NAME_MAX}`}
           {...(errors.name ? { error: errors.name } : {})}
           onChange={(name) => edit({ name })}

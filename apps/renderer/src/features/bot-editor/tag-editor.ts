@@ -1,6 +1,5 @@
+import { normaliseName } from '../../model/names.ts'
 import type { TagId, TagView } from '../../model/workspace.ts'
-
-const normalise = (text: string) => text.trim().toLocaleLowerCase()
 
 /** Tags whose label contains the query, selected ones first, then by label. */
 export function filterTags(
@@ -8,10 +7,10 @@ export function filterTags(
   query: string,
   selected: readonly TagId[],
 ): readonly TagView[] {
-  const needle = normalise(query)
+  const needle = normaliseName(query)
   const chosen = new Set(selected)
   return Object.values(tags)
-    .filter((tag) => normalise(tag.label).includes(needle))
+    .filter((tag) => normaliseName(tag.label).includes(needle))
     .sort(
       (a, b) =>
         Number(chosen.has(b.id)) - Number(chosen.has(a.id)) ||
@@ -53,7 +52,7 @@ export function checkNewTag(
   const label = query.trim()
   if (!label) return { kind: 'empty' }
   const existing = Object.values(tags).find(
-    (tag) => normalise(tag.label) === normalise(label),
+    (tag) => normaliseName(tag.label) === normaliseName(label),
   )
   if (existing) return { kind: 'existing', tag: existing }
   if ([...label].length > maxLength)

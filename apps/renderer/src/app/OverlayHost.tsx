@@ -23,10 +23,9 @@ export function OverlayHost({ overlay, dispatch }: OverlayHostProps) {
       return (
         <CreateBotDialog
           onClose={close}
-          onCreated={(botId) => {
-            close()
-            dispatch({ type: 'select-bot', botId })
-          }}
+          onCreated={(botId) =>
+            dispatch({ type: 'bot-created', overlay, botId })
+          }
         />
       )
     case 'connect-apps':

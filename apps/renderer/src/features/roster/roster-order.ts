@@ -1,3 +1,4 @@
+import { normaliseName } from '../../model/names.ts'
 import type { BotView, RosterView } from '../../model/workspace.ts'
 
 export interface RosterFilter {
@@ -34,18 +35,16 @@ export function rosterFilterFor(
 /** Bots that are in no group and not pinned still need a home in the roster. */
 export const UNLISTED_GROUP = { id: 'corn-unlisted', label: '其他' } as const
 
-const normalise = (text: string) => text.trim().toLocaleLowerCase()
-
 export function botMatches(
   bot: BotView,
   roster: RosterView,
   search: string,
 ): boolean {
-  const query = normalise(search)
+  const query = normaliseName(search)
   if (!query) return true
   const tagLabels = bot.tagIds.map((id) => roster.tags[id]?.label ?? '')
   return [bot.name, bot.role, ...tagLabels].some((text) =>
-    normalise(text).includes(query),
+    normaliseName(text).includes(query),
   )
 }
 
@@ -58,7 +57,7 @@ export function rosterSections(
   roster: RosterView,
   filter: RosterFilter,
 ): RosterSections {
-  const searching = normalise(filter.search) !== ''
+  const searching = normaliseName(filter.search) !== ''
   const hidden = new Set(roster.hiddenBotIds)
   const pinnedIds = new Set(roster.pinnedBotIds)
   const matches = (bot: BotView) => botMatches(bot, roster, filter.search)

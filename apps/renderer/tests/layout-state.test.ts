@@ -286,3 +286,21 @@ test('a draft edited while its send was in flight is kept', () => {
     edited,
   )
 })
+
+test('a create that settles after its dialog closed never steals selection', () => {
+  const create: Overlay = { kind: 'create-bot' }
+  const open = run(initialLayout('a'), {
+    type: 'open-overlay',
+    overlay: create,
+  })
+  const done = run(open, { type: 'bot-created', overlay: create, botId: 'new' })
+  assert.equal(done.selectedBotId, 'new')
+  assert.equal(done.overlay, null)
+  const late = run(
+    open,
+    { type: 'close-overlay', overlay: create },
+    { type: 'select-bot', botId: 'b' },
+    { type: 'bot-created', overlay: create, botId: 'new' },
+  )
+  assert.equal(late.selectedBotId, 'b')
+})

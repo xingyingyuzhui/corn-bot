@@ -115,6 +115,13 @@ export type LayoutAction =
   /** Closes `overlay` only if it is still the open one, so a late async
    * callback from a replaced dialog cannot dismiss its successor. */
   | { readonly type: 'close-overlay'; readonly overlay: Overlay }
+  /** A create dialog finished; selects the new Bot only if that dialog is
+   * still open, so a late result never steals the user's selection. */
+  | {
+      readonly type: 'bot-created'
+      readonly overlay: Overlay
+      readonly botId: string
+    }
 
 export function initialLayout(
   selectedBotId: string,
@@ -303,6 +310,10 @@ export function layoutReducer(
     case 'close-overlay':
       return state.overlay === action.overlay
         ? { ...state, overlay: null }
+        : state
+    case 'bot-created':
+      return state.overlay === action.overlay
+        ? { ...state, overlay: null, selectedBotId: action.botId }
         : state
     default: {
       const unreachable: never = action

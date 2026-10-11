@@ -1,4 +1,5 @@
 import { NAME_MAX, TAG_MAX } from '../model/limits.ts'
+import { initialOf, sameName } from '../model/names.ts'
 import {
   type BotDraft,
   type BotProfilePatch,
@@ -27,9 +28,6 @@ export interface FixtureOptions {
   /** Approval requests that settle as `cancelled`, as a late DSH reply would. */
   readonly staleRequestIds?: readonly string[]
 }
-
-const sameName = (a: string, b: string) =>
-  a.trim().toLocaleLowerCase() === b.trim().toLocaleLowerCase()
 
 const hueOf = (text: string) =>
   [...text].reduce((sum, char) => (sum * 31 + char.charCodeAt(0)) % 360, 7)
@@ -141,6 +139,7 @@ export class FixtureWorkspaceRepository implements WorkspaceRepository {
   }
 
   async createBot(draft: BotDraft): Promise<CommandResult<string>> {
+    await this.#settle()
     const name = draft.name.trim()
     const role = draft.role.trim()
     const invalid = this.#validateName(name)
@@ -152,13 +151,12 @@ export class FixtureWorkspaceRepository implements WorkspaceRepository {
       !roster.groups.some((group) => group.id === draft.groupId)
     )
       return fail('not-found', '找不到这个分组', 'groupId')
-    await this.#settle()
     const id = `mock-${++this.#sequence}`
     const bot: BotView = {
       id,
       name,
       summary: '示例 Bot，尚未创建真实 Claw Agent',
-      avatar: { initial: name.slice(0, 1), hue: hueOf(name) },
+      avatar: { initial: initialOf(name), hue: hueOf(name) },
       role,
       workStyle: draft.workStyle.trim(),
       tagIds: [],
@@ -185,7 +183,7 @@ export class FixtureWorkspaceRepository implements WorkspaceRepository {
       },
       permissions: {
         ...this.#snapshot.permissions,
-        [id]: this.#snapshot.permissions[this.initialBotId] ?? [],
+        [id]: [],
       },
     })
     return ok(id)
@@ -224,6 +222,7 @@ export class FixtureWorkspaceRepository implements WorkspaceRepository {
     patch: BotProfilePatch,
     expectedRevision: number,
   ): Promise<CommandResult<number>> {
+    await this.#settle()
     const bot = this.#snapshot.roster.bots[botId]
     if (!bot) return fail('not-found', '找不到这个 Bot')
     if (bot.revision !== expectedRevision) return this.#conflict()
@@ -232,13 +231,12 @@ export class FixtureWorkspaceRepository implements WorkspaceRepository {
     if (invalid) return invalid
     const role = patch.role?.trim() ?? bot.role
     if (!role) return fail('validation', '请填写职责', 'role')
-    await this.#settle()
     return ok(
       this.#updateBot(botId, {
         name,
         role,
         workStyle: patch.workStyle?.trim() ?? bot.workStyle,
-        avatar: { ...bot.avatar, initial: name.slice(0, 1) },
+        avatar: { ...bot.avatar, initial: initialOf(name) },
       }),
     )
   }
@@ -267,23 +265,23 @@ export class FixtureWorkspaceRepository implements WorkspaceRepository {
     tagIds: readonly TagId[],
     expectedRevision: number,
   ): Promise<CommandResult<number>> {
+    await this.#settle()
     const { roster } = this.#snapshot
     const bot = roster.bots[botId]
     if (!bot) return fail('not-found', '找不到这个 Bot')
     if (bot.revision !== expectedRevision) return this.#conflict()
     if (tagIds.some((id) => !roster.tags[id]))
       return fail('not-found', '标签已被删除，请刷新后重试')
-    await this.#settle()
     return ok(this.#updateBot(botId, { tagIds: [...new Set(tagIds)] }))
   }
 
   async setGlobalModel(modelId: string): Promise<CommandResult> {
+    await this.#settle()
     const model = this.#snapshot.models.catalog.find(
       (entry) => entry.id === modelId,
     )
     if (!model?.available)
       return fail('validation', '这个模型当前不可用', 'model')
-    await this.#settle()
     this.#commit({
       ...this.#snapshot,
       models: { ...this.#snapshot.models, globalDefault: modelId },
@@ -296,6 +294,7 @@ export class FixtureWorkspaceRepository implements WorkspaceRepository {
     modelId: string | null,
     expectedRevision: number,
   ): Promise<CommandResult<number>> {
+    await this.#settle()
     const bot = this.#snapshot.roster.bots[botId]
     if (!bot) return fail('not-found', '找不到这个 Bot')
     if (bot.revision !== expectedRevision) return this.#conflict()
@@ -306,7 +305,6 @@ export class FixtureWorkspaceRepository implements WorkspaceRepository {
       if (!model?.available)
         return fail('validation', '这个模型当前不可用', 'model')
     }
-    await this.#settle()
     return ok(this.#updateBot(botId, { modelOverride: modelId }))
   }
 

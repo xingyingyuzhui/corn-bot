@@ -16,6 +16,12 @@ interface DialogProps {
 }
 
 /**
+ * Marks the element `Dialog` focuses after `showModal()`. React's `autoFocus`
+ * runs while the dialog is still closed, so it never takes effect here.
+ */
+const DIALOG_AUTOFOCUS = 'data-autofocus'
+
+/**
  * Modal built on the native `<dialog>`: the browser supplies the focus trap,
  * inert background, Escape handling and focus return to the opener.
  */
@@ -29,6 +35,7 @@ export function Dialog({
   flush = false,
 }: DialogProps) {
   const ref = useRef<HTMLDialogElement>(null)
+  const pressedBackdrop = useRef(false)
   const titleId = useId()
   const descriptionId = useId()
 
@@ -36,6 +43,7 @@ export function Dialog({
     const dialog = ref.current
     if (!dialog || dialog.open) return
     dialog.showModal()
+    dialog.querySelector<HTMLElement>(`[${DIALOG_AUTOFOCUS}]`)?.focus()
     return () => dialog.close()
   }, [])
 
@@ -52,8 +60,13 @@ export function Dialog({
         event.preventDefault()
         onClose()
       }}
+      onPointerDown={(event) => {
+        pressedBackdrop.current = event.target === event.currentTarget
+      }}
       onClick={(event) => {
-        if (event.target === event.currentTarget) onClose()
+        const fromBackdrop = pressedBackdrop.current
+        pressedBackdrop.current = false
+        if (fromBackdrop && event.target === event.currentTarget) onClose()
       }}
     >
       <div className="corn-dialog__surface">

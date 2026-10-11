@@ -160,6 +160,38 @@ test('creating a Bot validates required fields and duplicate names', async () =>
       ?.botIds.includes(created.value),
   )
   assert.ok(conversations[created.value])
+  assert.deepEqual(repo.getSnapshot().permissions[created.value], [])
+})
+
+test('an emoji name yields a whole code point as the avatar initial', async () => {
+  const repo = fresh()
+  const created = await repo.createBot({
+    name: '🚀 发布助手',
+    role: '发布',
+    workStyle: '',
+    groupId: null,
+  })
+  assert.ok(created.ok)
+  assert.equal(
+    repo.getSnapshot().roster.bots[created.value]?.avatar.initial,
+    '🚀',
+  )
+})
+
+test('concurrent writes re-check after the wait: one wins, one conflicts', async () => {
+  const repo = fresh()
+  const [a, b] = await Promise.all([
+    repo.updateBotProfile('ops', { role: '甲' }, 1),
+    repo.updateBotProfile('ops', { role: '乙' }, 1),
+  ])
+  assert.deepEqual([a.ok, b.ok === false && b.error.code], [true, 'conflict'])
+  const draft = { name: '并发 Bot', role: 'x', workStyle: '', groupId: null }
+  const [first, second] = await Promise.all([
+    repo.createBot(draft),
+    repo.createBot(draft),
+  ])
+  assert.ok(first.ok)
+  assert.equal(second.ok === false && second.error.code, 'duplicate')
 })
 
 test('profile, tag and model writes check the revision', async () => {

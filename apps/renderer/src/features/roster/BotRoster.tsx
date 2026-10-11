@@ -13,7 +13,11 @@ import { BotListItem } from './BotListItem.tsx'
 import { HiddenBotsSection } from './HiddenBotsSection.tsx'
 import { PinnedBotCard } from './PinnedBotCard.tsx'
 import { RosterRail } from './RosterRail.tsx'
-import { RosterSearchField } from './RosterSearchField.tsx'
+import {
+  ROSTER_RESULTS_ID,
+  ROSTER_SEARCH_ID,
+  RosterSearchField,
+} from './RosterSearchField.tsx'
 import { type RosterFilter, rosterSections } from './roster-order.ts'
 import { SidebarResizeHandle } from './SidebarResizeHandle.tsx'
 import './roster.css'
@@ -39,6 +43,7 @@ export function BotRoster({
   dispatch,
 }: BotRosterProps) {
   const searchButton = useRef<HTMLButtonElement>(null)
+  const handledFocusRequest = useRef(0)
   const sections = rosterSections(roster, filter)
   const search = layout.rosterSearch
   const onSelect = (botId: string) => dispatch({ type: 'select-bot', botId })
@@ -72,7 +77,7 @@ export function BotRoster({
               className="corn-round-button"
               aria-label="搜索 Bot"
               aria-expanded={search !== null}
-              aria-controls="corn-roster-search"
+              aria-controls={ROSTER_SEARCH_ID}
               title="搜索 Bot"
               onClick={openSearch}
             >
@@ -124,14 +129,17 @@ export function BotRoster({
           {search ? (
             <RosterSearchField
               query={search.query}
-              focusRequest={search.focusRequest}
+              focusPending={search.focusRequest > handledFocusRequest.current}
+              onFocused={() => {
+                handledFocusRequest.current = search.focusRequest
+              }}
               onQuery={(query) =>
                 dispatch({ type: 'edit-roster-search', query })
               }
               onClose={closeSearch}
             />
           ) : null}
-          <div id="corn-roster-results" className="corn-roster__scroll">
+          <div id={ROSTER_RESULTS_ID} className="corn-roster__scroll">
             {sections.searching ? (
               <p
                 className="corn-roster__status"

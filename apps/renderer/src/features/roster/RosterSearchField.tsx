@@ -3,27 +3,33 @@ import { useEffect, useRef } from 'react'
 
 interface RosterSearchFieldProps {
   readonly query: string
-  readonly focusRequest: number
+  /** True only for a focus request the roster has not handled yet; a remount
+   * (rail toggle, auto-compact) must not pull focus from elsewhere. */
+  readonly focusPending: boolean
+  readonly onFocused: () => void
   readonly onQuery: (query: string) => void
   readonly onClose: () => void
 }
 
 export const ROSTER_SEARCH_ID = 'corn-roster-search'
+export const ROSTER_RESULTS_ID = 'corn-roster-results'
 
 /** Inline filter; Escape clears and closes in one step. */
 export function RosterSearchField({
   query,
-  focusRequest,
+  focusPending,
+  onFocused,
   onQuery,
   onClose,
 }: RosterSearchFieldProps) {
   const input = useRef<HTMLInputElement>(null)
 
   useEffect(() => {
-    if (focusRequest === 0) return
+    if (!focusPending) return
     input.current?.focus()
     input.current?.select()
-  }, [focusRequest])
+    onFocused()
+  }, [focusPending, onFocused])
 
   return (
     <search className="corn-roster-search">
@@ -41,7 +47,7 @@ export function RosterSearchField({
         value={query}
         placeholder="搜索名称、职责或标签"
         aria-label="搜索 Bot"
-        aria-controls="corn-roster-results"
+        aria-controls={ROSTER_RESULTS_ID}
         autoComplete="off"
         spellCheck={false}
         onChange={(event) => onQuery(event.target.value)}

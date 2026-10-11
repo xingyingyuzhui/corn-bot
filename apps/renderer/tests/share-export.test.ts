@@ -123,6 +123,22 @@ test('secrets and every path shape are redacted from free text', () => {
   assert.equal(result.redactions, 9)
 })
 
+test('quoted keys, Basic auth and paths with spaces are fully redacted', () => {
+  const cases: readonly (readonly [string, readonly string[]])[] = [
+    ['{"api_key": "abcd1234"}', ['abcd1234']],
+    ["password='hunter2'", ['hunter2']],
+    ['Authorization: Basic dXNlcjpwYXNzd29yZA==', ['dXNlcjpw']],
+    ['见 /Users/qin/DSH/Corn Bot/corn-bot/notes.md 文件', ['Bot/', 'notes']],
+    ['~/Library/Application Support/Corn/x.db', ['Support', 'x.db']],
+    ['C:\\Users\\qin\\My Documents\\corn\\a.txt', ['Documents', 'a.txt']],
+  ]
+  for (const [input, leaks] of cases) {
+    const { text } = redactText(input)
+    for (const leak of leaks)
+      assert.ok(!text.includes(leak), `${input} → ${text}`)
+  }
+})
+
 test('ordinary text, dates, ratios and URLs survive redaction', () => {
   for (const text of [
     'AI 早报 · 10月10日',

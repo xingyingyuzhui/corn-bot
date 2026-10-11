@@ -11,6 +11,7 @@ interface TextFieldProps {
   readonly required?: boolean
   readonly maxLength?: number
   readonly placeholder?: string
+  /** Initial focus when shown inside `Dialog` (rendered as `data-autofocus`). */
   readonly autoFocus?: boolean
   readonly name?: string
 }
@@ -39,7 +40,7 @@ export function TextField({
     placeholder,
     maxLength,
     required,
-    autoFocus,
+    'data-autofocus': autoFocus || undefined,
     className: 'corn-field__input',
     'aria-invalid': error ? true : undefined,
     'aria-describedby': message ? messageId : undefined,

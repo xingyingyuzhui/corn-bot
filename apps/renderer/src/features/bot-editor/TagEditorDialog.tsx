@@ -157,7 +157,7 @@ function TagEditor({
           type="text"
           value={query}
           placeholder="输入标签名，回车新建"
-          autoFocus
+          data-autofocus
           aria-describedby={createMessage ? createMessageId : undefined}
           aria-invalid={
             createError || check.kind === 'too-long' ? true : undefined
