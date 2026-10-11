@@ -30,3 +30,18 @@ Not in M1: task threads, group detail tabs, dark theme, and switchable `dmg-0681
 | Packaged app | `pnpm package:mac` copies `apps/renderer/dist` (without source maps); `pnpm smoke:packaged` now also asserts `layout.passed` and passes 3/3 rounds including Host recovery |
 | Smoke exit code | Fixed a gap carried over from M0: `app.quit()` exited 0 even after a failed smoke, so CI's `dev:desktop` steps could pass silently. Cleanup now ends with `app.exit(process.exitCode)`, and smoke failures are printed with Host diagnostics redacted |
 | Deferred to 02B/02C | Sidebar drag-resize and pointer cleanup, composer send/IME behaviour, approval card, 83-item coverage (02B); Playwright region diffs (02C); remaining roster vertical offsets of about 6 px are left to the 02C diff gate |
+
+## PR-02B evidence
+
+| Check | Result |
+| --- | --- |
+| Scope | Roster interactions (search, pin, fold, hide/restore, context menus, create Bot, connect apps), sidebar resize with an 88px rail, 19-action shortcut registry, composer send/attachments/IME, delivery lines, approval card, dev-route voice states, details ⋯ menu with profile/tags/model/permissions/share-export dialogs, settings (通用 / 模型) |
+| Write path | Renderer writes go only through `WorkspaceRepository`; M1 uses the labelled in-memory `FixtureWorkspaceRepository`. Sends stay queued and are idempotent per client id, approvals settle once with RC2 outcomes only, Bot edits are revision-checked |
+| Static checks | `pnpm check` (Biome, typecheck, 133 tests, 107 of them renderer tests across 13 files) and `pnpm build` pass |
+| Real window layout | Desktop smoke unchanged from 02A after the merge: sidebar 276, chat 372, details 376, ratio 0.3670, shift 0, draft kept. The probe now clears pointer hover before capturing |
+| Crash and packaged smoke | Crash smoke recovers the Host and the renderer shows `recovering`. `pnpm package:mac && pnpm smoke:packaged` passes 3/3 rounds including automatic Host recovery, and `~/.dsh` is untouched |
+| Dev fixture route | `#fixture=ui-states` renders on the Vite dev server: `vite.config.ts` relaxes the CSP for `vite serve` only, and the production `dist/index.html` keeps `script-src 'self'; style-src 'self'; connect-src 'none'` |
+| Live checks | On the dev route: a send switched away from mid-flight still clears the sending Bot's draft and queues once; settings dialog, approval cards (pending and stale), failed/queued/dispatching lines and voice error states checked by eye |
+| Kit coverage | [M1-UI-KIT-COVERAGE](M1-UI-KIT-COVERAGE.md): 83 of 83 recorded (39 covered, 15 partial, 24 deferred, 5 not applicable, 0 unknown) |
+| Design deviations | The details ⋯ button is the one intentional addition to the reference view ([design-spec](../../design/design-spec.md)) |
+| Left for 02C | Region screenshot diffs; real OS pointer capture for the resize drag; hidden per-message copy buttons are tab stops |
