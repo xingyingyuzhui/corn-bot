@@ -1,22 +1,10 @@
-import { useWorkspace } from '../../app/workspace-context.tsx'
-import type { PermissionLevel } from '../../model/workspace.ts'
-import { ActionButton } from '../../shared/ActionButton.tsx'
-import { Button } from '../../shared/Button.tsx'
-import { Dialog } from '../../shared/Dialog.tsx'
-import { UNAVAILABLE } from '../../shared/unavailable.ts'
-import { MissingBotDialog } from './EditorParts.tsx'
+import type { PermissionLevel, PermissionRow } from '../../model/workspace.ts'
 import {
   enforcedLevel,
   exceedsCeiling,
   LEVEL_LABELS,
 } from './permission-levels.ts'
-
-export interface PermissionsDialogProps {
-  readonly botId: string
-  readonly onClose: () => void
-}
-
-const TITLE = '权限'
+import './editor-dialogs.css'
 
 function Level({ level }: { readonly level: PermissionLevel }) {
   return (
@@ -26,35 +14,14 @@ function Level({ level }: { readonly level: PermissionLevel }) {
   )
 }
 
-export function PermissionsDialog({ botId, onClose }: PermissionsDialogProps) {
-  const workspace = useWorkspace()
-  const bot = workspace.roster.bots[botId]
-  if (!bot) return <MissingBotDialog title={TITLE} onClose={onClose} />
-  const rows = workspace.permissions[botId] ?? []
-
+/** Read-only capability matrix; the effective level never exceeds the ceiling. */
+export function PermissionMatrix({
+  rows,
+}: {
+  readonly rows: readonly PermissionRow[]
+}) {
   return (
-    <Dialog
-      title={`${bot.name} 的权限`}
-      description="只读查看。M1 不能修改权限：权限变更在 M2 接入 Claw Policy 后开放。"
-      size="lg"
-      onClose={onClose}
-      actions={
-        <>
-          <span className="corn-editor__actions-start">
-            <ActionButton
-              className="corn-button corn-editor__soft-button"
-              label="修改权限"
-              unavailable={UNAVAILABLE.permissionEdit}
-            >
-              修改权限
-            </ActionButton>
-          </span>
-          <Button variant="primary" onClick={onClose}>
-            完成
-          </Button>
-        </>
-      }
-    >
+    <>
       {rows.length === 0 ? (
         <p className="corn-editor__empty">这个 Bot 还没有权限记录。</p>
       ) : (
@@ -97,6 +64,6 @@ export function PermissionsDialog({ botId, onClose }: PermissionsDialogProps) {
         <li>硬上限由策略决定，界面永远不能把任何一项调到上限之上。</li>
         <li>修改文件、运行命令、控制电脑等危险授权，每次都需要你人工确认。</li>
       </ul>
-    </Dialog>
+    </>
   )
 }

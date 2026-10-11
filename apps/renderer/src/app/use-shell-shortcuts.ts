@@ -53,10 +53,7 @@ export function useShellShortcuts(options: ShellShortcutOptions) {
         })
         return true
       case 'bot-settings':
-        dispatch({
-          type: 'open-overlay',
-          overlay: { kind: 'bot-profile', botId },
-        })
+        dispatch({ type: 'open-details-entry', botId, entry: 'core' })
         return true
       case 'previous-bot':
       case 'next-bot': {

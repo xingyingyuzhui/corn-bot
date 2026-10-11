@@ -1,4 +1,14 @@
 import {
+  type ConfigSubpage,
+  DEFAULT_LOCATION,
+  type DetailsEntry,
+  type DetailsFocusTarget,
+  type DetailsLocation,
+  locationForEntry,
+  normalizeLocation,
+  openSubpage,
+} from '../features/details/details-navigation.ts'
+import {
   type ComposerDraft,
   draftAfterSend,
   EMPTY_DRAFT,
@@ -9,9 +19,6 @@ import {
  * Renderer-only shell state. It never holds DSH runtime state: selection,
  * drafts, scroll positions, panel preferences and the open overlay only.
  */
-
-export const DETAILS_TABS = ['details', 'library', 'computer'] as const
-export type DetailsTab = (typeof DETAILS_TABS)[number]
 
 /**
  * `user-screenshots` profile, measured at 1024×764 CSS px, DPR 2 (ADR-0004).
@@ -41,9 +48,17 @@ export type Overlay =
   | { readonly kind: 'settings'; readonly section: SettingsSection }
   | { readonly kind: 'bot-profile'; readonly botId: string }
   | { readonly kind: 'bot-tags'; readonly botId: string }
-  | { readonly kind: 'bot-permissions'; readonly botId: string }
-  | { readonly kind: 'bot-model'; readonly botId: string }
   | { readonly kind: 'share-export'; readonly botId: string }
+  /** Leaving a configuration subpage with unsaved changes; `then` runs
+   * once the draft is saved or discarded. */
+  | {
+      readonly kind: 'unsaved-config'
+      readonly botId: string
+      readonly page: ConfigSubpage
+      readonly then: LayoutAction
+    }
+
+export type UnsavedConfigOverlay = Extract<Overlay, { kind: 'unsaved-config' }>
 
 export interface ChatScroll {
   readonly top: number
@@ -59,10 +74,28 @@ export interface RosterSearch {
   readonly focusPending: boolean
 }
 
+/** A one-shot focus request; the pane reports back once it has moved focus. */
+export interface DetailsFocusRequest {
+  readonly botId: string
+  readonly target: DetailsFocusTarget
+}
+
+/** The configuration subpage whose editor holds unsaved changes. */
+export interface UnsavedConfig {
+  readonly botId: string
+  readonly page: ConfigSubpage
+}
+
 export interface LayoutState {
   readonly selectedBotId: string
   readonly detailsOpen: boolean
-  readonly detailsTabs: Readonly<Record<string, DetailsTab>>
+  readonly detailsLocations: Readonly<Record<string, DetailsLocation>>
+  /** Pane scroll per Bot, keyed by `viewKey`. */
+  readonly detailsScroll: Readonly<
+    Record<string, Readonly<Record<string, number>>>
+  >
+  readonly detailsFocus: DetailsFocusRequest | null
+  readonly unsavedConfig: UnsavedConfig | null
   readonly drafts: Readonly<Record<string, ComposerDraft>>
   readonly scroll: Readonly<Record<string, ChatScroll>>
   readonly viewportWidth: number
@@ -84,7 +117,41 @@ export type LayoutAction =
   | { readonly type: 'select-bot'; readonly botId: string }
   | { readonly type: 'open-details' }
   | { readonly type: 'close-details' }
-  | { readonly type: 'select-tab'; readonly tab: DetailsTab }
+  /** Ignored unless `botId` is still selected, so a late callback for one
+   * Bot never moves another Bot's pane. */
+  | {
+      readonly type: 'navigate-details'
+      readonly botId: string
+      readonly location: DetailsLocation
+      readonly open?: boolean
+      readonly focus?: DetailsFocusTarget
+    }
+  /** Menus, shortcuts and approval cards: opens the pane at `entry`. */
+  | {
+      readonly type: 'open-details-entry'
+      readonly botId: string
+      readonly entry: DetailsEntry
+    }
+  | {
+      readonly type: 'record-details-scroll'
+      readonly botId: string
+      readonly view: string
+      readonly top: number
+    }
+  | { readonly type: 'details-focused' }
+  /** A configuration editor reports whether it holds unsaved changes. */
+  | {
+      readonly type: 'config-draft'
+      readonly botId: string
+      readonly page: ConfigSubpage
+      readonly dirty: boolean
+    }
+  /** The unsaved-changes prompt settled: `leave` after save or discard. */
+  | {
+      readonly type: 'resolve-unsaved-config'
+      readonly overlay: UnsavedConfigOverlay
+      readonly leave: boolean
+    }
   | {
       readonly type: 'edit-draft'
       readonly botId: string
@@ -127,7 +194,10 @@ export function initialLayout(
   return {
     selectedBotId,
     detailsOpen: false,
-    detailsTabs: {},
+    detailsLocations: {},
+    detailsScroll: {},
+    detailsFocus: null,
+    unsavedConfig: null,
     drafts: {},
     scroll: {},
     viewportWidth,
@@ -216,27 +286,166 @@ function resizeSidebar(state: LayoutState, width: number): LayoutState {
   }
 }
 
+/** Subpages focus their heading when opened from anywhere but a restore. */
+function entryNavigation(
+  state: LayoutState,
+  botId: string,
+  entry: DetailsEntry,
+): LayoutAction {
+  const location = locationForEntry(detailsLocationFor(state, botId), entry)
+  return openSubpage(location) === null
+    ? { type: 'navigate-details', botId, location, open: true }
+    : {
+        type: 'navigate-details',
+        botId,
+        location,
+        open: true,
+        focus: { kind: 'page-heading' },
+      }
+}
+
+/** Whether `action` would unmount the editor that holds `unsaved`. */
+function leavesConfig(
+  state: LayoutState,
+  unsaved: UnsavedConfig,
+  action: LayoutAction,
+): boolean {
+  const onScreen =
+    state.detailsOpen &&
+    state.selectedBotId === unsaved.botId &&
+    openSubpage(detailsLocationFor(state, unsaved.botId)) === unsaved.page
+  if (!onScreen) return false
+  switch (action.type) {
+    case 'select-bot':
+      return action.botId !== state.selectedBotId
+    case 'bot-created':
+      return state.overlay === action.overlay
+    case 'close-details':
+      return true
+    case 'navigate-details':
+      return (
+        action.botId === unsaved.botId &&
+        openSubpage(action.location) !== unsaved.page
+      )
+    case 'open-details':
+    case 'open-details-entry':
+    case 'record-details-scroll':
+    case 'details-focused':
+    case 'config-draft':
+    case 'resolve-unsaved-config':
+    case 'edit-draft':
+    case 'settle-sent-draft':
+    case 'record-scroll':
+    case 'toggle-sidebar':
+    case 'viewport':
+    case 'resize-sidebar':
+    case 'restore-sidebar':
+    case 'open-roster-search':
+    case 'edit-roster-search':
+    case 'roster-search-focused':
+    case 'close-roster-search':
+    case 'toggle-group':
+    case 'open-overlay':
+    case 'close-overlay':
+      return false
+    default: {
+      const unreachable: never = action
+      throw new Error(`Unknown layout action ${JSON.stringify(unreachable)}`)
+    }
+  }
+}
+
+/**
+ * Unsaved configuration never follows the user silently: switching Bot,
+ * tab or subpage, or closing the pane, asks to save or discard first. A
+ * finished create keeps its result but only selects the new Bot after that.
+ */
+function guardUnsavedConfig(
+  state: LayoutState,
+  action: LayoutAction,
+): LayoutState | null {
+  const unsaved = state.unsavedConfig
+  if (!unsaved || !leavesConfig(state, unsaved, action)) return null
+  const then: LayoutAction =
+    action.type === 'bot-created'
+      ? { type: 'select-bot', botId: action.botId }
+      : action
+  return {
+    ...state,
+    overlay: { kind: 'unsaved-config', ...unsaved, then },
+  }
+}
+
 export function layoutReducer(
   state: LayoutState,
   action: LayoutAction,
 ): LayoutState {
+  if (action.type === 'open-details-entry')
+    return layoutReducer(
+      state,
+      entryNavigation(state, action.botId, action.entry),
+    )
+  const guarded = guardUnsavedConfig(state, action)
+  if (guarded) return guarded
   switch (action.type) {
     case 'select-bot':
       return action.botId === state.selectedBotId
         ? state
-        : { ...state, selectedBotId: action.botId }
+        : { ...state, selectedBotId: action.botId, detailsFocus: null }
     case 'open-details':
       return state.detailsOpen ? state : { ...state, detailsOpen: true }
     case 'close-details':
-      return state.detailsOpen ? { ...state, detailsOpen: false } : state
-    case 'select-tab':
-      return {
-        ...state,
-        detailsTabs: {
-          ...state.detailsTabs,
-          [state.selectedBotId]: action.tab,
-        },
-      }
+      return state.detailsOpen
+        ? { ...state, detailsOpen: false, detailsFocus: null }
+        : state
+    case 'navigate-details':
+      return action.botId !== state.selectedBotId
+        ? state
+        : {
+            ...state,
+            detailsOpen: state.detailsOpen || action.open === true,
+            detailsLocations: {
+              ...state.detailsLocations,
+              [action.botId]: normalizeLocation(action.location),
+            },
+            detailsFocus: action.focus
+              ? { botId: action.botId, target: action.focus }
+              : null,
+          }
+    case 'record-details-scroll': {
+      const views = state.detailsScroll[action.botId] ?? {}
+      return views[action.view] === action.top
+        ? state
+        : {
+            ...state,
+            detailsScroll: {
+              ...state.detailsScroll,
+              [action.botId]: { ...views, [action.view]: action.top },
+            },
+          }
+    }
+    case 'details-focused':
+      return state.detailsFocus ? { ...state, detailsFocus: null } : state
+    case 'config-draft': {
+      const current = state.unsavedConfig
+      const same =
+        current?.botId === action.botId && current.page === action.page
+      if (action.dirty)
+        return same
+          ? state
+          : {
+              ...state,
+              unsavedConfig: { botId: action.botId, page: action.page },
+            }
+      return same ? { ...state, unsavedConfig: null } : state
+    }
+    case 'resolve-unsaved-config': {
+      if (state.overlay !== action.overlay) return state
+      const closed: LayoutState = { ...state, overlay: null }
+      return action.leave
+        ? layoutReducer({ ...closed, unsavedConfig: null }, action.overlay.then)
+        : closed
+    }
     case 'edit-draft':
       return {
         ...state,
@@ -334,8 +543,11 @@ export function draftFor(state: LayoutState, botId: string): ComposerDraft {
   return state.drafts[botId] ?? EMPTY_DRAFT
 }
 
-export function detailsTabFor(state: LayoutState, botId: string): DetailsTab {
-  return state.detailsTabs[botId] ?? 'details'
+export function detailsLocationFor(
+  state: LayoutState,
+  botId: string,
+): DetailsLocation {
+  return state.detailsLocations[botId] ?? DEFAULT_LOCATION
 }
 
 export type DetailsMode = 'closed' | 'column' | 'overlay'

@@ -3,7 +3,7 @@ import { test } from 'node:test'
 import {
   autoCompactFor,
   clampSidebarWidth,
-  detailsTabFor,
+  detailsLocationFor,
   draftFor,
   initialLayout,
   LAYOUT,
@@ -47,8 +47,7 @@ test('drafts, scroll and tabs are kept per Bot across switches and panel toggles
       draft: { text: 'draft for a', attachments: [] },
     },
     { type: 'record-scroll', scroll: { top: 120, pinnedToBottom: false } },
-    { type: 'select-tab', tab: 'computer' },
-    { type: 'open-details' },
+    { type: 'open-details-entry', botId: 'a', entry: 'memory' },
     { type: 'select-bot', botId: 'b' },
     {
       type: 'edit-draft',
@@ -62,8 +61,9 @@ test('drafts, scroll and tabs are kept per Bot across switches and panel toggles
   assert.equal(draftFor(state, 'b').text, 'draft for b')
   assert.deepEqual(draftFor(state, 'c'), EMPTY_DRAFT)
   assert.deepEqual(state.scroll.a, { top: 120, pinnedToBottom: false })
-  assert.equal(detailsTabFor(state, 'a'), 'computer')
-  assert.equal(detailsTabFor(state, 'b'), 'details')
+  assert.equal(detailsLocationFor(state, 'a').tab, 'library')
+  assert.equal(detailsLocationFor(state, 'a').section, 'memory')
+  assert.equal(detailsLocationFor(state, 'b').tab, 'overview')
 })
 
 test('automatic compaction never overwrites the manual sidebar preference', () => {
@@ -110,13 +110,13 @@ test('one overlay at a time, closing is idempotent', () => {
 })
 
 test('a late close from a replaced overlay leaves its successor open', () => {
-  const model: Overlay = { kind: 'bot-model', botId: 'a' }
+  const profile: Overlay = { kind: 'bot-profile', botId: 'a' }
   const settings: Overlay = { kind: 'settings', section: 'models' }
   const state = run(
     initialLayout('a'),
-    { type: 'open-overlay', overlay: model },
+    { type: 'open-overlay', overlay: profile },
     { type: 'open-overlay', overlay: settings },
-    { type: 'close-overlay', overlay: model },
+    { type: 'close-overlay', overlay: profile },
   )
   assert.equal(state.overlay, settings)
 })

@@ -43,7 +43,7 @@ Paths are under `apps/renderer/` unless they start with `apps/desktop/` or `desi
 
 | # | Kit item | Status | Corn implementation | Evidence / remainder |
 | --- | --- | --- | --- | --- |
-| C1 | Details 320/min 280; single-Bot tabs overview/media/computer; group tabs | partial | `features/details/BotDetailsPane.tsx` (详情 / 资料库 / 电脑) | Width follows the `user-screenshots` profile (0.367 of total width, desktop smoke) instead of 320. Group and members-only tabs: M5 |
+| C1 | Details 320/min 280; single-Bot tabs overview/media/computer; group tabs | partial | `features/details/BotDetailsPane.tsx` (概览 / 配置 / 资料库, catalog in `details-navigation.ts`) | Width follows the `user-screenshots` profile (0.367 of total width, desktop smoke) instead of 320. 02E-1 replaces 电脑 with a read-only 本机操作 section under 配置 → 权限; the M3 computer view is not built. `details-navigation`, `management-panel` and `unsaved-config-guard` tests; browser (arrow keys, focus return, 720×520 overlay). Group and members-only tabs: M5 |
 | C2 | Opening details keeps the chat minimum; no unreachable controls or overflow when narrow | covered | `resolveLayout` overlay mode | `layout-state` overlay test; desktop smoke |
 | C3 | Task thread has its own taskId/reply context; replies never reach the main chat | deferred | — | Task threads are out of M1 (plan §14 decision 3); M4/M5 with `CornTaskRun` |
 | C4 | Side-by-side opt-in defaults to false | deferred | — | As C3 |
@@ -104,7 +104,7 @@ Paths are under `apps/renderer/` unless they start with `apps/desktop/` or `desi
 | --- | --- | --- | --- | --- |
 | G1 | Mod is Command on Mac, Ctrl elsewhere; browser conflicts recorded | covered | `platformOf`, `matchShortcut` in `app/shortcuts.ts` | `shortcuts` tests; conflicts in the table below |
 | G2 | Mod+K, Mod+Shift+F, Mod+F, Mod+I, Mod+B | partial | Mod+Shift+F, Mod+I, Mod+B | `shortcuts` tests; browser. Mod+K (command menu) and Mod+F (find in chat) deferred, no milestone assigned |
-| G3 | Mod+, settings, Mod+Shift+, Bot settings, Mod+Enter send; no-ops when unavailable | covered | `use-shell-shortcuts.ts`; Mod+Enter in the composer | `shortcuts` tests |
+| G3 | Mod+, settings, Mod+Shift+, Bot settings, Mod+Enter send; no-ops when unavailable | covered | `use-shell-shortcuts.ts` (Mod+Shift+, opens 配置 → 核心设定 for the current Bot); Mod+Enter in the composer | `shortcuts` and `layout-state` tests |
 | G4 | Alt+↑/↓, Mod+[ / ], Mod+1…9 | partial | Alt+↑/↓ (no wrap), Mod+1…9 | `shortcuts` and `roster-order` tests. Mod+[ / ] need navigation history, no milestone assigned |
 | G5 | Mod+L, Mod+Shift+M, Mod+Shift+W, Mod+Alt+B if in scope | partial | Mod+Alt+B (plus Mod+Shift+I on Mac) toggles details | Mod+L deferred (quote selection, no milestone assigned); Mod+Shift+M/W not applicable (no tools/skills panes; Claw covers governance) |
 | G6 | Mod+N means new Bot | covered | Opens `CreateBotDialog` | `shortcuts` tests; browser |

@@ -133,11 +133,11 @@ export const SHORTCUTS: readonly ShortcutDefinition[] = [
   {
     id: 'bot-settings',
     kitAction: 'toggleAgentSettings',
-    label: '编辑当前 Bot 资料',
+    label: '打开当前 Bot 的核心设定',
     bindings: [{ mod: true, shift: true, key: ',' }],
     status: 'implemented',
     scope: 'global',
-    reason: '打开当前 Bot 的资料编辑器；已打开时由对话框自己关闭',
+    reason: '打开详情面板的“配置 → 核心设定”并聚焦标题；有未保存的配置时先询问',
   },
   {
     id: 'previous-bot',
