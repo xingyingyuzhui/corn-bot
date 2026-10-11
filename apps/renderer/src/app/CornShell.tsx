@@ -3,6 +3,7 @@ import { useEffect, useReducer, useSyncExternalStore } from 'react'
 import { ChatPane } from '../features/chat/ChatPane.tsx'
 import { BotDetailsPane } from '../features/details/BotDetailsPane.tsx'
 import { BotRoster } from '../features/roster/BotRoster.tsx'
+import { parseFixtureRoute } from '../fixtures/routes.ts'
 import {
   detailsTabFor,
   draftFor,
@@ -19,6 +20,8 @@ const subscribeViewport = (notify: () => void) => {
   return () => window.removeEventListener('resize', notify)
 }
 const viewportWidth = () => window.innerWidth
+const VOICE_FIXTURE =
+  parseFixtureRoute(window.location.hash, import.meta.env.DEV) === 'ui-states'
 
 interface CornShellProps {
   readonly runtime: RuntimeView | null
@@ -76,6 +79,7 @@ export function CornShell({ runtime }: CornShellProps) {
         scroll={state.scroll[bot.id]}
         detailsOpen={state.detailsOpen}
         sidebarCollapsed={layout.sidebar === 'collapsed'}
+        voiceFixture={VOICE_FIXTURE}
         onDraft={(draft) => dispatch({ type: 'edit-draft', draft })}
         onScroll={(scroll) => dispatch({ type: 'record-scroll', scroll })}
         onToggleDetails={() =>
@@ -84,6 +88,7 @@ export function CornShell({ runtime }: CornShellProps) {
           })
         }
         onToggleSidebar={() => dispatch({ type: 'toggle-sidebar' })}
+        onOpenOverlay={openOverlay}
       />
       {layout.details === 'closed' ? null : (
         <BotDetailsPane

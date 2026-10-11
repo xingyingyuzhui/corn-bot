@@ -66,4 +66,8 @@
 
   --corn-ease: cubic-bezier(0.16, 1, 0.3, 1);
   --corn-duration: 160ms;
+
+  /* Kit settled card: padding 12, radius 16, on the bot bubble surface. */
+  --corn-radius-status-card: 16px;
+  --corn-font-mono: ui-monospace, "SF Mono", Menlo, monospace;
 }

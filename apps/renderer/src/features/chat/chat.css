@@ -47,6 +47,13 @@
   inset-inline-start: 80px;
 }
 
+.corn-feed-frame {
+  position: relative;
+  display: flex;
+  flex: 1;
+  min-block-size: 0;
+}
+
 .corn-feed {
   display: flex;
   flex: 1;
@@ -70,12 +77,89 @@
   margin-block: 12px;
 }
 
-.corn-bubble {
+.corn-feed__notice[data-tone] {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+}
+
+.corn-feed__notice[data-tone="error"] {
+  color: var(--corn-text-danger);
+}
+
+.corn-feed__state {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  margin: 4px 0;
+  color: var(--corn-text-secondary);
+  font-size: var(--corn-text-xs);
+  line-height: var(--corn-leading-xs);
+}
+
+.corn-feed__state[role] {
+  margin-block: auto;
+}
+
+.corn-feed__state[data-tone="error"] {
+  color: var(--corn-text-danger);
+}
+
+.corn-feed__spin,
+.corn-composer__spin {
+  animation: corn-chat-spin 0.9s linear infinite;
+}
+
+.corn-feed__latest {
+  position: absolute;
+  inset-block-end: 10px;
+  inset-inline-start: 50%;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  min-block-size: 28px;
+  padding: 0 12px;
+  border-radius: var(--corn-radius-pill);
+  background: var(--corn-surface-raised);
+  box-shadow:
+    0 0 0 1px var(--corn-border-control),
+    var(--corn-shadow-control);
+  color: var(--corn-text-primary);
+  font-size: var(--corn-text-xs);
+  line-height: var(--corn-leading-xs);
+  transform: translateX(-50%);
+  animation: corn-chat-rise var(--corn-duration) var(--corn-ease);
+}
+
+.corn-feed__latest:hover {
+  background: var(--corn-surface-selected);
+}
+
+.corn-message {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
   max-inline-size: min(
     var(--corn-bubble-max),
     100% -
     var(--corn-bubble-gutter)
   );
+}
+
+.corn-message[data-author="user"] {
+  align-self: flex-end;
+  align-items: flex-end;
+}
+
+.corn-message[data-author="bot"] {
+  align-self: flex-start;
+}
+
+.corn-bubble {
+  position: relative;
+  max-inline-size: 100%;
   padding: 5px 11px;
   border-radius: var(--corn-radius-bubble);
   font-size: var(--corn-text-sm);
@@ -133,6 +217,7 @@
 .corn-composer {
   display: flex;
   flex: none;
+  flex-wrap: wrap;
   align-items: flex-end;
   gap: 8px;
   margin: 0 12px 12px;
@@ -184,4 +269,294 @@
 .corn-composer__action--strong {
   background: var(--corn-fill-strong);
   color: var(--corn-text-inverse);
+}
+
+.corn-composer__action:disabled {
+  opacity: 0.4;
+}
+
+.corn-composer__action--strong:not(:disabled, [aria-disabled="true"]):hover {
+  opacity: 0.9;
+}
+
+.corn-composer__action[aria-busy="true"] {
+  opacity: 0.6;
+}
+
+.corn-composer__action[aria-pressed="true"] {
+  background: var(--corn-fill-strong);
+  color: var(--corn-text-inverse);
+}
+
+.corn-composer[data-readonly] {
+  background: var(--corn-surface-sidebar);
+}
+
+.corn-composer__error {
+  flex-basis: 100%;
+  order: -1;
+  margin: 0;
+  padding: 2px 6px;
+  color: var(--corn-text-danger);
+  font-size: var(--corn-text-xs);
+  line-height: var(--corn-leading-xs);
+}
+
+/* Attachments: staged in the composer or shown inside a sent bubble. */
+.corn-attachments {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.corn-composer .corn-attachments {
+  flex-basis: 100%;
+  order: -1;
+  padding: 0 0 2px;
+}
+
+.corn-bubble p + .corn-attachments {
+  margin-block-start: 8px;
+}
+
+.corn-bubble > .corn-attachments:first-child {
+  margin-block: 3px;
+}
+
+.corn-attachment {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  max-inline-size: 240px;
+  min-block-size: 24px;
+  padding: 0 8px;
+  border-radius: var(--corn-radius-pill);
+  background: var(--corn-fill-muted);
+  font-size: var(--corn-text-xs);
+  line-height: var(--corn-leading-xs);
+}
+
+.corn-composer .corn-attachment {
+  padding-inline-end: 2px;
+}
+
+.corn-bubble[data-author="user"] .corn-attachment {
+  background: rgb(252 252 252 / 0.14);
+}
+
+.corn-bubble[data-author="bot"] .corn-attachment {
+  background: var(--corn-surface-raised);
+}
+
+.corn-attachment__name {
+  min-inline-size: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.corn-attachment__meta {
+  flex: none;
+  opacity: 0.6;
+}
+
+.corn-attachment__remove {
+  display: grid;
+  flex: none;
+  place-items: center;
+  inline-size: 20px;
+  block-size: 20px;
+  border-radius: 50%;
+  color: var(--corn-text-secondary);
+}
+
+.corn-attachment__remove:hover {
+  background: var(--corn-surface-hover);
+  color: var(--corn-text-primary);
+}
+
+/* Message actions appear on hover or keyboard focus, outside the bubble. */
+.corn-message__copy {
+  position: absolute;
+  inset-block-end: 2px;
+  display: grid;
+  place-items: center;
+  inline-size: 24px;
+  block-size: 24px;
+  border-radius: 50%;
+  color: var(--corn-text-secondary);
+  opacity: 0;
+  transition: opacity var(--corn-duration) var(--corn-ease);
+}
+
+.corn-bubble[data-author="user"] .corn-message__copy {
+  inset-inline-end: calc(100% + 6px);
+}
+
+.corn-bubble[data-author="bot"] .corn-message__copy {
+  inset-inline-start: calc(100% + 6px);
+}
+
+.corn-message:hover .corn-message__copy,
+.corn-message:focus-within .corn-message__copy {
+  opacity: 1;
+}
+
+.corn-message__copy:hover {
+  background: var(--corn-surface-hover);
+  color: var(--corn-text-primary);
+}
+
+.corn-delivery {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 2px 8px;
+  margin: 4px 4px 0;
+  color: var(--corn-text-tertiary);
+  font-size: var(--corn-text-xs);
+  line-height: var(--corn-leading-xs);
+}
+
+.corn-delivery[data-tone="error"] {
+  color: var(--corn-text-danger);
+}
+
+.corn-delivery__action {
+  padding: 0 4px;
+  border-radius: 4px;
+  color: var(--corn-text-primary);
+  font-weight: 500;
+}
+
+.corn-delivery__action:hover {
+  background: var(--corn-surface-hover);
+}
+
+.corn-delivery__action:disabled,
+.corn-delivery__action[aria-busy="true"] {
+  opacity: 0.5;
+}
+
+/* Approval card on the bot bubble surface. */
+.corn-approval {
+  align-self: flex-start;
+  inline-size: min(360px, 100% - var(--corn-bubble-gutter));
+  min-inline-size: min(260px, 100%);
+  padding: 12px;
+  border-radius: var(--corn-radius-status-card);
+  background: var(--corn-bubble-bot);
+  font-size: var(--corn-text-sm);
+  line-height: var(--corn-leading-body);
+}
+
+.corn-approval__eyebrow {
+  margin: 0;
+  color: var(--corn-text-tertiary);
+  font-size: var(--corn-text-xs);
+  line-height: var(--corn-leading-xs);
+}
+
+.corn-approval__title {
+  margin: 2px 0 8px;
+  font-size: var(--corn-text-sm);
+  font-weight: 600;
+  line-height: var(--corn-leading-body);
+}
+
+.corn-approval__detail {
+  display: block;
+  padding: 6px 8px;
+  border-radius: 8px;
+  background: var(--corn-surface-raised);
+  font-family: var(--corn-font-mono);
+  font-size: var(--corn-text-xs);
+  line-height: var(--corn-leading-xs);
+  overflow-wrap: anywhere;
+}
+
+.corn-approval__actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-block-start: 12px;
+}
+
+.corn-approval .corn-button[data-variant="secondary"] {
+  background: var(--corn-surface-raised);
+}
+
+.corn-approval .corn-button[data-variant="secondary"]:not(:disabled):hover {
+  background: var(--corn-surface-selected);
+}
+
+.corn-approval__link {
+  margin-inline-start: auto;
+  padding: 0 4px;
+  border-radius: 4px;
+  color: var(--corn-text-secondary);
+  font-size: var(--corn-text-xs);
+  line-height: 30px;
+}
+
+.corn-approval__link:hover {
+  color: var(--corn-text-primary);
+  text-decoration: underline;
+}
+
+.corn-approval__status {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 6px;
+  margin: 12px 0 0;
+  color: var(--corn-text-secondary);
+  font-weight: 500;
+}
+
+.corn-approval__status[data-outcome="allowed-once"] {
+  color: var(--corn-text-success);
+}
+
+.corn-approval__status[data-outcome="cancelled"] {
+  color: var(--corn-text-tertiary);
+}
+
+.corn-approval__note {
+  flex-basis: 100%;
+  font-size: var(--corn-text-xs);
+  font-weight: 400;
+  line-height: var(--corn-leading-xs);
+}
+
+.corn-approval__error {
+  margin: 8px 0 0;
+  color: var(--corn-text-danger);
+  font-size: var(--corn-text-xs);
+  line-height: var(--corn-leading-xs);
+}
+
+@keyframes corn-chat-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@keyframes corn-chat-rise {
+  from {
+    opacity: 0;
+    translate: 0 4px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .corn-feed__spin,
+  .corn-composer__spin {
+    animation: none;
+  }
 }

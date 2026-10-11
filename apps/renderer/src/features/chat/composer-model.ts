@@ -6,6 +6,8 @@ export const MAX_ATTACHMENTS = 6
 const limitMessage = (max: number) => `最多只能添加 ${max} 个附件`
 export const ATTACHMENT_LIMIT_MESSAGE = limitMessage(MAX_ATTACHMENTS)
 export const READ_ONLY_LABEL = '此聊天仅供查看'
+/** Other features focus the composer through this id. */
+export const COMPOSER_FIELD_ID = 'corn-composer-field'
 
 export interface SubmitKey {
   readonly key: string
