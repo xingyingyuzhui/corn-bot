@@ -25,17 +25,17 @@ export function UnsavedConfigDialog({
   onResolve,
 }: UnsavedConfigDialogProps) {
   const notify = useNotice()
-  const [saving, setSaving] = useState(false)
+  const [pending, setPending] = useState<UnsavedChoice | null>(null)
   const page = CONFIG_PAGE_CATALOG[overlay.page].label
 
   const choose = async (choice: UnsavedChoice) => {
-    if (saving) return
-    if (choice === 'save') setSaving(true)
+    if (pending) return
+    if (choice !== 'cancel') setPending(choice)
     const settlement = await settleUnsaved(
       choice,
       drafts.find(overlay.botId, overlay.page),
     )
-    setSaving(false)
+    setPending(null)
     const notice = settlementNotice(settlement, page)
     if (notice !== null) notify(notice)
     onResolve(leavesAfter(settlement))
@@ -43,29 +43,34 @@ export function UnsavedConfigDialog({
 
   return (
     <Dialog
-      busy={saving}
+      busy={pending !== null}
       size="sm"
       title={`“${page}”有未保存的修改`}
-      description="离开前请选择：保存修改、放弃修改，或取消并留在当前页面。保存失败时修改会保留，不会离开。"
+      description="离开前请选择：保存修改、放弃修改，或取消并留在当前页面。保存失败或没有全部保存时修改会保留，不会离开。"
       onClose={() => void choose('cancel')}
       actions={
         <>
           <Button
             variant="ghost"
-            disabled={saving}
+            disabled={pending !== null}
             onClick={() => void choose('cancel')}
           >
             取消
           </Button>
-          <Button disabled={saving} onClick={() => void choose('discard')}>
-            放弃
+          <Button
+            pending={pending === 'discard'}
+            disabled={pending === 'save'}
+            onClick={() => void choose('discard')}
+          >
+            {pending === 'discard' ? '正在放弃…' : '放弃'}
           </Button>
           <Button
             variant="primary"
-            pending={saving}
+            pending={pending === 'save'}
+            disabled={pending === 'discard'}
             onClick={() => void choose('save')}
           >
-            {saving ? '正在保存…' : '保存'}
+            {pending === 'save' ? '正在保存…' : '保存'}
           </Button>
         </>
       }

@@ -1,7 +1,6 @@
 import { useId } from 'react'
 import { useRepository } from '../../../app/workspace-context.tsx'
 import type { BotView } from '../../../model/workspace.ts'
-import { useNotice } from '../../../shared/notice.tsx'
 import { ConflictNotice, FormError } from '../../bot-editor/EditorParts.tsx'
 import { PROFILE_EDITOR } from '../../bot-editor/editor-specs.ts'
 import { ProfileFields } from '../../bot-editor/ProfileFields.tsx'
@@ -10,7 +9,7 @@ import { SectionStatus } from '../SectionStatus.tsx'
 import type { SectionState } from '../section-state.ts'
 import type { ConfigDraftRegistry } from './config-drafts.ts'
 import { SubpageFormActions } from './SubpageFormActions.tsx'
-import { useConfigDraft } from './use-config-draft.ts'
+import { useConfigDraft, useSubpageSave } from './use-config-draft.ts'
 
 /** Friendly names for the Claw identity files; contents are not read in M1. */
 const IDENTITY_DOCUMENTS = [
@@ -37,16 +36,11 @@ export function CoreSettingsSection({
   onOpenMemory,
 }: CoreSettingsSectionProps) {
   const repository = useRepository()
-  const notify = useNotice()
   const formId = useId()
   const editor = useBotEditor(PROFILE_EDITOR, bot)
   const { controller, state } = editor
   useConfigDraft(drafts, 'core', controller, onDirtyChange)
-
-  const submit = async () => {
-    const outcome = await controller.saveDraft()
-    if (outcome === 'saved' && controller.attached) notify('资料已保存')
-  }
+  const submit = useSubpageSave(controller, '资料已保存')
 
   return (
     <>
@@ -67,10 +61,7 @@ export function CoreSettingsSection({
           id={formId}
           noValidate
           aria-busy={state.saving || undefined}
-          onSubmit={(event) => {
-            event.preventDefault()
-            if (!state.saving) void submit()
-          }}
+          onSubmit={submit}
         >
           <ProfileFields editor={editor} />
         </form>

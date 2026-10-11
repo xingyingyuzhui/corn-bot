@@ -105,8 +105,12 @@ export class BotEditorController<D> {
     this.#set({ draft: update(this.#state.draft), fieldErrors })
   }
 
-  /** Starts over from the stored Bot, dropping the draft and any error. */
+  /**
+   * Starts over from the stored Bot, dropping the draft and any error. Not
+   * while a write is in flight: its result still has to land here.
+   */
   reload() {
+    if (this.#inflight) return
     const bot = this.#readBot()
     if (bot) this.#replace(fresh(this.#spec, bot))
   }
@@ -144,13 +148,24 @@ export class BotEditorController<D> {
     return write
   }
 
-  /** The save every close or leave goes through. */
-  saveDraft(): Promise<DraftSaveResult> {
-    return this.save()
+  /**
+   * The save every close or leave goes through, answering for the draft as it
+   * is now rather than the one sent: a shared earlier write can land under
+   * newer edits, which is `unsaved` and starts no write by itself. A detached
+   * editor's result is `failed`; nobody is left to confirm it.
+   */
+  async saveDraft(): Promise<DraftSaveResult> {
+    const outcome = await this.save()
+    if (outcome === 'failed' || !this.#attached) return 'failed'
+    return this.dirty ? 'unsaved' : outcome
   }
 
-  /** Drops the draft and starts over from the stored Bot. */
+  /**
+   * Drops the draft. A write already sent cannot be taken back, so this waits
+   * for it and then starts over from what is stored.
+   */
   async discard(): Promise<void> {
+    if (this.#inflight) await this.#inflight
     this.reload()
   }
 

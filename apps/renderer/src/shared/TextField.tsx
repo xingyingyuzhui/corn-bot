@@ -13,6 +13,7 @@ interface TextFieldProps {
   /** Initial focus when shown inside `Dialog` (rendered as `data-autofocus`). */
   readonly autoFocus?: boolean
   readonly name?: string
+  readonly disabled?: boolean
 }
 
 /** Labelled input whose error is announced and tied to the field. */
@@ -27,6 +28,7 @@ export function TextField({
   placeholder,
   autoFocus,
   name,
+  disabled = false,
 }: TextFieldProps) {
   const id = useId()
   const messageId = useId()
@@ -37,6 +39,7 @@ export function TextField({
     value,
     placeholder,
     required,
+    disabled,
     'data-autofocus': autoFocus || undefined,
     className: 'corn-field__input',
     'aria-invalid': error ? true : undefined,

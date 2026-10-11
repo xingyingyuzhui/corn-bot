@@ -12,12 +12,15 @@ interface ProfileFieldsProps {
   readonly autoFocus?: boolean
 }
 
-/** Name, role, work style and Corn role avatar, embedded by the dialog and the subpage. */
+/**
+ * Name, role, work style and Corn role avatar, embedded by the dialog and the
+ * subpage; locked while the editor's write is in flight.
+ */
 export function ProfileFields({
   editor: { controller, state },
   autoFocus = false,
 }: ProfileFieldsProps) {
-  const { draft, fieldErrors } = state
+  const { draft, fieldErrors, saving } = state
   const edit = (field: ProfileField) => (value: string) =>
     controller.edit((current) => ({ ...current, [field]: value }), field)
   const fieldError = (field: ProfileField) => {
@@ -32,6 +35,7 @@ export function ProfileFields({
         value={draft.name}
         onChange={edit('name')}
         required
+        disabled={saving}
         autoFocus={autoFocus}
         hint={`${nameLength(draft.name)}/${NAME_MAX}`}
         error={fieldErrors.name ?? nameLengthError(draft.name, NAME_MAX)}
@@ -43,6 +47,7 @@ export function ProfileFields({
         onChange={edit('role')}
         multiline
         required
+        disabled={saving}
         placeholder="它负责什么"
         {...fieldError('role')}
       />
@@ -52,6 +57,7 @@ export function ProfileFields({
         value={draft.workStyle}
         onChange={edit('workStyle')}
         multiline
+        disabled={saving}
         placeholder="它应该怎样做事，例如：先列计划，再动手"
         {...fieldError('workStyle')}
       />
@@ -60,6 +66,7 @@ export function ProfileFields({
         onChange={edit('variantId')}
         emptyHint="当前是首字头像，可以选一个玉米角色"
         error={fieldErrors.variantId}
+        disabled={saving}
       />
     </>
   )

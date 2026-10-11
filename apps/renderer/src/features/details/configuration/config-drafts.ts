@@ -8,7 +8,9 @@ import type { ConfigSubpage } from '../details-navigation.ts'
 export interface ConfigDraftHandle {
   readonly botId: string
   readonly page: ConfigSubpage
+  /** Only `saved` and `unchanged` mean the draft on screen is stored. */
   save(): Promise<DraftSaveResult>
+  /** Waits for a write already sent, then drops what is left. */
   discard(): Promise<void>
 }
 
@@ -53,8 +55,10 @@ export type UnsavedSettlement =
   | 'missing'
 
 /**
- * Carries out the choice. A failed save keeps the draft and stays; with no
- * editor left there is nothing to keep.
+ * Carries out the choice. Saving leaves only once the draft on screen is
+ * stored; a failed or incomplete save keeps it and stays. The prompt only
+ * opens for a dirty page, so a missing editor is never taken as saved;
+ * discarding still leaves, as asked.
  */
 export async function settleUnsaved(
   choice: UnsavedChoice,
@@ -62,7 +66,7 @@ export async function settleUnsaved(
 ): Promise<UnsavedSettlement> {
   switch (choice) {
     case 'save':
-      return handle ? settlementOf(await handle.save()) : 'saved'
+      return handle ? settlementOf(await handle.save()) : 'missing'
     case 'discard':
       await handle?.discard()
       return 'discarded'
