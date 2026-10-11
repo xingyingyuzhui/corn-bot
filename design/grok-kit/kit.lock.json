@@ -1,0 +1,26 @@
+{
+  "schemaVersion": 1,
+  "repository": "https://github.com/xingyingyuzhui/grok-bot-ui-ux-kit",
+  "commit": "0248419b80dde84560409802afb98f38803df52c",
+  "supersedes": "c51253833ca89e14cb3630832efe3a612d2afb3f",
+  "researchDir": ".research/grok-bot-ui-ux-kit",
+  "copyDetectionMinBytes": 256,
+  "requiredFiles": {
+    "AGENTS.md": "7c743f7ef09824c1043f8c4738d178f6639301f231c1a5cfa34069a481dd16ef",
+    "NOTICE.md": "f09d4f43f21fa098a764d5426a38afc6f3ec31c280243730199df7a5d9e4bceb",
+    "docs/integration.md": "0c9054087bc45705332ef11ae174ac73e5e4f6fc0b0f9cb2e805d32ab43c9387",
+    "docs/ui-ux-spec.md": "f19b334e63c26f6eb8587b0a30ad566854de3b93db5dd9ab27fb5c98310dec04",
+    "docs/replication-checklist.md": "83afbb70afe154b3f7ecebe67924b70500811c035b25fe412f28cc079cd10638",
+    "docs/website-comparison.md": "c01a6336f3ec4f9bdc354c58fa43424f01907a5b0c9c2c92459babcf4101c0a6",
+    "docs/visual-system.md": "06ad5e841ce358d5812147fca132d6ef219a5fa7deb854c9e17211d36f55f7f8",
+    "docs/component-spec.md": "4c69575b6e4c595fee5288eb4890c4e3593415be786eb7d594030c8850f70fea",
+    "docs/provenance.md": "9c9f951d2d1d72e8b40d1b39ed2923859351fdbef67185f8cd0b45bbb6fcf87c",
+    "docs/capture-plan.md": "04e318823c65660f94361a2847b00f9312d357c39e58b6367788c5b3898c7246",
+    "docs/avatar-animation.md": "6fdc7f07cf305b37765c147534ebdbc00e6b4b0ea0e697630563cb395db5b267",
+    "docs/avatar-motion-validation.json": "364ca5c5e7ff3e07a18cb6ab0e19413497c69fe9d60f271d13f78d5cdd8f7f5b",
+    "src/avatar.d.ts": "a106a440838b98008b39707c2d4c4adb87d64c252a4f74bf9464369356e10036",
+    "src/composer.js": "4c195ee405ebf88ddb9422696f8d89a77341167522cb668dfef1b0922782a9e8",
+    "assets/avatar-motion/catalog.json": "887ec2b2bab1a11d7e2d33e5d6a0ce2e7b288b2fa5581d1ed3cf41b85ce82680",
+    "tests/avatar.test.js": "736a66353a4cdbebc269c8875678d3bde0f15346ab2902310ece352dd3387be7"
+  }
+}

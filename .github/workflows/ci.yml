@@ -19,6 +19,7 @@ jobs:
       - run: pnpm check
       - run: pnpm build
       - run: pnpm verify:runtime
+      - run: pnpm verify:ui-kit
   runtime-smoke:
     runs-on: macos-14
     env:

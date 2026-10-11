@@ -1,6 +1,6 @@
 # Corn Bot — 本地 macOS 持久 Bot 工作平台：代码级迭代实施计划
 
-> 版本：计划 v1.1 · 2026-10-10（依据实施前审阅反馈修订）  
+> 版本：计划 v1.3 · 2026-10-11（基于 Kit 动态头像更新，新增 Avatar Motion 子系统与代码级验收）；仓库同步版附 §14 维护者决策，§14 与正文冲突时以 §14 为准  
 > 交付对象：执行开发的 Coding Agent / 工程团队  
 > 目标：独立 `Corn Bot.app`，高保真借鉴 Grok Bot 的白色双栏/三栏桌面 UI，运行于用户当前 macOS 桌面，复用 DeepSeek Harness（DSH）的 Agent 引擎及既有 DSH Claw Suite 的治理能力。  
 > **性质：待执行的开发计划，不表示已实现、已集成或已测试通过。**
@@ -9,25 +9,29 @@
 
 ## 0. 执行摘要：冻结的决策
 
-1. **新仓库：`xingyingyuzhui/corn-bot`**，建议先建为独立仓库；本计划不要求创建 DSH fork，不要求修改官方 `deepseek-ai/deepseek-harness` 主仓库，不要求把 Corn UI 注册到 DSH 的 `sidebar.workspaces` 插槽。实际 GitHub 仓库创建由执行 Agent 完成；仓库目前尚未创建。
+1. **新仓库：`xingyingyuzhui/corn-bot`**，建议先建为独立仓库；本计划不要求创建 DSH fork，不要求修改官方 `deepseek-ai/deepseek-harness` 主仓库，不要求把 Corn UI 注册到 DSH 的 `sidebar.workspaces` 插槽。仓库已于 2026-10-10 创建（私有）。
 2. **品牌/产品/UI 与 DSH 原 UI 解耦**：Electron 主进程 + React/TypeScript Renderer；界面直接实现 Bot 名册、聊天、详情、资料库、电脑，而不是嵌套 DSH 原有 WorkspaceBrowser。保留共享 DSH Agent Runtime。
 3. **优先完整 DSH Host API + 自有 Bridge**，而不是重复开发 Agent Loop。第一阶段用 TypeScript SDK 做通信 Spike 可以，但正式版不能直接依赖 SDK 完成取消、审批和长期任务生命周期（其协议有明确缺口）。
 4. **macOS 真实本机电脑**：优先使用 DSH 官方 `dsh-computer-use` + `experimental-computer-use-cua-driver-{mcp,native}`；浏览器优先 `dsh-browser-use` + `experimental-browser-use-playwright-mcp`。不要在尚未验证能力时从零写 Swift Computer Driver。Swift Helper **仅作可选补充**。
 5. **Claw Suite 保持独立**，锁定 `dsh-claw-suite@0.3.0-rc.2` 及九个组件；Corn Bot 新开发 `corn-bridge`、`corn-tasks` 等自己拥有的产品边界。若发现 Claw Suite 需改，向相应 Claw 插件仓库提交兼容性补丁，不把其代码复制进 Corn 仓库。
 6. **安全不能因产品 UI 变化而倒退**：每个 Corn Bot 必须经 Claw Registry 的真实 Session Binding、Claw Gate 和官方 Sandbox/Approval。不能从普通 DSH Session 假冒 Claw；`claw-uncertain` 必须拒绝危险操作。
-7. **截图作为视觉基准**：`design/references/grok-bot-chat-two-pane.png` 和 `grok-bot-chat-three-pane.png` 是用户提供的参考图。先还原布局、字重、排版、颜色、间距、圆角，再做动效。默认浅色主题，不强行上 Liquid Glass。
+7. **视觉证据分级**：用户提供的 `design/references/grok-bot-chat-{two,three}-pane.png` 是指定场景的**最高优先级视觉验收基准**；`xingyingyuzhui/grok-bot-ui-ux-kit` 提供可追溯的 0.68.1 静态 UX 规格与官网演示对照，分别归档、不能混称同一版本。先还原布局、字重、排版、颜色、间距、圆角，再做动效。默认浅色主题，不强行上 Liquid Glass。
 8. **版本/运行时锁定**：优先 DSH `dsh-v0.2.0-rc.2`（提交 `639ed015397290b3745d163aafe02ffee4aa3f84`）与 Claw Suite `v0.3.0-rc.2` 的组合；官方 `master` 2026-10-10 时为 `d743267388641bc76f17c45ce8b4c231aed1d32c`，是**后续 API 对照，不作为第一轮自由升级目标**。参考 DSH RC2 Node `^22.19.0 || >=24`、pnpm `11.7.0`；Corn 仓库应采用可兼容的 Node LTS，具体以锁文件验证。
 9. **开发阶段必须使用隔离数据家目录**，例如 `DSH_HOME=$HOME/.corn-bot-dev/dsh`。禁止直接迁移或污染用户现有 `~/.dsh`、既有 Desktop profile、已注册的 Claw Agent。生产迁移必须先备份、可回滚。
 10. **第一里程碑是产品主界面 + 真实对话**，第二里程碑是本机电脑操作，随后才是 Bot-to-Bot 与 Routines。不要为炫技先写多 Agent 调度系统。
 11. **M2 必须引入最小 SQLite 持久化与 Run ID**：M2 建立 Bot、Conversation、Binding、TaskRun、CornEvent 和数据库版本迁移；M3 所有 Computer Lease 绑定已存在或原子创建的 `runId`。M4 负责高级恢复及长期任务，不再首次引入数据库。
 12. **产品默认决策**：全局默认模型+每 Bot 覆盖；每 Bot 默认主会话一条，但 schema 支持多 Conversation；语音第一阶段做语音转文字，实时语音会话后置。所有尚未实现的按钮必须 disabled+解释，不能空点击或伪成功。
 13. **三栏标定口径**：右侧详情约占窗口总宽度 36%–38%（初始目标约 37%），约为扣除左侧名册后剩余宽度的一半；不得误写成剩余区域的 36%。
+14. **UI Kit 锁定与知识来源**：M0 固定 `grok-bot-ui-ux-kit` 的 commit `0248419b80dde84560409802afb98f38803df52c`。将 `docs/{website-comparison,integration,visual-system,component-spec,ui-ux-spec,replication-checklist,provenance,capture-plan}.md` 作为 UI/UX 设计输入，产品代码以 Corn 自己的 React/TS 类型与状态实现；不得将原 ASAR/Renderer、未授权字体/图标/音频/品牌素材打包进产品。具体参照 §12–§13。
+
+15. **动态头像单独立项**：Kit `0248419` 恢复了官网 35 状态/25 轮廓的动态头像与 DMG 53 状态独立引擎。Corn 在 **M0 确定授权与引擎策略，M1 实现头像纯组件/可替换渲染器/动效生命周期，M2 把 DSH/Claw 实际运行状态接入映射，M8 检查发布产物**。两个来源的状态不可直接混用；不存在可直接用的第三方代码再分发许可时只参考行为规格，自行实现动画。详见 §13。
 
 ### 非目标
 
 - 不在 macOS 上运行默认 Linux VM、Docker 桌面或云端 Computer；用户明确要求当前 Mac 本机操作。
 - 不自行发明未经官方 DSH 认证的 RPC 协议并冒充其公共接口；任何未在当前锁定 tag 中发现的 API 都先做可行性验证。
 - 不复用原厂不可再分发的图片、字体、精灵资源或反编译代码资产。社区代码可在明确许可证及来源情况下受控借鉴。
+- 即使研究仓库由同一用户公开，也不代表其 `reference/`、`assets/`、`tokens/` 所包含的第三方来源资源可以直接作为 Corn Bot 的开源/商业发布资源；按 §12 来源审计和许可门禁处理。
 - 不在第一个版本追求跨平台、多人 SaaS、远端设备控制、自动接管所有应用权限或完整 Grok Bot 功能覆盖。
 
 ---
@@ -167,10 +171,16 @@ corn-bot/
 │       ├── src/styles/global.css
 │       ├── src/styles/layout.css
 │       └── tests/
+│           ├── visual/
+│           └── fixtures/                  # 命名 fixture（M1 Mock），仅测试/开发路由使用
+│               ├── kit-chat-states.ts
+│               ├── kit-voice-states.ts
+│               └── kit-avatar-states.ts   # 固定种子/可控时间/上载分支
 │
 ├── packages/
 │   ├── contracts/
 │   │   ├── src/bot.ts
+│   │   ├── src/avatar.ts                 # AvatarPreference / AvatarVisualState / AvatarEvent
 │   │   ├── src/conversation.ts
 │   │   ├── src/events.ts
 │   │   ├── src/approval.ts
@@ -180,8 +190,22 @@ corn-bot/
 │   │   ├── src/model-selection.ts
 │   │   ├── src/bot-settings.ts
 │   │   └── src/index.ts
-│   ├── ui-kit/
-│   │   ├── src/Avatar.tsx
+│   ├── ui/                                # Corn 自有组件包（原名 ui-kit，避免与研究仓库 UI/UX Kit 混淆）
+│   │   ├── src/Avatar.tsx                 # 兼容外观封装（只透传）
+│   │   ├── src/avatar/
+│   │   │   ├── BotAvatar.tsx              # public view component
+│   │   │   ├── AvatarRenderer.tsx         # 能力/授权控制的 renderer selector
+│   │   │   ├── CornMotionAvatar.tsx       # Corn 自主实现动画（默认）
+│   │   │   ├── UploadedAvatar.tsx         # 用户图片独立分支
+│   │   │   ├── StaticAvatar.tsx           # 无动效/后台/无权限 fallback
+│   │   │   ├── motion-presets.ts          # shape/state/config; Corn-owned
+│   │   │   ├── motion-scheduler.ts        # RAF、IO、Document、Reduce Motion
+│   │   │   ├── useAvatarLifecycle.ts      # mount/visibility/unmount
+│   │   │   └── index.ts
+│   │   ├── tests/avatar/
+│   │       ├── avatar-contract.test.ts
+│   │       ├── avatar-lifecycle.test.tsx
+│   │       └── avatar-shapes.test.tsx
 │   │   ├── src/Surface.tsx
 │   │   ├── src/Pill.tsx
 │   │   ├── src/SegmentedTabs.tsx
@@ -199,6 +223,8 @@ corn-bot/
 │   │   ├── src/bot-projections.ts
 │   │   ├── src/chat-projections.ts
 │   │   ├── src/run-projections.ts
+│   │   ├── src/avatar-state-reducer.ts    # M2: real DSH/Claw → Corn state
+│   │   ├── src/avatar-presentation.ts     # UI deterministic precedence
 │   │   └── tests/
 │   └── local-db/
 │       ├── src/schema.ts
@@ -215,7 +241,7 @@ corn-bot/
 │       └── tests/
 │
 ├── plugins/
-│   ├── dsh-corn-bridge/
+│   ├── dsh-corn-bridge/        # 推迟（§14 决策 1）：仅在确需 Host 侧路由时创建
 │   │   ├── package.json
 │   │   ├── host.js
 │   │   ├── cordis.patch.yml
@@ -252,6 +278,15 @@ corn-bot/
 │   │   ├── bot-share-and-tags.md
 │   │   └── voice-buttons.md
 │   ├── screenshots/
+│   ├── avatar-motion/              # Corn 独立设计资源，许可审查后才加入
+│   ├── grok-kit/
+│   │   ├── kit.lock.json             # 机器可读 pin（commit + 必读文件 SHA-256）
+│   │   ├── SOURCE_LOCK.md            # Kit 提交、来源、范围、授权分级
+│   │   ├── SPEC_MAPPING.md           # Kit 规格 → Corn TSX/CSS/test
+│   │   ├── INTERACTION_COVERAGE.md   # 83 项验收交叉索引（PR-02B）
+│   │   ├── AVATAR_SOURCE_MATRIX.md   # 官网 35/25 与 DMG 53 分表
+│   │   ├── AVATAR_BEHAVIOR_MAPPING.md
+│   │   └── RIGHTS_REVIEW.md          # 原始资源的阻断式授权审查
 │   ├── design-spec.md
 │   └── visual-regression.md
 │
@@ -266,6 +301,8 @@ corn-bot/
     ├── verify-dsh-version.mjs
     ├── smoke-host.mjs
     ├── run-visual.mjs
+    ├── verify-ui-kit-reference.mjs   # 证据版本与路径约束
+    ├── audit-ui-assets.mjs           # 排除未授权原包文件
     └── package-macos.mjs
 ```
 
@@ -302,7 +339,12 @@ export interface CornBot {
   clawAgentId: string           // Registry 中 wa_... ID，非自由填写
   slug: string                  // Claw directory slug，仅数据映射
   displayName: string
-  avatar: { kind: 'uploaded' | 'generated' | 'default'; assetId?: string; color?: string }
+  avatar: {
+    kind: 'uploaded' | 'generated' | 'default'
+    assetId?: string                   // uploaded / user-licensed art only
+    color?: string                     // Corn palette; no third-party sprite implied
+    motion?: { shape: CornAvatarShape; seed: number; enabled: boolean }
+  }
   sectionId?: string
   pinned: boolean
   modelOverride?: { provider: string; model: string; reasoningEffort?: string }  // per-Bot 显式覆盖；必须经 DSH catalog 验证
@@ -357,6 +399,7 @@ export interface CornEvent {
 - `design/references/grok-bot-chat-two-pane.png`：原图 2048×1527，左侧固定名册 + 右侧聊天，没有详情面板。
 - `design/references/grok-bot-chat-three-pane.png`：原图 2048×1534，左侧固定名册 + 中间变窄聊天 + 右侧详情面板（`详情/资料库/电脑`）。
 - 设计稿逻辑 viewport 约 1416×1056；原图可能含设备像素缩放，**必须通过可见分割线比例及截图元数据标定真实 CSS px/DPR**，不可把 PNG 宽度直接等同 CSS 尺寸。
+- **范围先分清**：这两张用户提供的截图是指定 UI 的场景金标；Kit 对 0.68.1 安装包静态复原的侧栏默认 280px（展开约束 240–400、折叠 88）、详情默认 320px（最小 280）、主聊天最小 424px，则用于 **`dmg-0681` 布局 profile 和 UX 边界测试**；官网演示布局另作为 `website-demo` 来源。不得把这些静态指标未经匹配直接用于覆盖用户截图场景。
 - 双栏左栏约为窗口总宽的 27%；三栏右侧详情约为**窗口总宽的 37%**（约等于**去掉左栏之后可用空间的 50%**）；三栏中间聊天因此约占 36%。以原图分割线为准，不能把右侧误记为“剩余空间的 36%”。
 - 在标定视口 **1416 CSS px** 下参考基准：左栏约 **380px**、中间聊天约 **510–520px**、右侧详情约 **516–526px**（允许标定阶段微调）；在原始 2048 像素截图下应按比例换算而非硬编码图片像素。
 - 正常宽屏建议 `grid-template-columns: var(--sidebar-width) minmax(0, 1fr) var(--details-width)`，`--sidebar-width: clamp(280px, 26.9vw, 380px)`、`--details-width: 36.7vw` 仅作初始变量；在 1200px 以下优先改为可关闭覆盖面板/独立详情视图，避免聊天区被压得不可用。最终阈值由视觉测试确认。
@@ -417,7 +460,14 @@ export interface CornEvent {
 - `chat-content-long.spec.ts`：长中文消息、链接、中英文混排、Markdown；
 - `bot-handoff.spec.ts`：机器人转发消息及 Handoff 事件的居中芯片；
 - `avatar-presence.spec.ts`：上传图与生成头像共存，减少动画设置；
+- `avatar-motion-states.spec.ts`：官网35状态/25轮廓的 Corn 兼容映射、固定seed静态帧、idle/thinking/working/alerting 转换、非法状态拒绝；
+- `avatar-motion-lifecycle.spec.ts`：IntersectionObserver、`document.hidden`、`prefers-reduced-motion`、暂停/重新可见、卸载、重复切 Bot 时无多余 RAF；
+- `avatar-motion-load.spec.ts`：长 Bot 列表滚动、离屏暂停、20+ 实例交替显示、React strict-mode mount/unmount，含性能日志与内存趋势；
 - `resize.spec.ts`：1440、1280、1024 与高 DPR；必须显式断言三栏标准视口的右栏宽度约为**整个窗口的 37%**，打开/关闭面板时左栏坐标变化低于 1px；
+- `kit-layout-profiles.spec.ts`：分开验证 `user-screenshots` 三栏宽度和 `dmg-0681` 静态规格，后者测 sidebar 240/280/400/88、主区 424、详情最小 280；布局来源记录进 test metadata；
+- `kit-thread-resize.spec.ts`：以主内容 ResizeObserver 测得的 847/848/849px 宽度验证 task-thread 单栏/并排及 424px 下限，不以 viewport 媒体查询冒充；
+- `kit-composer-ime.spec.ts`：IME 组合期间 Enter 不发送，Shift+Enter 不发送，菜单打开不误提交；仅附件可以发送，最多6个、失败保留草稿、重试不重复入队；
+- `kit-ui-states.spec.ts`：详情 tab 随 bot/group 成员变更；审批 once/deny/always/expired、voice activating/recording/processing/error 的 mock state 有真实可见反馈；
 - `bot-editor.spec.ts`：创建 Bot、表单校验、编辑职责、编辑策略、标签关联/保存、分享脱敏；
 - `voice-buttons.spec.ts`：麦克风=听写、声纹=语音会话两个功能语义分别验证；未实现时 disabled 文案与无副作用；
 - `model-conversations.spec.ts`：全局模型和 Bot 级覆盖、主聊天默认行为、切换 Bot 保持草稿；
@@ -468,21 +518,24 @@ export interface CornEvent {
 
 **目标**：先满足用户给出的两张截图，但所有交互有清晰状态模型。M1 允许 mock 数据和 disabled 未实现能力，但禁止将未接通按钮伪装成已完成。
 
-**主要文件**：`apps/desktop/src/{main,preload}.ts`, `apps/renderer/src/app/{CornApp,CornShell}.tsx`, `src/features/{roster,chat,details}/*`, `src/styles/{tokens,layout}.css`, `packages/ui-kit/src/*`。
+**主要文件**：`apps/desktop/src/{main,preload}.ts`, `apps/renderer/src/app/{CornApp,CornShell}.tsx`, `src/features/{roster,chat,details}/*`, `src/styles/{tokens,layout}.css`, `packages/ui/src/*`。
 
 **实现顺序**：
 
 1. Electron 透明/自绘标题栏与 macOS traffic lights（使用原生窗口配置；只有经测试的 draggable 区域，按钮加 `no-drag`）。
-2. 定义浅色 tokens：Canvas、Sidebar surface、Selected row、User bubble、Bot bubble、Dimmed text、Dividers、Pill 输入框；尽量从用户截图量取而非主观杜撰。
-3. `CornShell` 以 `selectedBotId`, `detailsOpen`, `detailsTab`, `sidebarWidth`, `chatScrollState` 组成 UI 状态，不混杂 DSH runtime state。
+2. 定义浅色 tokens：Canvas、Sidebar surface、Selected row、User bubble、Bot bubble、Dimmed text、Dividers、Pill 输入框；尽量从用户截图量取而非主观杜撰。 **先制作 `design/grok-kit/SPEC_MAPPING.md` 和来源标注；依据 Kit 的 `docs/visual-system.md`、`docs/component-spec.md` 建立自行实现的 Corn CSS 语义变量；不要直接引入 `assets/styles/index-*.css` 或安装包来源的字体。**
+3. `CornShell` 以 `selectedBotId`, `detailsOpen`, `detailsTab`, `sidebarWidth`, `chatScrollState` 组成 UI 状态，不混杂 DSH runtime state。 另外显式区分 `sidebarManualCollapsed`、`sidebarAutoCompact`、`preferredSidebarWidth`、`detailsPreferredWidth`、`layoutReferenceProfile`；响应式规则按主内容宽度计算。
 4. 左栏固定区：搜索/新增、Pinned Bot、分组标签、Bot 行、左下连接应用。
 5. 中栏：居中标题胶囊、日期 divider、黑/灰消息气泡、Handoff Notice、固定底部 Composer。
 6. 右栏：详情/资料库/电脑 Tabs、空状态、可折叠面板；切换后保持 Composer 草稿。
 7. 模拟数据用 `fixtures/` 的具名对象，不把 mock fetch 写到正式 Adapter 中。所有可用按钮必须真实改变状态；尚未接通的附件上传/系统听写/实时语音应明确 disabled 或展示“尚未接通”引导，不能模拟外部副作用。
 7a. 按 §4.4 定义 Create Bot、Bot Profile、权限、标签、Share、连接应用与模型入口的交互/状态。M1 用 Mock 接口但 UI 状态、禁用/失败行为必须真实可测试。
-8. 加 VoiceOver 标签、减少动效支持、输入焦点恢复与 Mac 快捷键。
+7b. 按 §13 实现 `packages/ui/src/avatar`：先验证两类动画来源及许可，默认使用 Corn 自主实现的 Motion Renderer；接 Kit **状态/轮廓/节奏契约**，实现 `BotAvatar`、`AvatarRenderer`、`StaticAvatar`、上传图片、RAF/IO/reduced-motion 生命周期；M1 只用命名 fixture，不宣称 DSH 事件已连接。
+8. 加 VoiceOver 标签、减少动效支持、输入焦点恢复与 Mac 快捷键。 对照 Kit `docs/ui-ux-spec.md` 的 18 项快捷键清单，逐项标为 `implemented/deferred/not-applicable`，禁止悄然漏项；“推导/未知”项不声称与原版实测一致。
+9. `MessageComposer` 对照 Kit 的 `src/composer.js` 行为接口**重新用 TS 编写**；确保 IME、菜单、附件、离线/重发与任务线程 context 被独立建模；Kit 参考代码不是 DSH 后端实现。
+10. 新增 `docs/milestones/M1-UI-KIT-COVERAGE.md`，从 Kit 83 项验收清单生成 Corn 自己的进度矩阵，至少 Shell/Composer/Transcript/详情/任务线程/主题/键盘五大组通过后才准合并 PR-02。
 
-**验收**：截图双栏/三栏视觉回归通过；页面能够切换和输入；详情页打开时 Chat 按比例收缩；不会加载 DSH 官方 Web UI。
+**验收**：截图双栏/三栏视觉回归通过；页面能够切换和输入；详情页打开时 Chat 按比例收缩；不会加载 DSH 官方 Web UI。**头像新增验收**：列表和标题都通过同一 `BotAvatar` 契约渲染；6 个演示 Bot 可切换状态，卸载/离屏/减少动效切静态且无 RAF 残留；自定义上传图不被强制替换成形变头像。详见 §13。
 
 ### M2（P0）：Claw Bot 与 DSH Session 的真实绑定/实时会话
 
@@ -676,7 +729,7 @@ Corn UI: create/select Bot
 |---|---|---|
 | PR-00 | 新仓库初始化、Node/pnpm、CI、截图资产、明确开源许可证 | `pnpm install`, `pnpm lint`, `pnpm test` |
 | PR-01 | DSH Host 启动/停止/认证 Spike、ADR | 真实 Host API smoke 录像/日志，401/403 负例 |
-| PR-02 | Corn UI Shell 与双栏/三栏 Mock | 固定 viewport 截图与 Playwright 差异报告 |
+| PR-02 | Corn UI Shell、Kit 双来源 profile、双栏/三栏 Mock + Avatar Motion 的 M1 完整组件；产出 83 项 UI/UX 覆盖矩阵及 avatar 附加测试 | 固定 viewport 分区截图 + Playwright 差异 + 847/848/849 内容宽/IME/语音/审批 state fixtures + Avatar lifecycle/shape/state 测试 |
 | PR-03 | Session Adapter + Registry 事务 **+ M2 SQLite 最小 Schema + Run ID** | 真实创建/发消息/断线恢复/部分成功 E2E、数据库迁移和 Kill/Restart |
 | PR-04 | CUA Provider 试验 + 安全门禁 | 真机权限/窗口/输入/独占锁证据 |
 | PR-05 | Computer Tab、预览、人工接管 | User takeover E2E |
@@ -803,4 +856,264 @@ Corn UI: create/select Bot
 
 ### 11.4 修订执行指令（直接交给总 Coding Agent）
 
-> 请以此 v1.1 文档为准继续 M0–M8，不要从头重构架构。M0 先完成真实 Host 连接和 SQLite 驱动/打包选择的 ADR 验证。M1 高保真三栏右侧详情栏按整个窗口宽度 37% 标定，并完成所有可见按钮的状态和行为规格（未接通者明确禁用）。M2 必须实现实际 SQLite Schema、Bot/Conversation/Binding/Run 持久化、基础状态机、标签、UI 状态与重启恢复。M3 使用 M2 的真实 runId 构造 `DesktopControlLease`，不允许空 Run 或临时 ID。M4 只完善崩溃对账和长任务恢复，禁止把初始数据库推迟至 M4。模型、主会话、语音采用 §4.4 的默认策略。每一项修改必须给出具体 diff、测试日志、真实版/Mock 能力区分和后续风险；不允许只改文档而跳过代码落地。
+> 请以此 v1.3 文档为准继续 M0–M8，不要从头重构架构。M0 先完成真实 Host 连接和 SQLite 驱动/打包选择的 ADR 验证。M1 高保真三栏右侧详情栏按整个窗口宽度 37% 标定，并完成所有可见按钮的状态和行为规格（未接通者明确禁用）。M2 必须实现实际 SQLite Schema、Bot/Conversation/Binding/Run 持久化、基础状态机、标签、UI 状态与重启恢复。M3 使用 M2 的真实 runId 构造 `DesktopControlLease`，不允许空 Run 或临时 ID。M4 只完善崩溃对账和长任务恢复，禁止把初始数据库推迟至 M4。模型、主会话、语音采用 §4.4 的默认策略。每一项修改必须给出具体 diff、测试日志、真实版/Mock 能力区分和后续风险；不允许只改文档而跳过代码落地。
+
+---
+
+## 12. v1.2 UI/UX Kit 接入专项补丁（M0/M1/M2/M8 必须执行）
+
+> 本节为 2026-10-11 新增的**可执行文件级任务**，对 §4.1 初期推测值、M1 视觉标定、PR-02 UI 范围进行有条件细化。**不改动 DSH 运行/鉴权、Claw Suite 权限、M2 SQLite/Run 和 M3 ComputerLease 的原有强制顺序。**
+>
+> 研究仓库：[`xingyingyuzhui/grok-bot-ui-ux-kit`](https://github.com/xingyingyuzhui/grok-bot-ui-ux-kit)；固定提交 `0248419b80dde84560409802afb98f38803df52c`；研究产品：Grok Bot 0.68.1 静态安装包与 2026-10-11 官网演示观察（**不同来源**）。
+
+### 12.1 资料可信度及优先级（必须带入实现和测试）
+
+| 来源 | 适用场景 | 可以证明 | 不能证明 |
+|---|---|---|---|
+| 用户双栏/三栏截图 | 指定目标默认浅色产品场景 | 像素布局、面板比率、文字与组件位置 | 其他窗口宽度和隐藏操作完整流程 |
+| Kit `docs/website-comparison.md` + `examples/product.*` | 官网页面演示风格参考 | 官网观察时点的布局和参考页实际可运行 | 0.68.1 原版所有页面均长这样 |
+| Kit `docs/ui-ux-spec.md` / `visual-system.md` / `component-spec.md` | 0.68.1 静态样式与状态机 | 可定位的原包 CSS / JS 静态分支与数学公式 | 未经运行观察的完整 UX / 服务端真实结果 |
+| Kit `examples/workbench.*` / `src/*` | Demo fixture、主题/输入适配器参考 | 参考实现存在这些模拟操作与状态 | 原生真实 Agent、附件上传、语音/Computer 后端 |
+| Kit `docs/capture-plan.md` | 进一步证据采集 | 仍需实测的列表与场景 | 尚未执行的观察不能写成已验证 |
+
+**默认设计 profile 策略**：`user-screenshots` 为首版正式 UI 的目标视觉 profile，按照两张截图标定左右分割比例（约 27% 和 37% 总窗右栏）；`dmg-0681` 为静态行为/边界测试 profile；`website-demo` 为官网视觉对照 profile。**不要为三个 profile 各写一套业务应用**：业务状态和组件相同，设计 token/布局 preset 与 fixture 切换即可。最初只允许 `user-screenshots` 是面向用户发布的默认 profile，其他 profile 仅用于开发验收，除非经批准。
+
+### 12.2 Kit 研究引用方式（只读、pin、不得错误授权）
+
+1. **M0**：创建 `design/grok-kit/SOURCE_LOCK.md`，记录仓库 URL、上述完整 commit、被使用的每一份文档路径、SHA（可选）、观察日期、`未运行原应用` 标识。开发者通过 `git clone` + `git checkout 0248419b80dde84560409802afb98f38803df52c` 在本地**设计研究目录**只读访问（例如 `.research/grok-bot-ui-ux-kit`，并在 `.gitignore` 排除），不要将研究库 `reference/`、`assets/`、`evidence/` 当作 Corn 发布依赖。
+2. **M0**：新增 `design/grok-kit/RIGHTS_REVIEW.md`，按文件与类型分类：自己写的示例 JS/CSS（需确认授权）、测量事实/思路（允许借鉴）、来自 DMG 的原 bundle/图标字体/图片/音频/主题原表达式（没有充分权利证明前禁止拷贝入 Corn 产品）、来自官网的头像/logo/网页样式（同样不得擅自再分发）。Corn 自主画头像或保留用户明确授权提供的自定义图片。**没有 license 文件不能推定 MIT。**
+3. **M0**：`scripts/verify-ui-kit-reference.mjs` 读取 SOURCE_LOCK，验证 kit 提交是否匹配 pin，`docs/integration.md`、`docs/ui-ux-spec.md`、`docs/replication-checklist.md`、`docs/website-comparison.md` 这些研究文件存在且能检索；若 clone 不存在，CI 应用受控 checkout 或跳过研究库比对并**保留明确诊断**，不能静默当通过。
+4. **M8 发布门禁**：`scripts/audit-ui-assets.mjs` 列举最终 `.app`/asar 所有资源；拒绝打包 `reference/renderer/**`、`assets/fonts/cursor-icons-*.woff2`、`assets/fonts/X-VF-*`、未经确认授权的原图像/声音、未经独立许可审计的原版 CSS 或 JS。生成 `THIRD_PARTY_NOTICES.md`；若研究资产的许可不明确，发布流程停止并请求明确授权或者使用自行实现替代品。
+
+### 12.3 M1 文件级 UI 实施映射
+
+| Kit 依据 | Corn 目标文件（新增或修改） | 代码任务 | 测试 |
+|---|---|---|---|
+| `docs/website-comparison.md`, 用户截图 | `apps/renderer/src/app/CornShell.tsx`; `src/styles/layout.css` | 确立 `user-screenshots` 双栏/三栏金标；通过 layout preset 而非随意 CSS media query 切换 | `visual/roster-two-pane`, `details-three-pane` |
+| `docs/ui-ux-spec.md` §2 | `apps/renderer/src/app/layout-reference.ts`; `src/features/roster/BotRoster.tsx`; `src/styles/layout.css` | `sidebarExpandedWidth`, `manualCollapsed`, `autoCompact`, `detailsWidth` 分离；`dmg-0681` 下 expanded=280、范围240–400、collapsed=88，主区最小424，详情默认320/最小280；resize+pointer cleanup | `visual/kit-layout-profiles.spec.ts` |
+| `docs/ui-ux-spec.md` §2.2 | `apps/renderer/src/features/chat/TaskThreadPane.tsx`; `src/features/chat/useTaskThreadLayout.ts` | 以 `ResizeObserver` 测**主内容宽**；≥848px 且 opt-in 时并排；公式 `min(max(424,p), max(A/2,A-424))`；线程输入携带 taskId | `visual/kit-thread-resize.spec.ts` |
+| `docs/visual-system.md`; `component-spec.md` | `apps/renderer/src/styles/tokens.css`, `global.css`; `packages/ui/src/{Surface,Pill}.tsx` | 依据观察值自主实现浅/深语义 token、系统字体/字号、气泡18px、按钮尺寸、焦点/减少动效；别把 Kit `assets/styles/index-*.css` 全局引入 | `visual/kit-theme.spec.ts` |
+| `src/composer.js`; `docs/integration.md` | `apps/renderer/src/features/chat/MessageComposer.tsx`; `src/features/chat/composer-actions.ts` | 自主 TypeScript 复写 Enter/Shift+Enter/IME、菜单拦截、附件-only、草稿快照、失败保留、发送与语音状态切换；附件上限6；避免按钮暗示原版后端已实现 | `visual/kit-composer-ime.spec.ts` |
+| `docs/ui-ux-spec.md` §3/5 | `apps/renderer/src/features/chat/{MessageFeed,ApprovalCard,HandoffNotice,RunReceiptCard}.tsx` | 明确 queued/dispatching/accepted/failed；审批 pending/submitting/approved/denied/expired；主消息与任务线程上下文分离 | `visual/kit-ui-states.spec.ts` |
+| `docs/ui-ux-spec.md` §1/3 | `apps/renderer/src/features/details/BotDetailsPane.tsx`; `features/settings/*` | bot tabs overview/media/computer 与 group tabs overview/media/members 区分；对象切换校验 tab；设置 pending/failure 不用假成功 | `visual/kit-details-tabs.spec.ts` |
+| `docs/ui-ux-spec.md` §4 | `apps/renderer/src/features/voice/{DictationButton,VoiceModeButton}.tsx`; `apps/renderer/tests/fixtures/kit-voice-states.ts` | activating/recording/processing/stop-in-flight/error fixture 与 UI；M1 未接麦克风时 disabled 与说明，真实 STT 仍是 M7 | `visual/kit-voice-states.spec.ts` |
+| `docs/ui-ux-spec.md` 快捷键小节 | `apps/renderer/src/shared/hooks/useCornKeyboardShortcuts.ts`; `src/shared/accessibility/*` | 将 18 项梳理到 `design/grok-kit/INTERACTION_COVERAGE.md`，处理冲突、平台快捷键、焦点与 IME | `visual/keyboard-accessibility.spec.ts` |
+| `docs/replication-checklist.md` | `design/grok-kit/INTERACTION_COVERAGE.md`; `docs/milestones/M1-UI-KIT-COVERAGE.md` | 逐项记录 83 条的 `covered / deferred / not-applicable / unknown`、Corn 文件、fixture、测试证据；不得把清单本身当作已测试 | PR-02 门禁审查 |
+
+**目录约定**：表中 `src/` 省略路径时指向 `apps/renderer/src/`；`packages/ui` 是 Corn 自主实现的可复用组件包，不是原厂 component bundle 的重命名。禁止直接运行 `reference/renderer` 作为 Corn 前端，也禁止复制原 Electron preload 并注入 `window.desktop`、`coordinatorPort` 伪造原版宿主。
+
+### 12.4 明确的事件状态与 UX 验收（M1 + M2）
+
+- **输入**：Enter 发送，Shift+Enter 换行，`isComposing`/IME 不提交，菜单占用 Enter/Tab/Escape 时不冒泡发送；纯附件消息允许提交；主 Composer 6 个附件限制，超限反馈可恢复；失败时保留完整草稿和 staging，不自动重复调用 DSH。M1 由 fixture 驱动，M2 使用真正 `session.prompt` 与持久回执。
+- **异步消息**：区分 UI 本地待发送、DSH 接收入队、持久消息回显、Agent Run 完成；`session.prompt.accepted` 不是 `run.completed`，重连时以稳定 requestId/event seq 消除重复展示；无法连接不隐藏失败。
+- **任务线程**：`taskId` 是必传上下文；线程消息绝不可误发到主 Conversation；在主内容宽 847px 为覆盖，848/849px 在 opt-in 且无排斥条件时允许并排；主内容宽与窗口宽不是同一个度量。
+- **详情**：切 Bot 与切 Group 需要依据对象类型修正 tabs；关闭详情恢复聊天可见宽与位置；侧栏的手动折叠偏好不被自动紧凑写坏。
+- **语音**：录音状态只是 UI fixture，不暗示系统已授权或收音成功；灰色 mic 和黑色 waveform 按照 §4.4 产品既定决策，真正系统操作等到 M7/M8 后独立规划。
+- **审批/Computer**：所有审批调用 Claw Gate 的真实授权服务；`approveOnce`、`deny`、`alwaysAllow`（受硬策略上限）和 expired 必须显示结算结果，Computer Preview 无实时流时写明静态预览，不能伪造直播或用户接管成功。
+
+### 12.5 PR 切分及合入门槛
+
+| PR | 依赖 | 必须提交的可检查成果 | 不得做的事 |
+|---|---|---|---|
+| PR-00D：Kit 来源与尺寸 ADR | M0 | `SOURCE_LOCK.md`、`RIGHTS_REVIEW.md`、`SPEC_MAPPING.md` 初稿、设计 profile 选择 ADR（`ADR-0004-design-profiles.md`）、`verify-ui-kit-reference.mjs` | 引入原 bundle、把无许可材料放进应用资源 |
+| PR-02A：布局/视觉 token | PR-00D | 用户截图金标布局 + `dmg-0681` 行为 profile + Corn 自主绘制 token/icon、分区截图 | 直接把 280px 覆盖 380px 截图金标；复制原版全量 CSS |
+| PR-02B：组件与交互 | PR-02A | Composer、详情 tab、审批卡、任务线程、Voice mock 全状态与 83 项矩阵 | 假定模版 demo 等于真实完成 |
+| PR-02C：视觉/UX 门禁 | PR-02B | Playwright 区域截图、847/848/849 内容宽测试、IME 与失败回退测试、分支证据报告 | 只提交“看起来一致”而无可复现的测试 |
+| PR-03：连接真实 DSH | PR-02C 且 M0 Host Spike PASS | `dsh-adapter`、Registry Binding + M2 SQLite/Run、实时状态回显，UI Card 映射到真实事件 | UI 直接写 Claw 文件、读取 DSH 私有内存、绕开 Gate |
+| Release 审核 | M8 | 实际 `.app` 资源审计、第三方告知、源码许可/依赖审计 | 将 Kit 原始资产当成 MIT 代码直接分发 |
+
+### 12.6 给执行 Agent 的补充指令（v1.2 基线，SHA 已更新）
+
+> 从 M0 开始，除本计划 v1.1 既有 DSH Host/Claw Gate/SQLite/Run 安全基线外，请先审读 `xingyingyuzhui/grok-bot-ui-ux-kit` 固定提交 `0248419b80dde84560409802afb98f38803df52c` 的 `AGENTS.md`、`docs/website-comparison.md`、`docs/integration.md`、`docs/visual-system.md`、`docs/component-spec.md`、`docs/ui-ux-spec.md`、`docs/replication-checklist.md`、`docs/provenance.md` 和 `NOTICE.md`。用 `SOURCE_LOCK.md` 锁定来源，按 `SPEC_MAPPING.md` 逐文件实现独立 Corn React/TS 组件，83 项逐条归档验证状态，用户双栏/三栏截图仍是默认视觉金标，0.68.1 与官网 demo 只作为不同来源的行为/设计参照。不得移植缺少独立授权的原 renderer、preload、字体、图标、图片或音频。按 PR-00D、PR-02A/B/C、PR-03 顺序实施，提供 screenshot diff、状态测试、许可审查与实际 DSH Agent 验证。尚未实现的后端能力要标注 Mock/disabled，不得以静态参考交互声称功能已跑通。
+
+
+
+---
+
+## 13. v1.3 动态头像专项增量计划（M0/M1/M2/M8：必须执行）
+
+> **变更来源：** `xingyingyuzhui/grok-bot-ui-ux-kit` 最新提交 [`0248419b80dde84560409802afb98f38803df52c`](https://github.com/xingyingyuzhui/grok-bot-ui-ux-kit/commit/0248419b80dde84560409802afb98f38803df52c)，相对 v1.2 来源 `c51253833ca89e14cb3630832efe3a612d2afb3f` 新增 1 个提交，45 个文件变化（`git diff --stat` 核对）。研究代码由 GitHub 仓库源码审查确认；**没有在 Corn 的 macOS + DSH 环境运行，也未证明与原 App 所有实际行为一致。**
+>
+> **原计划保持不变：** M0 的 DSH Host/Claw Gate Spike、M1 主布局 UI 金标、M2 SQLite + Run、M3 本机操作租约、M4+ 调度与发布边界全部保留；新增 Avatar Motion 垂直模块，**不要独立重造一个头像后端服务**。
+
+### 13.1 新 Kit 提供的确定事实（不要混淆来源）
+
+| 来源 | 状态/轮廓 | 主要能力 | 边界 |
+|---|---|---|---|
+| 官网 2026-10-11 的 React 动画子集 | **35 个状态、25 个轮廓** | SVG 路径连续变化、眼睛/眨眼、形变、转身/弹跳/庆祝粒子；`mountAvatar` + `setState` / `setShape` / `setPaused` / `spin` / `bounce` / `burst` / `snapshot` / `destroy` | 原官网版本号未知；不能把这一组枚举当成 DMG 枚举；原实现未经独立再许可 |
+| DMG 0.68.1 数学动画引擎 | **53 个状态** | `createMotion`、`createBehavior`、`renderMotionSVG`、`updateSVG`；compact clips、独立形变/表情/姿态控制 | 不等于官网组件的同一算法；`failed`/`finished`/`waiting`/`streaming` 等状态不能直接传入官网 API |
+| Kit 工作台和主预览 | 6 个示例 Bot 动态头像 | 产品预览已接入动画，带画廊、暂停和 reduced-motion/不可见时静态回退 | preview 的业务状态映射是 Kit 的示例选择，不代表 DSH 事件或 Grok Bot 后端真实规则 |
+
+**必须阅读的新增研究文件：**
+- `docs/avatar-animation.md`（接入与映射、两套来源差异、引擎生命周期）
+- `src/avatar.js`, `src/avatar.d.ts`, `src/avatar.css`（官网适配器的状态与接口说明）
+- `assets/avatar-motion/catalog.json`（状态、形状、动画节奏、静态证据）
+- `docs/avatar-motion-validation.json`, `tests/avatar.test.js`（独立子集的测试边界）
+- `examples/avatar-motion.{html,css,js}`（可交互参考，用于视觉/状态枚举的研究）
+- `NOTICE.md`, `docs/provenance.md`（权利归属、静态提取与验证限制）
+
+**具体观察值：** 官网 `idle` 眨眼 6–14 秒、表情 9–16 秒，`listening` 眨眼 3–7 秒，`working` 眨眼 2.8–5.5 秒；`thinking` 使用 dots，`dictating` wave，`sending` send，`receiving` receive，`writing` pencil，`alerting` bang。默认官网形态包含 `blob`、`wedge`、`gem` 等；`seed` 可控制随机节奏。以上只能作为研究/视觉行为参照，具体 Corn 自主实现以自己的动画时序契约与测试为准。
+
+### 13.2 M0 增量任务：更新 SOURCE_LOCK 与授权门禁（PR-00E）
+
+**新增/修改文件：**
+
+| 文件 | 需要完成的工作 |
+|---|---|
+| `design/grok-kit/SOURCE_LOCK.md` | 将 Kit SHA 固定为 `0248419...`，记录旧 SHA、比较链接、官网与 DMG 不同来源、研究文件清单与日期；避免未来 clone main 造成不可复现 |
+| `design/grok-kit/AVATAR_SOURCE_MATRIX.md` | 对官网 35/25 与 DMG 53 建两张独立表，写每种 state 的来源、是否适用 Corn、未知项、是否有授权 |
+| `design/grok-kit/RIGHTS_REVIEW.md` | 为 `src/website-avatar*.generated.js`、`src/avatar-engine.generated.js`、`src/avatar.js`、`dist/avatar.js`、`reference/website/motion/*`、提取的几何/静态素材设置逐文件来源、是否第三方受保护实现、产品允许的用途 |
+| `design/grok-kit/AVATAR_BEHAVIOR_MAPPING.md` | 写 Corn 自主业务状态 → 官网状态的映射与置信度，明确不是官方服务端协议 |
+| `scripts/verify-ui-kit-reference.mjs` | 增加对 avatar-animation docs/types/catalog/tests 的路径、commit 验证；严格区分 research-only 与允许打包的文件 |
+| `docs/adr/ADR-0003-avatar-engine.md` | 在 `research-only`、`corn-original`、`licensed-component` 三个选项中确定发布默认；默认 `corn-original`，批准明确再分发许可后才可切换 |
+
+**授权强约束：** Kit 新 `NOTICE.md` 明确说明 `src/*avatar*.generated.js` 含官网/安装包恢复的第三方代码，不因 GitHub 公开而取得 MIT 等许可，`dist/avatar.js` 也包含同样来源。`dist/avatar.js.LEGAL.txt` 的存在只表示依赖许可声明，并不是 Grok Bot 源代码的再分发授权。Corn **默认不得把以上提取 JS、原几何路径、原图标/字体或从官网抓取的资产作为产品构建依赖或嵌入最终 `.app`**。对于本地研究，Kit 工作台可在隔离目录跑；正式 Corn 要采用自己创作、权利明确的视觉资产与渲染代码。获得明确授权后才可选择原动画组件，且必须完成依赖/React 版本/打包审计。
+
+M0 交付证据：锁定 SHA 的 GitHub 差异记录、Kit `npm ci && npm run build && npm run check` 的独立参考环境结果（如在执行机未运行，标记未验证）、授权矩阵与 ADR；不把参考子集运行成功等同于 Corn macOS E2E 成功。
+
+### 13.3 定义 Corn 自有的 Avatar Domain Contract（M1）
+
+**新建 `packages/contracts/src/avatar.ts`**，由视图、状态投影、事件适配共享，禁止在此 import React、DSH Runtime 或 Kit 的原代码：
+
+```ts
+export type CornAvatarShape =
+  | 'blob' | 'wedge' | 'gem' | 'cloud' | 'pebble' | 'squircle'
+  | 'hex' | 'heart' | 'star6' // v1 自主实现的轮廓子集；后续按权利与视觉验收扩展
+
+export type AvatarVisualState =
+  | 'idle' | 'sleeping' | 'waking' | 'listening' | 'thinking'
+  | 'searching' | 'working' | 'dictating' | 'writing' | 'sending'
+  | 'receiving' | 'uploading' | 'alerting' | 'confused'
+  | 'happy' | 'celebrate' | 'progress' | 'powering-down'
+
+export interface AvatarPreference {
+  kind: 'uploaded' | 'generated' | 'default'
+  assetId?: string          // 仅用户有权使用的图片
+  color?: string            // Corn 自有语义配色
+  motion?: { shape: CornAvatarShape; seed: number; enabled: boolean }
+}
+
+export interface AvatarRuntimeSignals {
+  botId: string
+  activeRunCount: number
+  phase: 'idle' | 'thinking' | 'searching' | 'tool' | 'sending'
+       | 'waiting_approval' | 'waiting_resource' | 'failed' | 'completed'
+  voice: 'none' | 'listening' | 'dictating'
+  message: 'none' | 'inbound' | 'outbound'
+  updatedAt: number
+}
+
+export interface AvatarPresentation {
+  visual: AvatarVisualState
+  animated: boolean
+  tone: 'neutral' | 'attention' | 'error' | 'success'
+  transientUntil?: number
+}
+```
+
+- `AvatarVisualState` 是 Corn 精简业务展示枚举，不是全部官网 35 状态。`CornAvatarShape` 初期 9 个可自行实现的轮廓，不可因为 Kit 有 25 个就强行复制原几何数据。研发验收应分成 **研究参考 35/25 可访问** 与 **Corn v1 已获权且实际实现的 shape/state 子集**，分别报告覆盖，不得将二者混为一谈。
+- `CornBot.avatar` 将 `motion` 加在现有 `uploaded|generated|default` 偏好中，不能给 `uploaded` 强套变形。自定义人物头像展示原图，只在可获权情况下加外部状态环/提示；仍支持列表和标题两个尺寸。
+- 持久化只保存用户的 avatar 偏好：`shape`, `seed`, `enabled`, `color`, `assetId`。实时业务 `AvatarRuntimeSignals` 和当前 `visual` 由事件投影/恢复计算；不要每次眨眼或动画帧写 SQLite。
+
+### 13.4 UI Kit 模块：按文件拆分，禁止巨型 Avatar.tsx（M1 / PR-02D）
+
+| Corn 文件 | 代码职责 | 需要的验证 |
+|---|---|---|
+| `packages/ui/src/avatar/BotAvatar.tsx` | 统一公开组件：`botId`, `avatar`, `presentation`, `size`, `decorative`；列表/标题/详情共用 | 不同容器尺寸、同一 Bot 颜色/形状一致、ARIA 可访问 |
+| `packages/ui/src/avatar/AvatarRenderer.tsx` | `uploaded`、`motion`、`static` 三种渲染器选择，依据 preference、权限/功能开关及环境 | 上传图保留原貌；动画不可用时不崩溃 |
+| `packages/ui/src/avatar/CornMotionAvatar.tsx` | 只实现 Corn 自己的 SVG/Canvas 动画；从可审计的 geometry/primitive 自主设计表情、眨眼、姿态及形变 | 固定 seed/时间的连续帧有限值、至少 idle/thinking/working/alerting |
+| `packages/ui/src/avatar/UploadedAvatar.tsx` | 用户头像及 fallback 图；解码失败/没有图片时回退 | 错误路径、预览及裁切尺寸 |
+| `packages/ui/src/avatar/StaticAvatar.tsx` | 静态姿态，作为低功耗与无障碍回退；不加载动画运行时 | reduced-motion 下不创建 RAF |
+| `packages/ui/src/avatar/motion-presets.ts` | `CornAvatarShape` 几何与表情参数，保持来源清楚；禁直接粘原抓取的 SVG path 数据 | 轮廓有限、无 NaN/Infinity、样式 token 来源清楚 |
+| `packages/ui/src/avatar/motion-scheduler.ts` | 统一每实例更新节拍、封顶 delta、schedule/cancel RAF；不依赖 DSH | 高压切换不泄露 RAF，组件消失即停 |
+| `packages/ui/src/avatar/useAvatarLifecycle.ts` | `IntersectionObserver`/visibility/reduced-motion/卸载统一暂停回退；`setState` 不应导致 mount 动画运行时重建 | StrictMode 双挂载与 unmount 后事件清理 |
+| `packages/state/src/avatar-presentation.ts` | pure function: `AvatarRuntimeSignals -> AvatarPresentation`，明确优先级/稳定态/临时态计时 | table tests、假时钟、冲突优先级 |
+| `packages/state/src/avatar-state-reducer.ts` | 在 M2 把 DSH `session.follow` 和 Claw Task/Approval 事件投影为 `AvatarRuntimeSignals` | 真正 DSH 事件 fixture、重连恢复/乱序/过期 Run 去重 |
+
+`packages/ui/src/Avatar.tsx` 只作为旧使用点适配器，逐步替换为 `BotAvatar`；不要在 `BotListItem`、`PinnedBotCard`、`ChatHeader` 中各自实现一个不同头像动画。`CornMotionAvatar` 不负责 DSH 订阅、Registry 查询、Run 状态或 SQLite 访问。
+
+**Kit 接口的研究映射**：`mountAvatar` → Corn `BotAvatar` 组件生命周期；`setState` → props 更新；`setShape` → 用户偏好更新；`setPaused` → motion policy；`spin/bounce/burst` → 经过用户偏好/减少动效保护的短暂反馈；`snapshot` → 视觉快照测试工具；`destroy` → effect cleanup。这里只**映射行为，不直接引用 Kit 恢复出的实现**。允许 renderer 后续以合法授权的原组件作为可选替换，但 API 应保持稳定。
+
+### 13.5 动画状态优先级和 DSH 事件接线（M1 fixture，M2 真实流）
+
+在 `design/grok-kit/AVATAR_BEHAVIOR_MAPPING.md` 固定下表，逐条写测试。**以下为 Corn 产品自行定义的映射，不是原版 Grok Bot 已验证的后端业务协议**。
+
+| Corn 运行/事件来源 | Corn 视觉状态 | 原因与限制 |
+|---|---|---|
+| Claw Gate 产生待审批请求 | `alerting` | 高优先级，持续到审批结算；不要用临时 `working` 覆盖 |
+| Run failed / tool error | `confused` + error tone | 错误保留在真正的 Run/Task 卡片，头像不能替代故障提示 |
+| Voice 正在听写 | `dictating` | 音频状态与模型工具状态独立，关闭语音后恢复相应状态 |
+| 用户语音通话监听（未来阶段） | `listening` | 首版真实 Voice Call 尚未实现，M1 fixture 可显示但不可声称可用 |
+| DSH Agent 模型推理 | `thinking` | 来源于真实 agent/status 或 Stream 控制投影，不能以 UI 请求 pending 猜测 |
+| DSH 浏览器查询或搜索 | `searching` | 工具元数据可判别时使用，否则 `working` |
+| 受管 Tool 正在执行 / Run running | `working` | 多 Bot 同时工作，各自投影，禁止把全局状态共享给所有 Bot |
+| Bot 发送/接收异步消息 | `sending`/`receiving` | 事件应绑定 Bot ID；短状态后回到当前真实 Run 状态 |
+| 产生上传动作 | `uploading` | 区分 UI 暂存文件/真实上传事件 |
+| Run completed | `happy` 或短暂 `celebrate` | transient 动画结束回 `idle` 或仍在执行的其他 Run 状态 |
+| 无活动 Run/消息/审批 | `idle` | idle 偶发眨眼/微动，非固定循环摆动 |
+| UI/Session 断线 | 上次可靠状态+明确离线标识 | 不应将“离线”映射成假 idle 或假成功 |
+
+**优先级约定**：审批阻塞 > Run 失败/异常 > 活跃语音 > 当前会话交互（推理/工具） > 消息收发 > 暂态完成 > Idle；同一 Bot 多个 Run 时按明确 `foregroundRunId` 与 aggregate 状态裁定，事件必须带 `botId`/`runId`/单调序号，过期事件不得反向覆盖新状态。短态使用统一 presentation TTL（具体时长作为 Corn 配置并做假时钟测试），稳定态不因每次消息 chunk 重播庆祝动画。
+
+**M2 接线规则**：
+
+1. `packages/dsh-adapter/src/session-event-reducer.ts` 继续负责官方 session durable event、assistant-stream 与控制投影；新增 `packages/state/src/avatar-state-reducer.ts` 消费经过 Schema 验证的领域事件，而不是解析 Markdown 内容或读取 DOM 文本。对于单次 Run，要在 Run 记录真实建立后才能关联 `runId`。
+2. 当 `session.prompt` 返回 accepted 时，仅标为消息已入队；**不得在这一步直接设置 `done/celebrate`**。只有真实 Turn/Run 完成事实可以触发完成态。
+3. Claw Gate 的 approval pending/settled、tool starts/ends 与 Messenger 消息需明确接入点；官方未暴露的事件必须记录缺口并降级到 `working` 或状态未知提示，不可伪造。
+4. 浏览器或 Mac Computer 工具属于具体 Bot/Run；切换当前查看的 Bot 不改变其他 Bot 的动画状态，任务后台运行与窗口隐藏不冲突。
+5. DSH Host 崩溃、断线和冷启动以持久状态对账为准；不能因 UI 重新挂载就将 `running` 保存成 `completed`。Avatar 本身无权主动执行补偿操作。
+
+### 13.6 性能、可访问性和视觉回归（M1/M2）
+
+**渲染与调度**：列表虚拟化或 IntersectionObserver 阻止不可见头像持续渲染；`document.hidden`、macOS 窗口不可见、`prefers-reduced-motion`、设置项 `animatedAvatars=false` 时使用 `StaticAvatar`。监听器与 RAF 在 `unmount`、React StrictMode、组件频繁复用、Bot 切换时清理。每个 Bot 的 seed 由固定配置/稳定 ID 派生，不能每 render 调用 `Math.random()`。帧调度采用 `dt` 封顶，隐藏超过阈值恢复时重置时间相位，不追赶大量积压帧。
+
+**新增测试文件与 fixture：**
+
+- `apps/renderer/tests/fixtures/kit-avatar-states.ts`：6 个示例 Bot，显式 `botId/shape/color/state/seed`；涵盖 idle/thinking/working/alerting/failed、两种主题、上传图；任何 Kit 素材只当研究图，fixture 的发布资源自行创作。
+- `packages/ui/tests/avatar/avatar-contract.test.ts`：未知 state/shape 走显式安全回退或强类型拒绝，不能按两套来源混传字符串；Bot 稳定 seed、颜色、大小与上传图保真。
+- `packages/ui/tests/avatar/avatar-shapes.test.tsx`：自主实现的轮廓和表情几何完整，SVG 元素 id 唯一，无 NaN/Infinity。
+- `packages/ui/tests/avatar/avatar-lifecycle.test.tsx`：模拟 `IntersectionObserver`、`visibilitychange`、媒体查询切换、StrictMode unmount；检查 RAF 创建/取消数与 DOM observer 清理。
+- `packages/state/tests/avatar-presentation.test.ts`：优先级表、审批冲突、消息短态 TTL、同 Bot 多 Run、事件乱序/去重、断线未知态。
+- `apps/renderer/tests/visual/avatar-motion-states.spec.ts`：受控虚拟时钟/固定 seed 采集单帧和短时间序列，截取单独头像区域，固定 viewport、DPR、系统字体；不拿随机动效整页截图做 gate。
+- `apps/renderer/tests/visual/avatar-motion-load.spec.ts`：滚动 20+ Bot、Tab 来回切换及设置减少动效，记录帧耗时/内存趋势、是否存在离屏 RAF/observer 泄露，基线按目标 Mac 实测冻结，不随意声称“已达 60 FPS”。
+- `apps/renderer/tests/visual/avatar-motion-lifecycle.spec.ts`：关闭详情/侧栏、Mac 窗口切后台、销毁 root 后不发生无主 UI 更新；`motion=false` 时头像仍显示。
+
+**UI 验收顺序**：先锁定 **静态帧**（复刻截图的布局、尺寸、头像颜色/轮廓与文字对齐），再进行 **状态行为**（run/审批/语音），最后进行 **动态时序和压力测试**。上传用户头像可保持静态，不应为了风格一致强制动画化。
+
+**无障碍**：头像默认 `aria-hidden=true`，Bot 名称以真实文本表达；状态必须在邻近文本或 ARIA live region 有描述（并节流），不依赖仅动画表情。尊重 `prefers-reduced-motion`，没有动画不影响收发消息/审批功能。
+
+### 13.7 PR 增量切分与强制验收
+
+| PR | 时机 | 必须实现的文件/成果 | 阻断条件 |
+|---|---|---|---|
+| **PR-00E** Avatar 来源/许可/契约 ADR | M0，PR-00D 后 | `SOURCE_LOCK` 更新、`AVATAR_SOURCE_MATRIX.md`、`AVATAR_BEHAVIOR_MAPPING.md`、`ADR-0003-avatar-engine.md`、`RIGHTS_REVIEW`、Kit SHA 校验 | 原组件/提取素材无许可却进入 Corn 构建依赖；混淆官网与 DMG 状态 |
+| **PR-02D** 纯 UI Avatar Motion | M1，PR-02A 后，可与 02B 有序衔接 | `contracts/avatar.ts`、`ui/src/avatar/*`、fixtures、avatar unit/visual/lifecycle tests；列表、标题、详情接统一组件 | 只做 CSS 摇摆却冒充官网几何动效；离屏耗 CPU；手动减少动效无效 |
+| **PR-03A** DSH 状态接线 | M2，PR-03 内独立提交 | `state/src/avatar-{presentation,state-reducer}.ts`、Session/Run/Gate 映射、回归事件测试 | 把 enqueue 当完成；Bot 之间状态串线；断线误报成功 |
+| **PR-09A** Avatar 发布检查 | M8，PR-09 前 | `scripts/audit-ui-assets.mjs` 补充排除提取代码、版权审计记录、`.app` asar 清单 | 未经明确许可打包原官网组件/DMG 生成脚本/原路径/第三方音频或字体 |
+
+**最终合并门槛**：PR-02D 只证明 UI 引擎在 mock/fixture 中真实动画可用；PR-03A 必须证明由真实 DSH/Claw 事件驱动的状态切换；PR-09A 必须证明可发布资产来源合规。Kit 原测试不能代替 Corn 的独立测试。
+
+### 13.8 交给 Coding Agent 的最终补充指令（v1.3）
+
+> 在继续执行 Corn Bot 计划前，固定 `grok-bot-ui-ux-kit` 到 `0248419b80dde84560409802afb98f38803df52c`（以前的 `c5125383` 已过时），阅读 `docs/avatar-animation.md`、`src/avatar.d.ts`、`src/avatar.js`、`assets/avatar-motion/catalog.json`、`NOTICE.md`、`tests/avatar.test.js`。保留官网 35 状态/25 轮廓与 DMG 53 状态的**来源隔离**，优先把动画**业务契约和行为规范**移植为 Corn 自有代码。先完成 PR-00E 授权/架构 ADR，再做 PR-02D：在 React 中实现独立 `BotAvatar`/Renderer/静态回退/上传图/动画生命周期，并通过可控 seed/时间、离屏暂停、reduced-motion、StrictMode 清理、视觉比较。M1 可以用 fixture；M2 必须通过真实 DSH Session/Run/Claw Gate 状态驱动，禁止伪造“agent 正在思考”或“任务已完成”。不得将 Kit 恢复出的 `src/website-avatar*.generated.js`、`src/avatar-engine.generated.js`、`dist/avatar.js` 或相关原始资源未经独立授权直接打包进 Corn。完成后提交按文件列出的 diff、测试日志、Mac 截图/短录像、性能数据、授权审计结果、剩余差异清单。旧的 M0 主线、M2 SQLite/Run、M3 ComputerLease 顺序不变。
+
+---
+
+## 14. 维护者实施决策（2026-10-11，覆盖正文冲突处）
+
+> 本节由仓库维护者在 v1.3 交接后确认。与 §0–§13 冲突时以本节为准；未提及部分保持 v1.3 原文。
+
+| # | 议题 | 决策 | 影响位置 |
+|---|---|---|---|
+| 1 | 通信方案 | 正式采用 B（Electron Main 受信 Bridge），§1.4 首选 A 不再推进，除非 B 未通过必需检查。`plugins/dsh-corn-bridge` 推迟，仅在 RC2/Claw 未公开某个 Host 侧路由时创建，并在 ADR-0001 记录原因 | `docs/adr/ADR-0001-dsh-transport.md`、§2 文件树 |
+| 2 | 审批结果 | 只实现 DSH RC2 已有结果：`allowed-once` / `rejected` / `cancelled` / `unavailable`。`alwaysAllow` 不是审批答案，改为跳转 Bot 权限编辑器修改 Claw Policy（受硬上限约束）；`expired` 对应 Remote `cancel`、generation 替换或迟到回复 | §4.4、§12.4、§12.3 ApprovalCard、`design/grok-kit/SPEC_MAPPING.md` |
+| 3 | 任务线程 | M1 不做 `TaskThreadPane`、`taskId`、847/848/849 主内容宽并排；推迟到 M4/M5，届时 `taskId` 引用 `CornTaskRun`。`kit-thread-resize.spec.ts`、`kit-thread-states.ts` 随之推迟 | §4.5、§12.3、§12.4 |
+| 4 | M1 超出截图的范围 | 只纳入语音状态 fixture（activating/recording/processing/stop-in-flight/error 仅在开发 fixture 路由可见，正式界面仍 disabled）。深色主题、群组详情 tab、`dmg-0681` 布局 profile 及其边界测试均推迟 | §4.5、§12.1、§12.3；`docs/adr/ADR-0004-design-profiles.md` |
+| 5 | 开发顺序 | M1 期间允许并行开发不碰界面的 M2 底层（SQLite schema/迁移、session 事件 reducer、Run 状态机）；这些代码在 PR-02C 合并前不接入 Renderer | §12.5 PR-03 依赖 |
+| 6 | 头像风格 | Corn 原创：可保留“彩色形状 + 眼睛”的气质，但几何、表情、配色与动态有自己的辨识度，不模仿原版的标志性形态；不复制或描摹任何恢复出的路径与展示参数 | §13；`docs/adr/ADR-0003-avatar-engine.md` |
+| 7 | Kit 自写代码 | 只参考行为，全部用 TypeScript 重写；不移植 Kit 任何文件（包括维护者自写的 `src/composer.js`、`examples/*`） | §12.2、`design/grok-kit/RIGHTS_REVIEW.md` |
+| 8 | Kit 仓库可见性 | 转为私有。CI 无法 checkout，`pnpm verify:ui-kit` 在 CI 中输出明确的 `skipped` 诊断；本地需要时用 `--strict` | `design/grok-kit/SOURCE_LOCK.md` |
+| 9 | 分支 | PR-00D/E 在叠加于 `feat/m0-runtime-spike` 的新分支上进行，PR #1 保持草稿 | — |
+| — | 模型凭据 | Corn 专用 DeepSeek API Key 在 PR-00D/E 完成后、M0-03 开始前由维护者本地配置，同时确认模型 ID。Key 不进入 Git、计划文件或聊天 | M0-03、`docs/runbooks/development.md` |
+
+**同步修正（非决策性）**：ADR 编号顺延，SQLite 已占 ADR-0002，头像引擎为 ADR-0003，设计 profile 为 ADR-0004；`packages/ui-kit` 更名为 `packages/ui`；`design/fixtures/*.ts` 移到 `apps/renderer/tests/fixtures/`，`design/` 只存文档；§12.2 checkout 改为 `0248419…`；§0 第 1 条更新为仓库已创建；§13 头注的变化文件数按 `git diff --stat` 更正为 45。

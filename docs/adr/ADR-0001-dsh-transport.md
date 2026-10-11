@@ -1,7 +1,7 @@
 # ADR-0001: Corn-owned DSH runtime and Electron Main transport
 
-- Status: **Proposed (developer authentication/transport passed; full M0 pending)**
-- Date: 2026-10-10
+- Status: **Proposed — candidate B selected by the maintainer (2026-10-11); acceptance pending the remaining live M0 checks**
+- Date: 2026-10-10; selection recorded 2026-10-11
 - Milestone: M0
 - DSH: `0.2.0-rc.2`, tag `dsh-v0.2.0-rc.2`, commit `639ed015397290b3745d163aafe02ffee4aa3f84`
 - Claw Suite: `0.3.0-rc.2`; release asset and digest are recorded in `../../runtime.lock.json`.
@@ -47,6 +47,10 @@ Corn must retain explicit relationships among Run, submission `requestId`, accep
 - **C: SDK subprocess.** Useful for an isolated model spike. It is not accepted as the production transport without demonstrated complete approval, control, and lifecycle support.
 
 If B fails a required check, record the failure and validate A or a minimal public Host Bridge plugin. Do not proceed to product UI on fabricated integration success.
+
+## Maintainer selection (2026-10-11)
+
+B is the selected production direction, and A is no longer pursued unless B fails a required check. Plan §2's `plugins/dsh-corn-bridge` Host plugin is deferred. Main already calls the public Session Remote and Claw Registry routes directly, so the plugin is created only when Corn needs a Host-side route that RC2 and Claw do not expose. Each such route must be recorded here with the reason. This selection does not change the acceptance status above: real model streaming (M0-03), model-in-flight cancellation and packaged runtime checks remain outstanding.
 
 ## Evidence and consequences
 
