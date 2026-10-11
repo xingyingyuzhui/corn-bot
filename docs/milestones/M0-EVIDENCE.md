@@ -15,6 +15,7 @@ Recorded 2026-10-11. **M0 is not complete.** These are developer-runtime results
 | Electron sandbox/IPC | `CORN_DESKTOP_SMOKE=1 pnpm dev:desktop`: safe status returned through sandboxed preload; independent Host ready; captured diagnostic window |
 | SQLite candidate | CLI and Electron Node mode opened/read/wrote WAL database; Electron's Node 24.21.0 / SQLite 3.53.4 |
 | Native governance and cancellation | `pnpm smoke:governance`: real Gate deny, Remote reject and Remote cancel passed; queue retained, approval withdrawn, trace matched, zero bash body executions |
+| UI/UX research kit pin | `pnpm verify:ui-kit` against `.research/grok-bot-ui-ux-kit` at `0248419`: commit and 16 pinned file hashes match, and no Corn file copies a kit file. The kit's own `npm ci && npm run build && npm run check` reproduced byte-identical outputs and passed 7/7 tests. See [source lock](../../design/grok-kit/SOURCE_LOCK.md). CI has no checkout (private repository) and reports `skipped` |
 | Forced crash indication | `CORN_DESKTOP_SMOKE=1 CORN_DESKTOP_CRASH_SMOKE=1 pnpm dev:desktop`: owned Host killed, sandboxed Renderer received failed status and rendered disconnect message |
 
 The 16 Host checks establish: independent startup/token-cookie exchange; unauthenticated HTTP and WS 401; authenticated wrong-Origin HTTP and WS 403; Session listing; real Claw agent creation and preset ensure; real Session creation and binding; authenticated follow snapshot; reconnect with consistent fresh snapshot; nonexistent Session binding rejected; missing Claw preset rejected; SQLite WAL; concurrent graceful shutdown releases port; restart re-ensures the preset and recovers the durable Session; forced child crash notifies its supervisor and a subsequent manual restart recovers the Session.
@@ -34,6 +35,8 @@ Review found and fixed two concrete bugs: path names beginning with `..` could b
 | M0-05 forced Host failure, UI disconnect and log recovery | Forced crash shows disconnected Renderer status; manual Host restart recovers durable Session; model log recovery and automatic product recovery remain pending |
 | M0-06 no preset downgrade | Passed: missing `wa-*` preset is rejected |
 | M0-07 Gate rejection and consistent trace | Passed for native bash pipeline with matching official root-call trace; PTC and model-generated tool transcript pending |
+| PR-00D kit source and design profile | Source lock, rights review, specification mapping draft and [ADR-0004](../adr/ADR-0004-design-profiles.md) recorded; verification script and tests added |
+| PR-00E avatar source and engine | Avatar source matrix, behaviour mapping and [ADR-0003](../adr/ADR-0003-avatar-engine.md) (`corn-original`) recorded; no kit code or asset is a Corn dependency |
 | Packaged application and SQLite driver | Developer runtime passed; bundled `Corn Bot.app`, arm64 packaging and signing pending |
 
 No existing DSH credentials, settings or memories were read or copied. Ambient provider keys are dropped from the Host environment. `smoke:model` requires explicit new `CORN_DEEPSEEK_API_KEY` and `CORN_MODEL_ID`, verifies the `deepseek-official` live catalog route, then requires stream chunks, a committed assistant message, a completed Turn and durable page recovery. It exports counts only. This script is prepared validation code, not evidence of a successful model call.

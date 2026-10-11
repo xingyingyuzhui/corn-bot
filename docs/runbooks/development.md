@@ -22,6 +22,16 @@ No model credential is configured by setup. Ambient DSH/provider variables are n
 
 After privately supplying a new Corn key and `CORN_MODEL_ID`, run `pnpm smoke:model`. The requested model must be present under the official RC2 `deepseek-official` route. This makes a real billable model request, checks live chunks and durable completion, and exports counts only. No model test has been run without a new Corn configuration. Model selection changes the isolated Host's default as well as the test Session.
 
+Design work reads the private UI/UX research kit from a git-ignored checkout pinned in `design/grok-kit/kit.lock.json`:
+
+```sh
+git clone https://github.com/xingyingyuzhui/grok-bot-ui-ux-kit.git .research/grok-bot-ui-ux-kit
+git -C .research/grok-bot-ui-ux-kit checkout 0248419b80dde84560409802afb98f38803df52c
+pnpm verify:ui-kit --strict
+```
+
+Without a checkout, `pnpm verify:ui-kit` reports `skipped`, and `--strict` turns that into a failure. Never copy kit files into Corn; see `design/grok-kit/RIGHTS_REVIEW.md`.
+
 To verify the current sandboxed diagnostic app:
 
 ```sh

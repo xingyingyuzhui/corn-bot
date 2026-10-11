@@ -1,6 +1,7 @@
 # Corn Bot implementation rules
 
-- Follow `docs/plans/CORN_BOT_CODE_LEVEL_ITERATION_PLAN.md` v1.1. M0 must pass before product UI work.
+- Follow `docs/plans/CORN_BOT_CODE_LEVEL_ITERATION_PLAN.md` v1.3; §14 maintainer decisions override conflicting earlier sections. M0 must pass before product UI work.
+- The UI/UX research kit is read-only and pinned in `design/grok-kit/kit.lock.json`. Never copy its files, geometry, fonts, images or audio into Corn; rewrite behaviour in Corn TypeScript.
 - Read pinned DSH RC2 source, not current master. Do not edit upstream DSH or copy Claw implementation into Corn.
 - Research existing official implementations first. Independent audits may run in parallel.
 - Use a Corn-owned isolated DSH home and `corn-dev` profile. Never modify `~/.dsh`, existing Desktop packages or registered user bots.

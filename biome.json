@@ -7,6 +7,7 @@
       "!design/references",
       "!.runtime",
       "!.artifacts",
+      "!.research",
       "!**/dist",
       "!pnpm-lock.yaml"
     ]

@@ -3,6 +3,7 @@ dist/
 release/
 .runtime/
 .artifacts/
+.research/
 .DS_Store
 *.log
 *.sqlite*
