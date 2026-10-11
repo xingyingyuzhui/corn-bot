@@ -3,6 +3,15 @@ import type {
   RuntimeStatus,
   RuntimeView,
 } from '@corn-bot/contracts'
+import type {
+  ModelStatus,
+  ModelStatusView,
+} from '@corn-bot/contracts/model-settings'
+import {
+  type ModelStatusTone,
+  modelStatusText,
+  modelStatusTone,
+} from '../features/settings/model-settings-controller.ts'
 import type { WorkspaceRepository } from '../model/repository.ts'
 
 /** What the Renderer knows about Main's runtime. */
@@ -26,11 +35,11 @@ export const safeErrorCode = (view: RuntimeView): RuntimeErrorCode | null =>
 export function errorCodeText(code: RuntimeErrorCode): string {
   switch (code) {
     case 'model_config_invalid':
-      return '模型配置不完整或无法识别'
+      return '开发测试模型覆盖配置不完整或无法识别'
     case 'model_config_permissions':
-      return '模型配置文件权限过宽'
+      return '开发测试模型覆盖文件权限过宽'
     case 'model_config_unreadable':
-      return '无法读取模型配置文件'
+      return '无法读取开发测试模型覆盖文件'
     case 'runtime_home_rejected':
       return '运行时目录不属于 Corn'
     case 'runtime_home_locked':
@@ -129,9 +138,36 @@ export function sampleNotice(source: DataSource): string | null {
   }
 }
 
+export interface ModelNoticeView {
+  /** Announcement dedupe key: status, reason and the dev override. */
+  readonly key: string
+  readonly status: ModelStatus
+  readonly tone: ModelStatusTone
+  readonly text: string
+}
+
+/**
+ * The model line, separate from the Host line: only meaningful once the
+ * runtime is ready, so any other runtime state suppresses it.
+ */
+export function modelNotice(
+  reading: RuntimeReading,
+  model: ModelStatusView | null,
+): ModelNoticeView | null {
+  if (model === null || reading.kind !== 'host') return null
+  if (reading.view.status !== 'ready') return null
+  return {
+    key: `${model.status}:${model.reason}:${model.devOverride}`,
+    status: model.status,
+    tone: modelStatusTone(model),
+    text: modelStatusText(model),
+  }
+}
+
 export interface Announcement {
   readonly source: DataSource | null
   readonly runtimeKey: string | null
+  readonly modelKey: string | null
   readonly text: string
   /** Bumped whenever something is spoken, so equal text is still re-inserted. */
   readonly count: number
@@ -140,6 +176,7 @@ export interface Announcement {
 export const SILENT: Announcement = {
   source: null,
   runtimeKey: null,
+  modelKey: null,
   text: '',
   count: 0,
 }
@@ -147,26 +184,39 @@ export const SILENT: Announcement = {
 /**
  * Compares with the previous announcement only, never a history: the sample
  * source is spoken first and whenever it changes, the runtime whenever its
- * key differs from the last one spoken. A pending reading is never spoken.
- * Returns `previous` itself when there is nothing new to say.
+ * key differs from the last one spoken, and the model line likewise while the
+ * runtime is ready. Pending readings and model checks are never spoken; a
+ * runtime that leaves `ready` forgets the model key, so the model is spoken
+ * again with the next `ready`. Returns `previous` itself when there is nothing
+ * new to say.
  */
 export function nextAnnouncement(
   previous: Announcement,
   source: DataSource,
   reading: RuntimeReading,
+  model: ModelStatusView | null,
 ): Announcement {
   const runtime = reading.kind === 'pending' ? null : runtimeNotice(reading)
+  const modelLine = modelNotice(reading, model)
+  const spokenModel = modelLine?.status === 'checking' ? null : modelLine
+  const modelKey =
+    modelLine === null ? null : (spokenModel?.key ?? previous.modelKey)
   const sourceChanged = source !== previous.source
   const runtimeChanged = runtime !== null && runtime.key !== previous.runtimeKey
-  if (!sourceChanged && !runtimeChanged) return previous
+  const modelChanged =
+    spokenModel !== null && spokenModel.key !== previous.modelKey
+  if (!sourceChanged && !runtimeChanged && !modelChanged)
+    return modelKey === previous.modelKey ? previous : { ...previous, modelKey }
   const parts = [
     sourceChanged ? sampleNotice(source) : null,
     runtimeChanged ? runtime.text : null,
+    modelChanged ? spokenModel.text : null,
   ].filter((part) => part !== null)
-  if (parts.length === 0) return { ...previous, source }
+  if (parts.length === 0) return { ...previous, source, modelKey }
   return {
     source,
     runtimeKey: runtime?.key ?? previous.runtimeKey,
+    modelKey,
     text: parts.join('。'),
     count: previous.count + 1,
   }
