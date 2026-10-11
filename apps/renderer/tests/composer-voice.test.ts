@@ -101,6 +101,19 @@ test('stop-in-flight and processing cannot be cancelled away', () => {
   assert.equal(voiceReducer(stopping, { type: 'cancel' }), stopping)
 })
 
+test('switching Bot resets any task so late results are dropped', () => {
+  const processing = run([
+    { type: 'start', taskId: 't1' },
+    { type: 'activated', taskId: 't1', at: 0 },
+    { type: 'stop' },
+    { type: 'stopped', taskId: 't1' },
+  ])
+  const reset = voiceReducer(processing, { type: 'reset' })
+  assert.equal(reset, VOICE_IDLE)
+  assert.equal(voiceReducer(reset, { type: 'processed', taskId: 't1' }), reset)
+  assert.equal(voiceReducer(VOICE_IDLE, { type: 'reset' }), VOICE_IDLE)
+})
+
 test('durations format as m:ss', () => {
   assert.equal(formatDuration(0), '0:00')
   assert.equal(formatDuration(9_999), '0:09')

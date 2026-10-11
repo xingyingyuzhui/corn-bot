@@ -37,6 +37,8 @@ export type VoiceEvent =
     }
   | { readonly type: 'cancel' }
   | { readonly type: 'dismiss' }
+  /** The composer moved to another Bot; nothing may land in the old slot. */
+  | { readonly type: 'reset' }
 
 export const VOICE_IDLE: VoiceState = { phase: 'idle' }
 
@@ -72,6 +74,8 @@ export function voiceReducer(state: VoiceState, event: VoiceEvent): VoiceState {
         : state
     case 'dismiss':
       return state.phase === 'error' ? VOICE_IDLE : state
+    case 'reset':
+      return state.phase === 'idle' ? state : VOICE_IDLE
     default: {
       const unreachable: never = event
       throw new Error(`Unknown voice event ${JSON.stringify(unreachable)}`)
