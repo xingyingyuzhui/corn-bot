@@ -21,6 +21,7 @@
     "smoke:host": "node scripts/smoke-host.mjs",
     "smoke:cold": "node scripts/smoke-cold-start.mjs",
     "smoke:model": "node scripts/smoke-model.mjs",
+    "smoke:model-lifecycle": "node scripts/smoke-model-lifecycle.mjs",
     "smoke:governance": "node scripts/smoke-governance.mjs",
     "dev:desktop": "pnpm build && electron apps/desktop",
     "check": "pnpm lint && pnpm typecheck && pnpm test"

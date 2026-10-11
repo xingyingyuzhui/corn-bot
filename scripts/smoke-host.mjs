@@ -202,14 +202,9 @@ try {
     dshVersion: '0.2.0-rc.2',
     clawVersion: '0.3.0-rc.2',
     checks,
-    pending: [
-      'real-model-stream-and-final-message',
-      'active-turn-cancel-with-queue',
-      'gate-and-interactive-approval',
-      'packaged-app-runtime',
-    ],
+    pending: ['packaged-app-runtime'],
     scope:
-      'Real isolated Host/Claw integration. No existing DSH credentials, model call or desktop input.',
+      'Real isolated Host/Claw integration. No existing DSH credentials, model call or desktop input; model and governance paths are covered by smoke:model, smoke:model-lifecycle and smoke:governance.',
   }
   await writeFile(
     new URL('m0-host-smoke.json', artifacts),

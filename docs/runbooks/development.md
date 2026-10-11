@@ -30,6 +30,8 @@ Corn maps routes in `apps/desktop/src/runtime/model-provider.ts`. Each route pas
 
 `pnpm smoke:model` reads that configuration, requires the model under the selected live catalog route, makes a real billable request, checks live chunks and durable completion, and exports route, model and counts only. Model selection changes the isolated Host's default as well as the test Session.
 
+`pnpm smoke:model-lifecycle` runs five billable model Turns in the developer home: cancel during streaming with a queued request, model-generated `bash` denied by the Claw Gate (`research`) and rejected through Remote approval (`developer`), and two forced Host exits (after completion and mid-stream) followed by log recovery. It exports ids, codes and counts to `.artifacts/m0-model-lifecycle-smoke.json`, never response text. Each run leaves disposable Bots and Sessions in the developer home.
+
 Design work reads the private UI/UX research kit from a git-ignored checkout pinned in `design/grok-kit/kit.lock.json`:
 
 ```sh
