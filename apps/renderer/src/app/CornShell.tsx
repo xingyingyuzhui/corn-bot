@@ -109,7 +109,12 @@ export function CornShell({ runtime }: CornShellProps) {
         detailsOpen={state.detailsOpen}
         sidebarCollapsed={collapsed}
         voiceFixture={VOICE_FIXTURE}
-        onDraft={(draft) => dispatch({ type: 'edit-draft', draft })}
+        onDraft={(draft) =>
+          dispatch({ type: 'edit-draft', botId: bot.id, draft })
+        }
+        onSendSettled={(botId, sent) =>
+          dispatch({ type: 'settle-sent-draft', botId, sent })
+        }
         onScroll={(scroll) => dispatch({ type: 'record-scroll', scroll })}
         onToggleDetails={() =>
           dispatch({

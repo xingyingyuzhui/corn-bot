@@ -8,6 +8,7 @@ import type {
 import type { BotView, ConversationView } from '../../model/workspace.ts'
 import { ActionButton } from '../../shared/ActionButton.tsx'
 import { ConversationHeader } from './ConversationHeader.tsx'
+import type { SendAttempt } from './composer-model.ts'
 import { MessageComposer } from './MessageComposer.tsx'
 import { MessageFeed } from './MessageFeed.tsx'
 import './chat.css'
@@ -24,6 +25,7 @@ interface ChatPaneProps {
   /** Dev `ui-states` route only: shows the simulated dictation states. */
   readonly voiceFixture: boolean
   readonly onDraft: (draft: ComposerDraft) => void
+  readonly onSendSettled: (botId: string, sent: SendAttempt) => void
   readonly onScroll: (scroll: ChatScroll) => void
   readonly onToggleDetails: () => void
   readonly onToggleSidebar: () => void
@@ -86,6 +88,7 @@ export function ChatPane(props: ChatPaneProps) {
         blockedReason={blockedReason(conversation)}
         voiceFixture={props.voiceFixture}
         onDraft={props.onDraft}
+        onSendSettled={props.onSendSettled}
         onSent={() => setFollowToken((token) => token + 1)}
       />
     </main>

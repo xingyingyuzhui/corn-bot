@@ -1,12 +1,7 @@
 import { useLayoutEffect, useRef, useState } from 'react'
 import type { ComposerDraft } from '../../app/layout-state.ts'
 import { useRepository } from '../../app/workspace-context.tsx'
-import {
-  draftAfterSend,
-  hasPayload,
-  nextAttempt,
-  type SendAttempt,
-} from './composer-model.ts'
+import { hasPayload, nextAttempt, type SendAttempt } from './composer-model.ts'
 
 export interface ComposerSend {
   readonly submit: () => void
@@ -19,12 +14,12 @@ export interface ComposerSend {
  * Sends the draft to the local queue. One attempt per Bot is in flight at a
  * time; a retry of an unchanged draft reuses its client id, so the
  * repository never enqueues it twice. The composer is shared across Bots, so
- * results are applied to the Bot they were sent from.
+ * a settled send is reported with the Bot it was sent from.
  */
 export function useComposerSend(
   botId: string,
   draft: ComposerDraft,
-  onDraft: (draft: ComposerDraft) => void,
+  onSettled: (botId: string, sent: SendAttempt) => void,
   onSent: () => void,
 ): ComposerSend {
   const repository = useRepository()
@@ -32,9 +27,9 @@ export function useComposerSend(
   const inFlight = useRef(new Set<string>())
   const [sendingBots, setSendingBots] = useState<readonly string[]>([])
   const [errors, setErrors] = useState<Readonly<Record<string, string>>>({})
-  const latest = useRef({ botId, draft })
+  const currentBot = useRef(botId)
   useLayoutEffect(() => {
-    latest.current = { botId, draft }
+    currentBot.current = botId
   })
 
   const setError = (target: string, message: string | null) =>
@@ -64,14 +59,9 @@ export function useComposerSend(
       setError(target, result.error.message)
       return
     }
-    const now = latest.current
-    if (now.botId !== target) return
-    const next = draftAfterSend(now.draft, attempt)
-    if (next !== now.draft) {
-      attempts.current.delete(target)
-      onDraft(next)
-    }
-    onSent()
+    attempts.current.delete(target)
+    onSettled(target, attempt)
+    if (currentBot.current === target) onSent()
   }
 
   return {

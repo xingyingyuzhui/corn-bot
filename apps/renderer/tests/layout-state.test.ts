@@ -41,12 +41,20 @@ test('details overlay the chat instead of crushing it', () => {
 test('drafts, scroll and tabs are kept per Bot across switches and panel toggles', () => {
   const state = run(
     initialLayout('a'),
-    { type: 'edit-draft', draft: { text: 'draft for a', attachments: [] } },
+    {
+      type: 'edit-draft',
+      botId: 'a',
+      draft: { text: 'draft for a', attachments: [] },
+    },
     { type: 'record-scroll', scroll: { top: 120, pinnedToBottom: false } },
     { type: 'select-tab', tab: 'computer' },
     { type: 'open-details' },
     { type: 'select-bot', botId: 'b' },
-    { type: 'edit-draft', draft: { text: 'draft for b', attachments: [] } },
+    {
+      type: 'edit-draft',
+      botId: 'b',
+      draft: { text: 'draft for b', attachments: [] },
+    },
     { type: 'close-details' },
     { type: 'select-bot', botId: 'a' },
   )
@@ -251,4 +259,30 @@ test('group folds toggle independently', () => {
     { type: 'toggle-group', groupId: 'tech' },
   )
   assert.deepEqual(state.foldedGroupIds, ['office'])
+})
+
+test('a send that settles after a Bot switch clears the sending Bot only', () => {
+  const sent = { clientId: 'c1', text: 'hi', attachmentIds: [] }
+  const state = run(
+    initialLayout('a'),
+    { type: 'edit-draft', botId: 'a', draft: { text: 'hi', attachments: [] } },
+    { type: 'select-bot', botId: 'b' },
+    { type: 'edit-draft', botId: 'b', draft: { text: 'hi', attachments: [] } },
+    { type: 'settle-sent-draft', botId: 'a', sent },
+  )
+  assert.deepEqual(draftFor(state, 'a'), EMPTY_DRAFT)
+  assert.equal(draftFor(state, 'b').text, 'hi')
+})
+
+test('a draft edited while its send was in flight is kept', () => {
+  const sent = { clientId: 'c1', text: 'hi', attachmentIds: [] }
+  const edited = run(initialLayout('a'), {
+    type: 'edit-draft',
+    botId: 'a',
+    draft: { text: 'hi!', attachments: [] },
+  })
+  assert.equal(
+    layoutReducer(edited, { type: 'settle-sent-draft', botId: 'a', sent }),
+    edited,
+  )
 })

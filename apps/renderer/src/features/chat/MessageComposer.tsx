@@ -21,6 +21,7 @@ import {
   hasPayload,
   pastePlan,
   READ_ONLY_LABEL,
+  type SendAttempt,
   shouldSubmit,
   stageAttachments,
 } from './composer-model.ts'
@@ -39,6 +40,7 @@ interface MessageComposerProps {
   /** Dev `ui-states` route only: simulated dictation states. */
   readonly voiceFixture: boolean
   readonly onDraft: (draft: ComposerDraft) => void
+  readonly onSendSettled: (botId: string, sent: SendAttempt) => void
   readonly onSent: () => void
 }
 
@@ -50,6 +52,7 @@ export function MessageComposer({
   blockedReason,
   voiceFixture,
   onDraft,
+  onSendSettled,
   onSent,
 }: MessageComposerProps) {
   const notify = useNotice()
@@ -63,7 +66,7 @@ export function MessageComposer({
     latest.current = next
     onDraft(next)
   }
-  const send = useComposerSend(botId, draft, commit, onSent)
+  const send = useComposerSend(botId, draft, onSendSettled, onSent)
   const voice = useVoiceFixture(botId, notify)
   const voicePhase = voiceFixture ? voice.state.phase : 'idle'
   const action = composerAction({

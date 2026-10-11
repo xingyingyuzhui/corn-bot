@@ -1,3 +1,7 @@
+import {
+  draftAfterSend,
+  type SendAttempt,
+} from '../features/chat/composer-model.ts'
 import type { AttachmentView } from '../model/workspace.ts'
 
 /**
@@ -85,7 +89,18 @@ export type LayoutAction =
   | { readonly type: 'open-details' }
   | { readonly type: 'close-details' }
   | { readonly type: 'select-tab'; readonly tab: DetailsTab }
-  | { readonly type: 'edit-draft'; readonly draft: ComposerDraft }
+  | {
+      readonly type: 'edit-draft'
+      readonly botId: string
+      readonly draft: ComposerDraft
+    }
+  /** Clears `botId`'s draft if it still holds exactly what was sent; a send
+   * may settle after the user has switched to another Bot. */
+  | {
+      readonly type: 'settle-sent-draft'
+      readonly botId: string
+      readonly sent: SendAttempt
+    }
   | { readonly type: 'record-scroll'; readonly scroll: ChatScroll }
   | { readonly type: 'toggle-sidebar' }
   | { readonly type: 'viewport'; readonly width: number }
@@ -221,8 +236,15 @@ export function layoutReducer(
     case 'edit-draft':
       return {
         ...state,
-        drafts: { ...state.drafts, [state.selectedBotId]: action.draft },
+        drafts: { ...state.drafts, [action.botId]: action.draft },
       }
+    case 'settle-sent-draft': {
+      const current = draftFor(state, action.botId)
+      const next = draftAfterSend(current, action.sent)
+      return next === current
+        ? state
+        : { ...state, drafts: { ...state.drafts, [action.botId]: next } }
+    }
     case 'record-scroll':
       return {
         ...state,
