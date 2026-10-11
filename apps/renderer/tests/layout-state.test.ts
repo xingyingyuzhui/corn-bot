@@ -2,6 +2,8 @@ import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import {
   detailsTabFor,
+  draftFor,
+  EMPTY_DRAFT,
   initialLayout,
   LAYOUT,
   type LayoutAction,
@@ -34,17 +36,18 @@ test('details overlay the chat instead of crushing it', () => {
 test('drafts, scroll and tabs are kept per Bot across switches and panel toggles', () => {
   const state = run(
     initialLayout('a'),
-    { type: 'edit-draft', text: 'draft for a' },
+    { type: 'edit-draft', draft: { text: 'draft for a', attachments: [] } },
     { type: 'record-scroll', scroll: { top: 120, pinnedToBottom: false } },
     { type: 'select-tab', tab: 'computer' },
     { type: 'open-details' },
     { type: 'select-bot', botId: 'b' },
-    { type: 'edit-draft', text: 'draft for b' },
+    { type: 'edit-draft', draft: { text: 'draft for b', attachments: [] } },
     { type: 'close-details' },
     { type: 'select-bot', botId: 'a' },
   )
-  assert.equal(state.drafts.a, 'draft for a')
-  assert.equal(state.drafts.b, 'draft for b')
+  assert.equal(draftFor(state, 'a').text, 'draft for a')
+  assert.equal(draftFor(state, 'b').text, 'draft for b')
+  assert.deepEqual(draftFor(state, 'c'), EMPTY_DRAFT)
   assert.deepEqual(state.scroll.a, { top: 120, pinnedToBottom: false })
   assert.equal(detailsTabFor(state, 'a'), 'computer')
   assert.equal(detailsTabFor(state, 'b'), 'details')
@@ -72,4 +75,16 @@ test('unchanged actions keep state identity', () => {
   assert.equal(layoutReducer(state, { type: 'select-bot', botId: 'a' }), state)
   assert.equal(layoutReducer(state, { type: 'close-details' }), state)
   assert.equal(layoutReducer(state, { type: 'viewport', width: 1024 }), state)
+})
+
+test('one overlay at a time, closing is idempotent', () => {
+  const state = run(
+    initialLayout('a'),
+    { type: 'open-overlay', overlay: { kind: 'create-bot' } },
+    { type: 'open-overlay', overlay: { kind: 'bot-tags', botId: 'a' } },
+  )
+  assert.deepEqual(state.overlay, { kind: 'bot-tags', botId: 'a' })
+  const closed = run(state, { type: 'close-overlay' })
+  assert.equal(closed.overlay, null)
+  assert.equal(layoutReducer(closed, { type: 'close-overlay' }), closed)
 })

@@ -1,6 +1,10 @@
 import { Share, X } from 'lucide-react'
 import type { KeyboardEvent } from 'react'
-import { DETAILS_TABS, type DetailsTab } from '../../app/layout-state.ts'
+import {
+  DETAILS_TABS,
+  type DetailsTab,
+  type Overlay,
+} from '../../app/layout-state.ts'
 import type { BotView } from '../../model/workspace.ts'
 import { ActionButton } from '../../shared/ActionButton.tsx'
 import { Avatar } from '../../shared/Avatar.tsx'
@@ -24,6 +28,7 @@ interface BotDetailsPaneProps {
   readonly tab: DetailsTab
   readonly onSelectTab: (tab: DetailsTab) => void
   readonly onClose: () => void
+  readonly onOpenOverlay: (overlay: Overlay) => void
 }
 
 export function BotDetailsPane({
@@ -31,6 +36,7 @@ export function BotDetailsPane({
   tab,
   onSelectTab,
   onClose,
+  onOpenOverlay,
 }: BotDetailsPaneProps) {
   const moveFocus = (event: KeyboardEvent<HTMLDivElement>) => {
     const step =
@@ -79,7 +85,7 @@ export function BotDetailsPane({
         <ActionButton
           className="corn-details__tags"
           label="添加标签"
-          unavailable={UNAVAILABLE.tags}
+          onPress={() => onOpenOverlay({ kind: 'bot-tags', botId: bot.id })}
         >
           添加标签
         </ActionButton>

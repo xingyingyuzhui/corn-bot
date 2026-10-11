@@ -95,6 +95,18 @@ export function MessageFeed({
             return (
               <HandoffNotice key={item.id} bots={bots} botIds={item.botIds} />
             )
+          case 'notice':
+            return (
+              <p key={item.id} className="corn-feed__notice">
+                {item.text}
+              </p>
+            )
+          case 'approval':
+            return (
+              <p key={item.id} className="corn-feed__notice">
+                {item.title}：{item.detail}
+              </p>
+            )
           default: {
             const unreachable: never = item
             throw new Error(`Unknown feed item ${JSON.stringify(unreachable)}`)

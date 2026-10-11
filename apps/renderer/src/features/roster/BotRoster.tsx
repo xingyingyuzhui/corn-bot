@@ -1,4 +1,5 @@
 import { Plus, Search } from 'lucide-react'
+import type { Overlay } from '../../app/layout-state.ts'
 import type { RosterView } from '../../model/workspace.ts'
 import { ActionButton } from '../../shared/ActionButton.tsx'
 import { Avatar } from '../../shared/Avatar.tsx'
@@ -11,9 +12,16 @@ interface BotRosterProps {
   readonly roster: RosterView
   readonly selectedBotId: string
   readonly onSelect: (botId: string) => void
+  readonly onOpenOverlay: (overlay: Overlay) => void
 }
 
-export function BotRoster({ roster, selectedBotId, onSelect }: BotRosterProps) {
+export function BotRoster({
+  roster,
+  selectedBotId,
+  onSelect,
+  onOpenOverlay,
+}: BotRosterProps) {
+  const hidden = new Set(roster.hiddenBotIds)
   return (
     <nav className="corn-roster" aria-label="Bot 名册">
       <header className="corn-roster__titlebar corn-drag">
@@ -27,7 +35,7 @@ export function BotRoster({ roster, selectedBotId, onSelect }: BotRosterProps) {
         <ActionButton
           className="corn-round-button"
           label="新建 Bot"
-          unavailable={UNAVAILABLE.createBot}
+          onPress={() => onOpenOverlay({ kind: 'create-bot' })}
         >
           <Plus size={18} strokeWidth={2} aria-hidden />
         </ActionButton>
@@ -59,7 +67,7 @@ export function BotRoster({ roster, selectedBotId, onSelect }: BotRosterProps) {
             <ul className="corn-roster__list">
               {group.botIds.map((id) => {
                 const bot = roster.bots[id]
-                return bot ? (
+                return bot && !hidden.has(id) ? (
                   <li key={id}>
                     <BotListItem
                       bot={bot}
@@ -77,15 +85,17 @@ export function BotRoster({ roster, selectedBotId, onSelect }: BotRosterProps) {
       <footer className="corn-roster__footer">
         <ActionButton
           className="corn-roster__account"
-          label="账户"
-          unavailable={UNAVAILABLE.account}
+          label="设置"
+          onPress={() =>
+            onOpenOverlay({ kind: 'settings', section: 'general' })
+          }
         >
           <Avatar spec={roster.account} size={30} />
         </ActionButton>
         <ActionButton
           className="corn-roster__connect"
           label="连接应用"
-          unavailable={UNAVAILABLE.connectApps}
+          onPress={() => onOpenOverlay({ kind: 'connect-apps' })}
         >
           连接应用
         </ActionButton>

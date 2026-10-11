@@ -1,0 +1,97 @@
+.corn-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-block-size: 30px;
+  padding: 0 13px;
+  border-radius: 15px;
+  font-size: var(--corn-text-sm);
+  font-weight: 500;
+  line-height: 18px;
+  transition:
+    background-color var(--corn-duration) var(--corn-ease),
+    opacity var(--corn-duration) var(--corn-ease);
+}
+
+.corn-button[data-variant="primary"] {
+  background: var(--corn-fill-strong);
+  color: var(--corn-text-inverse);
+}
+
+.corn-button[data-variant="secondary"] {
+  background: var(--corn-fill-muted);
+}
+
+.corn-button[data-variant="ghost"] {
+  color: var(--corn-text-secondary);
+}
+
+.corn-button[data-variant="danger"] {
+  background: var(--corn-fill-muted);
+  color: var(--corn-text-danger);
+}
+
+.corn-button:not(:disabled):hover {
+  background-color: var(--corn-surface-hover);
+}
+
+.corn-button[data-variant="primary"]:not(:disabled):hover {
+  background-color: var(--corn-fill-strong);
+  opacity: 0.9;
+}
+
+.corn-button:disabled {
+  opacity: 0.56;
+}
+
+.corn-button[aria-busy="true"] {
+  opacity: 0.72;
+}
+
+.corn-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.corn-field + .corn-field {
+  margin-block-start: 14px;
+}
+
+.corn-field__label {
+  color: var(--corn-text-secondary);
+  font-size: var(--corn-text-sm);
+  line-height: var(--corn-leading-sm);
+}
+
+.corn-field__input {
+  inline-size: 100%;
+  padding: 7px 10px;
+  border: 1px solid var(--corn-border-control);
+  border-radius: var(--corn-radius-card);
+  background: var(--corn-surface-raised);
+  font-size: var(--corn-text-sm);
+  line-height: var(--corn-leading-body);
+  resize: vertical;
+}
+
+.corn-field__input:focus-visible {
+  outline: 2px solid var(--corn-focus-ring);
+  outline-offset: 0;
+}
+
+.corn-field[data-invalid] .corn-field__input {
+  border-color: var(--corn-text-danger);
+}
+
+.corn-field__message {
+  margin: 0;
+  color: var(--corn-text-tertiary);
+  font-size: var(--corn-text-xs);
+  line-height: var(--corn-leading-xs);
+}
+
+.corn-field[data-invalid] .corn-field__message {
+  color: var(--corn-text-danger);
+}

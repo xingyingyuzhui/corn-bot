@@ -1,6 +1,8 @@
+import type { AttachmentView } from '../model/workspace.ts'
+
 /**
  * Renderer-only shell state. It never holds DSH runtime state: selection,
- * drafts, scroll positions and panel preferences only.
+ * drafts, scroll positions, panel preferences and the open overlay only.
  */
 
 export const DETAILS_TABS = ['details', 'library', 'computer'] as const
@@ -14,6 +16,27 @@ export const LAYOUT = {
   autoCompactBelow: 820,
 } as const
 
+/** Per-Bot composer contents; attachments are staged locally, never uploaded. */
+export interface ComposerDraft {
+  readonly text: string
+  readonly attachments: readonly AttachmentView[]
+}
+
+export const EMPTY_DRAFT: ComposerDraft = { text: '', attachments: [] }
+
+export type SettingsSection = 'general' | 'models'
+
+/** At most one modal surface is open; each kind names its owner feature. */
+export type Overlay =
+  | { readonly kind: 'create-bot' }
+  | { readonly kind: 'connect-apps' }
+  | { readonly kind: 'settings'; readonly section: SettingsSection }
+  | { readonly kind: 'bot-profile'; readonly botId: string }
+  | { readonly kind: 'bot-tags'; readonly botId: string }
+  | { readonly kind: 'bot-permissions'; readonly botId: string }
+  | { readonly kind: 'bot-model'; readonly botId: string }
+  | { readonly kind: 'share-export'; readonly botId: string }
+
 export interface ChatScroll {
   readonly top: number
   readonly pinnedToBottom: boolean
@@ -23,10 +46,11 @@ export interface LayoutState {
   readonly selectedBotId: string
   readonly detailsOpen: boolean
   readonly detailsTabs: Readonly<Record<string, DetailsTab>>
-  readonly drafts: Readonly<Record<string, string>>
+  readonly drafts: Readonly<Record<string, ComposerDraft>>
   readonly scroll: Readonly<Record<string, ChatScroll>>
   readonly sidebarManualCollapsed: boolean
   readonly sidebarAutoCompact: boolean
+  readonly overlay: Overlay | null
 }
 
 export type LayoutAction =
@@ -34,10 +58,12 @@ export type LayoutAction =
   | { readonly type: 'open-details' }
   | { readonly type: 'close-details' }
   | { readonly type: 'select-tab'; readonly tab: DetailsTab }
-  | { readonly type: 'edit-draft'; readonly text: string }
+  | { readonly type: 'edit-draft'; readonly draft: ComposerDraft }
   | { readonly type: 'record-scroll'; readonly scroll: ChatScroll }
   | { readonly type: 'toggle-sidebar' }
   | { readonly type: 'viewport'; readonly width: number }
+  | { readonly type: 'open-overlay'; readonly overlay: Overlay }
+  | { readonly type: 'close-overlay' }
 
 export function initialLayout(selectedBotId: string): LayoutState {
   return {
@@ -48,6 +74,7 @@ export function initialLayout(selectedBotId: string): LayoutState {
     scroll: {},
     sidebarManualCollapsed: false,
     sidebarAutoCompact: false,
+    overlay: null,
   }
 }
 
@@ -75,7 +102,7 @@ export function layoutReducer(
     case 'edit-draft':
       return {
         ...state,
-        drafts: { ...state.drafts, [state.selectedBotId]: action.text },
+        drafts: { ...state.drafts, [state.selectedBotId]: action.draft },
       }
     case 'record-scroll':
       return {
@@ -94,6 +121,10 @@ export function layoutReducer(
         ? state
         : { ...state, sidebarAutoCompact: compact }
     }
+    case 'open-overlay':
+      return { ...state, overlay: action.overlay }
+    case 'close-overlay':
+      return state.overlay === null ? state : { ...state, overlay: null }
     default: {
       const unreachable: never = action
       throw new Error(`Unknown layout action ${JSON.stringify(unreachable)}`)
@@ -103,6 +134,10 @@ export function layoutReducer(
 
 export function sidebarCollapsed(state: LayoutState): boolean {
   return state.sidebarManualCollapsed || state.sidebarAutoCompact
+}
+
+export function draftFor(state: LayoutState, botId: string): ComposerDraft {
+  return state.drafts[botId] ?? EMPTY_DRAFT
 }
 
 export function detailsTabFor(state: LayoutState, botId: string): DetailsTab {

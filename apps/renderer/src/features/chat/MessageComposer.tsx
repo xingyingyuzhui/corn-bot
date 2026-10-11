@@ -1,5 +1,6 @@
 import { ArrowUp, AudioLines, Mic, Plus } from 'lucide-react'
 import { useLayoutEffect, useRef } from 'react'
+import type { ComposerDraft } from '../../app/layout-state.ts'
 import { ActionButton } from '../../shared/ActionButton.tsx'
 import { UNAVAILABLE } from '../../shared/unavailable.ts'
 
@@ -7,8 +8,8 @@ const MAX_ROWS_HEIGHT = 160
 
 interface MessageComposerProps {
   readonly botName: string
-  readonly draft: string
-  readonly onDraft: (text: string) => void
+  readonly draft: ComposerDraft
+  readonly onDraft: (draft: ComposerDraft) => void
 }
 
 /**
@@ -29,7 +30,7 @@ export function MessageComposer({
     element.style.blockSize = `${Math.min(element.scrollHeight, MAX_ROWS_HEIGHT)}px`
   })
 
-  const hasText = draft.trim().length > 0
+  const hasText = draft.text.trim().length > 0
   return (
     <div className="corn-composer">
       <ActionButton
@@ -43,10 +44,10 @@ export function MessageComposer({
         ref={field}
         className="corn-composer__field"
         rows={1}
-        value={draft}
+        value={draft.text}
         placeholder={`给 ${botName} 发消息`}
         aria-label={`给 ${botName} 发消息`}
-        onChange={(event) => onDraft(event.target.value)}
+        onChange={(event) => onDraft({ ...draft, text: event.target.value })}
       />
       <ActionButton
         className="corn-composer__action"

@@ -1,6 +1,6 @@
 import { PanelLeft } from 'lucide-react'
-import type { ChatScroll } from '../../app/layout-state.ts'
-import type { BotView, FeedItem } from '../../model/workspace.ts'
+import type { ChatScroll, ComposerDraft } from '../../app/layout-state.ts'
+import type { BotView, ConversationView } from '../../model/workspace.ts'
 import { ActionButton } from '../../shared/ActionButton.tsx'
 import { ConversationHeader } from './ConversationHeader.tsx'
 import { MessageComposer } from './MessageComposer.tsx'
@@ -10,13 +10,13 @@ import './chat.css'
 interface ChatPaneProps {
   readonly bot: BotView
   readonly bots: Readonly<Record<string, BotView>>
-  readonly items: readonly FeedItem[]
+  readonly conversation: ConversationView
   readonly notice: string
-  readonly draft: string
+  readonly draft: ComposerDraft
   readonly scroll: ChatScroll | undefined
   readonly detailsOpen: boolean
   readonly sidebarCollapsed: boolean
-  readonly onDraft: (text: string) => void
+  readonly onDraft: (draft: ComposerDraft) => void
   readonly onScroll: (scroll: ChatScroll) => void
   readonly onToggleDetails: () => void
   readonly onToggleSidebar: () => void
@@ -45,7 +45,7 @@ export function ChatPane(props: ChatPaneProps) {
       <MessageFeed
         key={bot.id}
         bots={props.bots}
-        items={props.items}
+        items={props.conversation.items}
         notice={props.notice}
         initialScroll={props.scroll}
         onScroll={props.onScroll}
