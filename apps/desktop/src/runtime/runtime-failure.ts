@@ -47,6 +47,20 @@ export class HostStoppedError extends Error {
   }
 }
 
+/**
+ * Stop could not confirm that the owned child exited after SIGKILL. Its home
+ * stays locked and no replacement Host may start until a later stop confirms it.
+ */
+export class HostStopTimeoutError extends Error {
+  override readonly name = 'HostStopTimeoutError'
+  readonly pid: number | undefined
+
+  constructor(pid: number | undefined) {
+    super(`DSH Host ${pid ?? '(no pid)'} did not exit after SIGKILL`)
+    this.pid = pid
+  }
+}
+
 /** Unclassified errors are transient Host failures and feed bounded recovery. */
 export function runtimeFailureOf(error: unknown): RuntimeFailure {
   if (error instanceof RuntimeFailure) return error
