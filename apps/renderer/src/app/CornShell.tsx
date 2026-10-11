@@ -1,8 +1,17 @@
 import type { RuntimeView } from '@corn-bot/contracts'
-import { useEffect, useReducer, useSyncExternalStore } from 'react'
+import {
+  type CSSProperties,
+  useEffect,
+  useReducer,
+  useSyncExternalStore,
+} from 'react'
 import { ChatPane } from '../features/chat/ChatPane.tsx'
 import { BotDetailsPane } from '../features/details/BotDetailsPane.tsx'
 import { BotRoster } from '../features/roster/BotRoster.tsx'
+import {
+  rosterFilterFor,
+  visibleBotOrder,
+} from '../features/roster/roster-order.ts'
 import {
   detailsTabFor,
   draftFor,
@@ -12,6 +21,7 @@ import {
   resolveLayout,
 } from './layout-state.ts'
 import { OverlayHost } from './OverlayHost.tsx'
+import { useShellShortcuts } from './use-shell-shortcuts.ts'
 import { useRepository, useWorkspace } from './workspace-context.tsx'
 
 const subscribeViewport = (notify: () => void) => {
@@ -30,7 +40,7 @@ export function CornShell({ runtime }: CornShellProps) {
   const [state, dispatch] = useReducer(
     layoutReducer,
     repository.initialBotId,
-    initialLayout,
+    (botId) => initialLayout(botId, window.innerWidth),
   )
   const width = useSyncExternalStore(subscribeViewport, viewportWidth)
   useEffect(() => dispatch({ type: 'viewport', width }), [width])
@@ -46,6 +56,19 @@ export function CornShell({ runtime }: CornShellProps) {
     items: [],
   }
   const layout = resolveLayout(state, width)
+  const collapsed = layout.sidebar === 'collapsed'
+  const rosterFilter = rosterFilterFor(
+    collapsed,
+    state.foldedGroupIds,
+    state.rosterSearch?.query,
+  )
+  useShellShortcuts({
+    state,
+    dispatch,
+    botId: bot.id,
+    sidebarCollapsed: collapsed,
+    visibleOrder: visibleBotOrder(roster, rosterFilter),
+  })
   const openOverlay = (overlay: Overlay) =>
     dispatch({ type: 'open-overlay', overlay })
   const notice = [
@@ -60,12 +83,18 @@ export function CornShell({ runtime }: CornShellProps) {
       className="corn-shell"
       data-sidebar={layout.sidebar}
       data-details={layout.details}
+      style={
+        { '--corn-roster-width': `${layout.sidebarWidth}px` } as CSSProperties
+      }
     >
       <BotRoster
         roster={roster}
         selectedBotId={bot.id}
-        onSelect={(botId) => dispatch({ type: 'select-bot', botId })}
-        onOpenOverlay={openOverlay}
+        layout={state}
+        filter={rosterFilter}
+        collapsed={collapsed}
+        width={layout.sidebarWidth}
+        dispatch={dispatch}
       />
       <ChatPane
         bot={bot}
@@ -75,7 +104,7 @@ export function CornShell({ runtime }: CornShellProps) {
         draft={draftFor(state, bot.id)}
         scroll={state.scroll[bot.id]}
         detailsOpen={state.detailsOpen}
-        sidebarCollapsed={layout.sidebar === 'collapsed'}
+        sidebarCollapsed={collapsed}
         onDraft={(draft) => dispatch({ type: 'edit-draft', draft })}
         onScroll={(scroll) => dispatch({ type: 'record-scroll', scroll })}
         onToggleDetails={() =>
