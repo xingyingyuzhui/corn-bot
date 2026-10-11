@@ -2,10 +2,12 @@ import {
   type CSSProperties,
   useEffect,
   useReducer,
+  useState,
   useSyncExternalStore,
 } from 'react'
 import { ChatPane } from '../features/chat/ChatPane.tsx'
 import { BotDetailsPane } from '../features/details/BotDetailsPane.tsx'
+import { ConfigDraftRegistry } from '../features/details/configuration/config-drafts.ts'
 import { BotRoster } from '../features/roster/BotRoster.tsx'
 import {
   rosterFilterFor,
@@ -13,11 +15,9 @@ import {
 } from '../features/roster/roster-order.ts'
 import { parseFixtureRoute } from '../fixtures/routes.ts'
 import {
-  detailsTabFor,
   draftFor,
   initialLayout,
   layoutReducer,
-  type Overlay,
   resolveLayout,
 } from './layout-state.ts'
 import { OverlayHost } from './OverlayHost.tsx'
@@ -49,6 +49,7 @@ export function CornShell({ runtime }: CornShellProps) {
     repository.initialBotId,
     (botId) => initialLayout(botId, window.innerWidth),
   )
+  const [configDrafts] = useState(() => new ConfigDraftRegistry())
   const width = useSyncExternalStore(subscribeViewport, viewportWidth)
   useEffect(() => dispatch({ type: 'viewport', width }), [width])
 
@@ -76,8 +77,6 @@ export function CornShell({ runtime }: CornShellProps) {
     sidebarCollapsed: collapsed,
     visibleOrder: visibleBotOrder(roster, rosterFilter),
   })
-  const openOverlay = (overlay: Overlay) =>
-    dispatch({ type: 'open-overlay', overlay })
   return (
     <div
       className="corn-shell"
@@ -120,18 +119,27 @@ export function CornShell({ runtime }: CornShellProps) {
           })
         }
         onToggleSidebar={() => dispatch({ type: 'toggle-sidebar' })}
-        onOpenOverlay={openOverlay}
+        onOpenPermissions={() =>
+          dispatch({
+            type: 'open-details-entry',
+            botId: bot.id,
+            entry: 'permissions',
+          })
+        }
       />
       {layout.details === 'closed' ? null : (
         <BotDetailsPane
           bot={bot}
-          tab={detailsTabFor(state, bot.id)}
-          onSelectTab={(tab) => dispatch({ type: 'select-tab', tab })}
-          onClose={() => dispatch({ type: 'close-details' })}
-          onOpenOverlay={openOverlay}
+          layout={state}
+          dispatch={dispatch}
+          drafts={configDrafts}
         />
       )}
-      <OverlayHost overlay={state.overlay} dispatch={dispatch} />
+      <OverlayHost
+        overlay={state.overlay}
+        dispatch={dispatch}
+        drafts={configDrafts}
+      />
     </div>
   )
 }

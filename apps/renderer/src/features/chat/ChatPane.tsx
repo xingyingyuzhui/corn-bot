@@ -1,6 +1,6 @@
 import { PanelLeft } from 'lucide-react'
 import { useState } from 'react'
-import type { ChatScroll, Overlay } from '../../app/layout-state.ts'
+import type { ChatScroll } from '../../app/layout-state.ts'
 import type { RuntimeNoticeView } from '../../app/runtime-notice.ts'
 import type { ComposerDraft, SendAttempt } from '../../model/draft.ts'
 import type { BotView, ConversationView } from '../../model/workspace.ts'
@@ -29,7 +29,8 @@ interface ChatPaneProps {
   readonly onScroll: (scroll: ChatScroll) => void
   readonly onToggleDetails: () => void
   readonly onToggleSidebar: () => void
-  readonly onOpenOverlay: (overlay: Overlay) => void
+  /** Opens this Bot's permissions in the management pane. */
+  readonly onOpenPermissions: () => void
 }
 
 const blockedReason = (conversation: ConversationView): string | null => {
@@ -75,9 +76,7 @@ export function ChatPane(props: ChatPaneProps) {
         initialScroll={props.scroll}
         followToken={followToken}
         onScroll={props.onScroll}
-        onOpenPermissions={() =>
-          props.onOpenOverlay({ kind: 'bot-permissions', botId: bot.id })
-        }
+        onOpenPermissions={props.onOpenPermissions}
       />
       <RuntimeNotice sample={props.sample} runtime={props.runtime} />
       <MessageComposer

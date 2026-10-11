@@ -1,11 +1,20 @@
 import { Ellipsis, Share, X } from 'lucide-react'
-import type { KeyboardEvent } from 'react'
 import {
-  DETAILS_TABS,
-  type DetailsTab,
-  type Overlay,
+  type Dispatch,
+  type ReactNode,
+  useEffect,
+  useEffectEvent,
+  useLayoutEffect,
+  useRef,
+} from 'react'
+import {
+  detailsLocationFor,
+  type LayoutAction,
+  type LayoutState,
 } from '../../app/layout-state.ts'
 import { useWorkspace } from '../../app/workspace-context.tsx'
+import { fixtureSections } from '../../fixtures/management-sections.ts'
+import { parseFixtureRoute } from '../../fixtures/routes.ts'
 import { modelSummary } from '../../model/models.ts'
 import type { BotView } from '../../model/workspace.ts'
 import { ActionButton } from '../../shared/ActionButton.tsx'
@@ -15,101 +24,243 @@ import { Menu, type MenuItem } from '../../shared/Menu.tsx'
 import { useCopy } from '../../shared/use-copy.ts'
 import { botBrief } from '../bot-editor/share-export.ts'
 import { BotTagChips } from './BotTagChips.tsx'
+import {
+  BotConfigurationHome,
+  configEntryId,
+} from './configuration/BotConfigurationHome.tsx'
+import {
+  ConfigSubpageFrame,
+  PAGE_HEADING_SELECTOR,
+} from './configuration/ConfigSubpageFrame.tsx'
+import { CoreSettingsSection } from './configuration/CoreSettingsSection.tsx'
+import type { ConfigDraftRegistry } from './configuration/config-drafts.ts'
+import { configSummaries } from './configuration/config-summaries.ts'
+import { ModelSettingsSection } from './configuration/ModelSettingsSection.tsx'
+import { PermissionsSection } from './configuration/PermissionsSection.tsx'
+import { SkillsSection } from './configuration/SkillsSection.tsx'
+import {
+  type ConfigSubpage,
+  type DetailsEntry,
+  type DetailsFocusTarget,
+  type DetailsLocation,
+  MAIN_TAB_LABELS,
+  MAIN_TABS,
+  tabForKey,
+  viewKey,
+} from './details-navigation.ts'
+import { BotLibrary } from './library/BotLibrary.tsx'
+import { BotOverview } from './overview/BotOverview.tsx'
 import './details.css'
 
-const TAB_LABELS: Readonly<Record<DetailsTab, string>> = {
-  details: '详情',
-  library: '资料库',
-  computer: '电脑',
-}
-
-const EMPTY_STATES: Readonly<Record<DetailsTab, string>> = {
-  details: '例行任务是此 Bot 按计划重复运行的任务。请在聊天中让它设置一个。',
-  library: '还没有资料。Bot 产出的文件和你分享给它的资料会显示在这里。',
-  computer: '电脑控制尚未接通。接通后，这里会显示 Bot 使用电脑的权限和画面。',
-}
-
-type BotOverlayKind = Extract<Overlay, { readonly botId: string }>['kind']
+const SECTIONS = fixtureSections(
+  parseFixtureRoute(window.location.hash, import.meta.env.DEV),
+)
 
 interface BotDetailsPaneProps {
   readonly bot: BotView
-  readonly tab: DetailsTab
-  readonly onSelectTab: (tab: DetailsTab) => void
-  readonly onClose: () => void
-  readonly onOpenOverlay: (overlay: Overlay) => void
+  readonly layout: LayoutState
+  readonly dispatch: Dispatch<LayoutAction>
+  readonly drafts: ConfigDraftRegistry
 }
 
 export function BotDetailsPane({
   bot,
-  tab,
-  onSelectTab,
-  onClose,
-  onOpenOverlay,
+  layout,
+  dispatch,
+  drafts,
 }: BotDetailsPaneProps) {
   const workspace = useWorkspace()
   const copy = useCopy()
-  const open = (kind: BotOverlayKind) => onOpenOverlay({ kind, botId: bot.id })
+  const paneRef = useRef<HTMLElement>(null)
+  const tablistRef = useRef<HTMLDivElement>(null)
+  const location = detailsLocationFor(layout, bot.id)
+  const view = viewKey(location)
+  const permissions = workspace.permissions[bot.id]
+
+  const navigate = (next: DetailsLocation, focus?: DetailsFocusTarget) =>
+    dispatch(
+      focus
+        ? { type: 'navigate-details', botId: bot.id, location: next, focus }
+        : { type: 'navigate-details', botId: bot.id, location: next },
+    )
+  const openEntry = (entry: DetailsEntry) =>
+    dispatch({ type: 'open-details-entry', botId: bot.id, entry })
+  const openOverlay = (kind: 'bot-tags' | 'share-export') =>
+    dispatch({ type: 'open-overlay', overlay: { kind, botId: bot.id } })
+
+  const restoreScroll = useEffectEvent((botId: string, key: string) => {
+    const pane = paneRef.current
+    if (pane) pane.scrollTop = layout.detailsScroll[botId]?.[key] ?? 0
+  })
+  useLayoutEffect(() => restoreScroll(bot.id, view), [bot.id, view])
+
+  const focusRequest = layout.detailsFocus
+  useEffect(() => {
+    if (!focusRequest || focusRequest.botId !== bot.id) return
+    const { target } = focusRequest
+    const selector =
+      target.kind === 'page-heading'
+        ? PAGE_HEADING_SELECTOR
+        : `#${configEntryId(target.page)}`
+    paneRef.current?.querySelector<HTMLElement>(selector)?.focus()
+    dispatch({ type: 'details-focused' })
+  }, [focusRequest, bot.id, dispatch])
+
+  useEffect(() => {
+    const list = tablistRef.current
+    if (list?.contains(document.activeElement))
+      list.querySelector<HTMLElement>(`#details-tab-${location.tab}`)?.focus()
+  }, [location.tab])
 
   const moreItems: readonly MenuItem[] = [
-    { id: 'profile', label: '编辑资料…', onSelect: () => open('bot-profile') },
-    { id: 'tags', label: '编辑标签…', onSelect: () => open('bot-tags') },
+    { id: 'profile', label: '编辑资料…', onSelect: () => openEntry('core') },
+    { id: 'tags', label: '编辑标签…', onSelect: () => openOverlay('bot-tags') },
     {
       id: 'model',
       label: `模型：${modelSummary(bot, workspace.models)}`,
-      onSelect: () => open('bot-model'),
+      onSelect: () => openEntry('model'),
     },
     {
       id: 'permissions',
       label: '权限…',
-      onSelect: () => open('bot-permissions'),
+      onSelect: () => openEntry('permissions'),
     },
   ]
-
-  const copyBrief = () =>
-    copy(botBrief(bot, workspace.roster.tags), '复制失败：系统剪贴板不可用')
 
   const shareItems: readonly MenuItem[] = [
     {
       id: 'brief',
       label: '复制 Bot 简介',
-      onSelect: () => {
-        void copyBrief()
-      },
+      onSelect: () =>
+        void copy(
+          botBrief(bot, workspace.roster.tags),
+          '复制失败：系统剪贴板不可用',
+        ),
     },
     {
       id: 'export',
       label: '导出受限配置…',
-      onSelect: () => open('share-export'),
+      onSelect: () => openOverlay('share-export'),
     },
   ]
 
-  const moveFocus = (event: KeyboardEvent<HTMLDivElement>) => {
-    const step =
-      event.key === 'ArrowRight' ? 1 : event.key === 'ArrowLeft' ? -1 : 0
-    if (step === 0) return
-    event.preventDefault()
-    const index = DETAILS_TABS.indexOf(tab)
-    const next =
-      DETAILS_TABS[(index + step + DETAILS_TABS.length) % DETAILS_TABS.length]
-    if (!next) return
-    onSelectTab(next)
-    event.currentTarget
-      .querySelector<HTMLButtonElement>(`#details-tab-${next}`)
-      ?.focus()
+  const reportDirty = (page: ConfigSubpage) => (dirty: boolean) =>
+    dispatch({ type: 'config-draft', botId: bot.id, page, dirty })
+
+  const subpage = (page: ConfigSubpage): ReactNode => {
+    switch (page) {
+      case 'core':
+        return (
+          <CoreSettingsSection
+            bot={bot}
+            identity={SECTIONS(bot.id, 'identity')}
+            drafts={drafts}
+            onDirtyChange={reportDirty('core')}
+            onOpenMemory={() => openEntry('memory')}
+          />
+        )
+      case 'model':
+        return (
+          <ModelSettingsSection
+            bot={bot}
+            settings={workspace.models}
+            drafts={drafts}
+            onDirtyChange={reportDirty('model')}
+            onOpenSettings={() =>
+              dispatch({
+                type: 'open-overlay',
+                overlay: { kind: 'settings', section: 'models' },
+              })
+            }
+          />
+        )
+      case 'permissions':
+        return <PermissionsSection rows={permissions} />
+      case 'skills':
+        return <SkillsSection state={SECTIONS(bot.id, 'skills')} />
+      default: {
+        const unreachable: never = page
+        throw new Error(`Unknown configuration page ${String(unreachable)}`)
+      }
+    }
+  }
+
+  const panel = (): ReactNode => {
+    switch (location.tab) {
+      case 'overview':
+        return (
+          <BotOverview
+            bot={bot}
+            models={workspace.models}
+            permissions={permissions}
+            sections={SECTIONS}
+          />
+        )
+      case 'configuration': {
+        const { page } = location
+        return page === 'home' ? (
+          <BotConfigurationHome
+            summaries={configSummaries(
+              bot,
+              workspace.models,
+              permissions,
+              SECTIONS(bot.id, 'skills'),
+            )}
+            onOpen={(next) =>
+              navigate({ ...location, page: next }, { kind: 'page-heading' })
+            }
+          />
+        ) : (
+          <ConfigSubpageFrame
+            page={page}
+            onBack={() =>
+              navigate(
+                { ...location, page: 'home' },
+                { kind: 'config-entry', page },
+              )
+            }
+          >
+            {subpage(page)}
+          </ConfigSubpageFrame>
+        )
+      }
+      case 'library':
+        return (
+          <BotLibrary
+            botId={bot.id}
+            section={location.section}
+            sections={SECTIONS}
+            onSection={(section) => navigate({ ...location, section })}
+          />
+        )
+      default: {
+        const unreachable: never = location.tab
+        throw new Error(`Unknown details tab ${String(unreachable)}`)
+      }
+    }
   }
 
   return (
     <aside
+      ref={paneRef}
       id="corn-bot-details"
       className="corn-details"
       aria-label={`${bot.name} 的详情`}
+      onScroll={(event) =>
+        dispatch({
+          type: 'record-details-scroll',
+          botId: bot.id,
+          view,
+          top: event.currentTarget.scrollTop,
+        })
+      }
       onKeyDown={(event) => {
         // Escape inside an open menu only dismisses the menu.
         if (
           event.key === 'Escape' &&
           !(event.target as Element).closest('[role="menu"]')
         )
-          onClose()
+          dispatch({ type: 'close-details' })
       }}
     >
       <header className="corn-details__titlebar corn-drag">
@@ -128,7 +279,7 @@ export function BotDetailsPane({
         <ActionButton
           className="corn-round-button"
           label="关闭详情"
-          onPress={onClose}
+          onPress={() => dispatch({ type: 'close-details' })}
         >
           <X size={17} strokeWidth={2} aria-hidden />
         </ActionButton>
@@ -143,40 +294,47 @@ export function BotDetailsPane({
         <BotTagChips
           bot={bot}
           tags={workspace.roster.tags}
-          onEdit={() => open('bot-tags')}
+          onEdit={() => openOverlay('bot-tags')}
         />
       </div>
 
       <div
+        ref={tablistRef}
         className="corn-details__tabs"
         role="tablist"
         aria-label="详情分区"
-        onKeyDown={moveFocus}
+        onKeyDown={(event) => {
+          const next = tabForKey(location.tab, event.key)
+          if (next === null) return
+          event.preventDefault()
+          navigate({ ...location, tab: next })
+        }}
       >
-        {DETAILS_TABS.map((id) => (
+        {MAIN_TABS.map((id) => (
           <button
             key={id}
             id={`details-tab-${id}`}
             type="button"
             role="tab"
             className="corn-details__tab"
-            aria-selected={id === tab}
+            aria-selected={id === location.tab}
             aria-controls="details-panel"
-            tabIndex={id === tab ? 0 : -1}
-            onClick={() => onSelectTab(id)}
+            tabIndex={id === location.tab ? 0 : -1}
+            onClick={() => navigate({ ...location, tab: id })}
           >
-            {TAB_LABELS[id]}
+            {MAIN_TAB_LABELS[id]}
           </button>
         ))}
       </div>
 
       <section
+        key={bot.id}
         id="details-panel"
         className="corn-details__panel"
         role="tabpanel"
-        aria-labelledby={`details-tab-${tab}`}
+        aria-labelledby={`details-tab-${location.tab}`}
       >
-        <p className="corn-details__empty">{EMPTY_STATES[tab]}</p>
+        {panel()}
       </section>
     </aside>
   )
