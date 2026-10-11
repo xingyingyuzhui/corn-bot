@@ -6,14 +6,14 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { test } from 'node:test'
 import { promisify } from 'node:util'
-import { verifyUiKitReference } from '../lib/ui-kit-reference.mjs'
+import { cwdGitEnv, verifyUiKitReference } from '../lib/ui-kit-reference.mjs'
 
 const run = promisify(execFile)
 const researchBody = 'research-only specification\n'.repeat(20)
 const assetBody = 'unpinned research asset bytes\n'.repeat(20)
 
 async function git(cwd, ...args) {
-  return (await run('git', args, { cwd })).stdout.trim()
+  return (await run('git', args, { cwd, env: cwdGitEnv() })).stdout.trim()
 }
 
 async function initRepo(dir) {
@@ -64,6 +64,35 @@ test('verifies a pinned research checkout with matching files', async () => {
     assert.deepEqual(report.failures, [])
   } finally {
     await rm(root, { recursive: true, force: true })
+  }
+})
+
+test('an inherited GIT_DIR never redirects git to another repository', async () => {
+  const decoy = await mkdtemp(join(tmpdir(), 'corn-kit-decoy-'))
+  const inherited = {
+    GIT_DIR: process.env.GIT_DIR,
+    GIT_WORK_TREE: process.env.GIT_WORK_TREE,
+  }
+  let root
+  try {
+    await git(decoy, 'init', '--quiet')
+    process.env.GIT_DIR = join(decoy, '.git')
+    process.env.GIT_WORK_TREE = decoy
+    const built = await fixture()
+    root = built.root
+    const report = await verifyUiKitReference({ repoRoot: built.corn })
+    assert.equal(report.status, 'verified')
+  } finally {
+    for (const [key, value] of Object.entries(inherited))
+      if (value === undefined) delete process.env[key]
+      else process.env[key] = value
+  }
+  try {
+    assert.equal(await git(decoy, 'rev-list', '--all', '--count'), '0')
+    await assert.rejects(git(decoy, 'config', '--local', 'user.email'))
+  } finally {
+    await rm(decoy, { recursive: true, force: true })
+    if (root) await rm(root, { recursive: true, force: true })
   }
 })
 
