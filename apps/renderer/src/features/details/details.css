@@ -38,6 +38,38 @@
   line-height: var(--corn-leading-xs);
 }
 
+.corn-details__tags:not([aria-disabled="true"]):hover {
+  color: var(--corn-text-secondary);
+}
+
+.corn-details__tag-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  max-inline-size: calc(100% - 48px);
+}
+
+.corn-details__chips {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.corn-details__chip {
+  padding-inline: 8px;
+  border-radius: var(--corn-radius-pill);
+  background: var(--corn-surface-selected);
+  color: var(--corn-text-secondary);
+  font-size: var(--corn-text-xs);
+  line-height: 20px;
+}
+
 .corn-details__tabs {
   display: flex;
   justify-content: center;
