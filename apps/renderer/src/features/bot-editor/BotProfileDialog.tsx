@@ -8,7 +8,7 @@ import { Dialog } from '../../shared/Dialog.tsx'
 import { useNotice } from '../../shared/notice.tsx'
 import { UNAVAILABLE } from '../../shared/unavailable.ts'
 import { ConflictNotice, FormError, MissingBotDialog } from './EditorParts.tsx'
-import { PROFILE_EDITOR } from './editor-specs.ts'
+import { DRAFT_STILL_UNSAVED, PROFILE_EDITOR } from './editor-specs.ts'
 import { ProfileFields } from './ProfileFields.tsx'
 import { useBotEditor } from './use-bot-editor.ts'
 
@@ -43,10 +43,25 @@ function ProfileForm({
   const pending = state.saving
 
   const submit = async () => {
-    const outcome = await controller.save()
-    if (!controller.attached) return
-    if (outcome === 'saved') notify('资料已保存')
-    if (outcome !== 'failed') onClose()
+    const result = await controller.saveDraft()
+    switch (result) {
+      case 'saved':
+        notify('资料已保存')
+        onClose()
+        return
+      case 'unchanged':
+        onClose()
+        return
+      case 'unsaved':
+        notify(DRAFT_STILL_UNSAVED)
+        return
+      case 'failed':
+        return
+      default: {
+        const unreachable: never = result
+        throw new Error(`Unknown save result ${String(unreachable)}`)
+      }
+    }
   }
 
   const preview =

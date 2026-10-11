@@ -1,5 +1,11 @@
 import { setTimeout as delay } from 'node:timers/promises'
 import type { BrowserWindow } from 'electron'
+import {
+  COMPOSER_FIELD,
+  type DraftPreparation,
+  draftPreparationScript,
+  isDraftPreparation,
+} from './draft-preparation.ts'
 
 /** `user-screenshots` calibration (ADR-0004): 1024×764 CSS px, DPR 2. */
 const REFERENCE = {
@@ -38,6 +44,8 @@ export interface LayoutProbe {
   readonly open: Regions
   readonly sidebarShift: number | null
   readonly detailsRatio: number | null
+  /** Background layout probe draft preparation, before any measurement. */
+  readonly draftPreparation: DraftPreparation
   readonly draftKept: boolean
   readonly notices: readonly NoticeCheck[]
   /** Live-region mutations during Bot switches and layout changes. */
@@ -149,6 +157,7 @@ const WATCH_ANNOUNCER = `(() => {
 })()`
 
 const DRAFT = '切换详情后草稿仍在'
+const READ_DRAFT = `document.querySelector(${JSON.stringify(COMPOSER_FIELD)})?.value ?? null`
 
 async function run<T>(window: BrowserWindow, script: string): Promise<T> {
   const result: T = await window.webContents.executeJavaScript(script)
@@ -267,10 +276,7 @@ async function probeNotices(window: BrowserWindow): Promise<{
   const announcerMutations = watching
     ? await run<number>(window, 'window.__cornAnnouncerMutations')
     : null
-  const draft = await run<string>(
-    window,
-    `document.querySelector('.corn-composer__field').value`,
-  )
+  const draft = await run<string>(window, READ_DRAFT)
   return { notices, announcerMutations, draft }
 }
 
@@ -306,9 +312,12 @@ export async function probeLayout(window: BrowserWindow): Promise<LayoutProbe> {
   // into the evidence screenshots.
   window.webContents.sendInputEvent({ type: 'mouseLeave', x: 0, y: 0 })
   await delay(300)
-  await run(window, `document.querySelector('.corn-composer__field').focus()`)
-  window.webContents.insertText(DRAFT)
-  await delay(120)
+  const prepared: unknown = await window.webContents.executeJavaScript(
+    draftPreparationScript(DRAFT),
+  )
+  const draftPreparation = isDraftPreparation(prepared)
+    ? prepared
+    : { ok: false as const, error: 'draft preparation: malformed result' }
   const closed = await run<Regions>(window, MEASURE)
   const twoPane = (await window.webContents.capturePage()).toPNG()
   await toggleDetails(window)
@@ -318,10 +327,7 @@ export async function probeLayout(window: BrowserWindow): Promise<LayoutProbe> {
     window,
     `document.querySelector('.corn-details [aria-label="关闭详情"]').click()`,
   )
-  const draft = await run<string>(
-    window,
-    `document.querySelector('.corn-composer__field').value`,
-  )
+  const draft = await run<string>(window, READ_DRAFT)
   const notices = await probeNotices(window)
 
   const sidebarShift =
@@ -339,6 +345,7 @@ export async function probeLayout(window: BrowserWindow): Promise<LayoutProbe> {
     sidebarShift < 1 &&
     detailsRatio !== null &&
     Math.abs(detailsRatio - REFERENCE.detailsRatio) <= 0.01 &&
+    draftPreparation.ok &&
     draftKept &&
     notices.notices.every((check) => check.failures.length === 0) &&
     notices.announcerMutations === 0
@@ -347,6 +354,7 @@ export async function probeLayout(window: BrowserWindow): Promise<LayoutProbe> {
     open,
     sidebarShift,
     detailsRatio,
+    draftPreparation,
     draftKept,
     notices: notices.notices,
     announcerMutations: notices.announcerMutations,

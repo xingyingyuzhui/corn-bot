@@ -8,41 +8,17 @@ import {
 } from '../src/features/bot-editor/editor-specs.ts'
 import type { ProfileDraft } from '../src/features/bot-editor/profile-form.ts'
 import { FixtureWorkspaceRepository } from '../src/fixtures/fixture-repository.ts'
-import type { BotProfilePatch, CommandResult } from '../src/model/repository.ts'
 import type { BotView } from '../src/model/workspace.ts'
-
-/** Profile writes wait until the test releases them, one at a time. */
-class GatedRepository extends FixtureWorkspaceRepository {
-  readonly writes: string[] = []
-  #release: Array<() => void> = []
-
-  override async updateBotProfile(
-    botId: string,
-    patch: BotProfilePatch,
-    expectedRevision: number,
-  ): Promise<CommandResult<number>> {
-    this.writes.push(botId)
-    await new Promise<void>((resolve) => this.#release.push(resolve))
-    return super.updateBotProfile(botId, patch, expectedRevision)
-  }
-
-  release() {
-    this.#release.shift()?.()
-  }
-}
-
-const botOf = (repository: FixtureWorkspaceRepository, id: string) => {
-  const bot = repository.getSnapshot().roster.bots[id]
-  if (!bot) throw new Error(`fixture Bot ${id} missing`)
-  return bot
-}
+import { botOf, GatedRepository, tick } from './helpers/gated-repository.ts'
 
 const profileEditor = (repository: FixtureWorkspaceRepository, id: string) =>
   new BotEditorController(repository, PROFILE_EDITOR, botOf(repository, id))
 
 const setRole = (role: string) => (draft: ProfileDraft) => ({ ...draft, role })
-
-const tick = () => new Promise((resolve) => setImmediate(resolve))
+const setWorkStyle = (workStyle: string) => (draft: ProfileDraft) => ({
+  ...draft,
+  workStyle,
+})
 
 test('a save rebases the draft on the stored Bot', async () => {
   const repository = new FixtureWorkspaceRepository()
@@ -155,6 +131,102 @@ test('edits typed while a save was in flight are kept on top of it', async () =>
   assert.equal(base.role, '第一版')
   assert.equal(draft.workStyle, '先列计划')
   assert.ok(editor.dirty)
+})
+
+test('an earlier write landing under newer edits is not a saved draft', async () => {
+  const repository = new GatedRepository()
+  const editor = profileEditor(repository, 'ops')
+  const storedWorkStyle = botOf(repository, 'ops').workStyle
+  editor.edit(setRole('第一版'))
+  const subpage = editor.saveDraft()
+  editor.edit(setWorkStyle('保存中输入的第二版'))
+  const dialog = editor.saveDraft()
+  repository.release()
+  assert.equal(await subpage, 'unsaved', 'the subpage never says saved')
+  assert.equal(await dialog, 'unsaved', 'the dialog stays open')
+  assert.ok(editor.dirty)
+  assert.equal(editor.getState().draft.workStyle, '保存中输入的第二版')
+  assert.equal(botOf(repository, 'ops').workStyle, storedWorkStyle)
+  await tick()
+  assert.equal(repository.waiting, 0, 'no second write on its own')
+
+  const next = editor.saveDraft()
+  repository.release()
+  assert.equal(await next, 'saved')
+  const stored = botOf(repository, 'ops')
+  assert.equal(stored.role, '第一版')
+  assert.equal(stored.workStyle, '保存中输入的第二版')
+  assert.equal(editor.dirty, false)
+  assert.deepEqual(repository.writes, ['ops', 'ops'])
+})
+
+test('a detached editor never confirms a save', async () => {
+  const repository = new GatedRepository()
+  const a = profileEditor(repository, 'ops')
+  a.edit(setRole('A 的职责'))
+  const pending = a.saveDraft()
+  a.detach()
+  repository.release()
+  assert.equal(await pending, 'failed')
+  assert.equal(botOf(repository, 'ops').role, 'A 的职责', 'the write landed')
+})
+
+test('saving locks the editor until the write settles; failures keep the draft', async () => {
+  const repository = new GatedRepository()
+  const editor = profileEditor(repository, 'ops')
+  editor.edit((draft) => ({ ...draft, name: '小黄' }), 'name')
+  const duplicate = editor.saveDraft()
+  assert.ok(editor.getState().saving)
+  repository.release()
+  assert.equal(await duplicate, 'failed')
+  assert.equal(editor.getState().saving, false)
+  assert.equal(editor.getState().draft.name, '小黄')
+
+  const { name } = botOf(repository, 'ops')
+  editor.edit((draft) => ({ ...draft, name }), 'name')
+  editor.edit(setRole('冲突前的草稿'))
+  const outside = repository.updateBotProfile('ops', { role: '外部修改' }, 1)
+  const conflicted = editor.saveDraft()
+  assert.ok(editor.getState().saving)
+  repository.release()
+  repository.release()
+  await outside
+  assert.equal(await conflicted, 'failed')
+  const state = editor.getState()
+  assert.equal(state.saving, false)
+  assert.ok(state.conflict)
+  assert.equal(state.draft.role, '冲突前的草稿')
+  assert.equal(botOf(repository, 'ops').role, '外部修改')
+})
+
+test('a write in flight survives reload; discard waits and reads it back', async () => {
+  const repository = new GatedRepository()
+  const editor = profileEditor(repository, 'ops')
+  const storedWorkStyle = botOf(repository, 'ops').workStyle
+  editor.edit(setRole('已经发出的职责'))
+  const pending = editor.save()
+  editor.edit(setWorkStyle('还没发出的修改'))
+  editor.reload()
+  assert.ok(editor.getState().saving, 'reload cannot clear saving')
+
+  let discarded = false
+  const discard = editor.discard().then(() => {
+    discarded = true
+  })
+  await tick()
+  assert.equal(discarded, false, 'discard waits for the write')
+  assert.ok(editor.getState().saving)
+  repository.release()
+  await discard
+  assert.equal(await pending, 'saved')
+  const stored = botOf(repository, 'ops')
+  assert.equal(stored.role, '已经发出的职责', 'a sent write is not undone')
+  const state = editor.getState()
+  assert.equal(state.saving, false)
+  assert.equal(state.draft.role, stored.role)
+  assert.equal(state.draft.workStyle, storedWorkStyle)
+  assert.equal(state.base.revision, stored.revision)
+  assert.equal(editor.dirty, false)
 })
 
 test('the model editor refuses an unavailable model before writing', async () => {
