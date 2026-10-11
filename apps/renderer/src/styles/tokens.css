@@ -66,4 +66,9 @@
 
   --corn-ease: cubic-bezier(0.16, 1, 0.3, 1);
   --corn-duration: 160ms;
+
+  --corn-surface-warning: #fff5e6;
+  --corn-text-warning: #8a4b00;
+  --corn-settings-nav-width: 198px;
+  --corn-radius-settings-card: 14px;
 }
