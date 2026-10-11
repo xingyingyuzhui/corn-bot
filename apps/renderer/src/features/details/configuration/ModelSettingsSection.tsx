@@ -2,14 +2,13 @@ import { useId } from 'react'
 import { useRepository } from '../../../app/workspace-context.tsx'
 import type { BotView, ModelSettings } from '../../../model/workspace.ts'
 import { Button } from '../../../shared/Button.tsx'
-import { useNotice } from '../../../shared/notice.tsx'
 import { ConflictNotice, FormError } from '../../bot-editor/EditorParts.tsx'
 import { MODEL_EDITOR } from '../../bot-editor/editor-specs.ts'
 import { ModelChoiceFields } from '../../bot-editor/ModelChoiceFields.tsx'
 import { useBotEditor } from '../../bot-editor/use-bot-editor.ts'
 import type { ConfigDraftRegistry } from './config-drafts.ts'
 import { SubpageFormActions } from './SubpageFormActions.tsx'
-import { useConfigDraft } from './use-config-draft.ts'
+import { useConfigDraft, useSubpageSave } from './use-config-draft.ts'
 
 interface ModelSettingsSectionProps {
   readonly bot: BotView
@@ -28,15 +27,10 @@ export function ModelSettingsSection({
   onOpenSettings,
 }: ModelSettingsSectionProps) {
   const repository = useRepository()
-  const notify = useNotice()
   const formId = useId()
   const { controller, state } = useBotEditor(MODEL_EDITOR, bot)
   useConfigDraft(drafts, 'model', controller, onDirtyChange)
-
-  const submit = async () => {
-    const outcome = await controller.save()
-    if (outcome === 'saved' && controller.attached) notify('模型已保存')
-  }
+  const submit = useSubpageSave(controller, '模型已保存')
 
   return (
     <section className="corn-details__group" aria-label="这个 Bot 的模型">
@@ -53,16 +47,14 @@ export function ModelSettingsSection({
         id={formId}
         noValidate
         aria-busy={state.saving || undefined}
-        onSubmit={(event) => {
-          event.preventDefault()
-          if (!state.saving) void submit()
-        }}
+        onSubmit={submit}
       >
         <ModelChoiceFields
           bot={bot}
           settings={settings}
           choice={state.draft}
           onChoose={(choice) => controller.edit(() => choice)}
+          disabled={state.saving}
         />
       </form>
       <FormError message={state.formError} />

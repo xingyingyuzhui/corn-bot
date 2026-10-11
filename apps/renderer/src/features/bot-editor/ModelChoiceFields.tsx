@@ -11,6 +11,8 @@ interface ModelChoiceFieldsProps {
   readonly settings: ModelSettings
   readonly choice: string | null
   readonly onChoose: (choice: string | null) => void
+  /** The editor's write is in flight. */
+  readonly disabled?: boolean
 }
 
 /** Follow-global plus the catalog, with unavailable entries explained. */
@@ -19,6 +21,7 @@ export function ModelChoiceFields({
   settings,
   choice,
   onChoose,
+  disabled = false,
 }: ModelChoiceFieldsProps) {
   const name = useId()
   const warning = needsModelWarning(effectiveModel(bot, settings), settings)
@@ -29,7 +32,10 @@ export function ModelChoiceFields({
           <p className="corn-editor__warning-text">{warning}</p>
         </EditorWarning>
       ) : null}
-      <fieldset className="corn-editor__options corn-editor__card">
+      <fieldset
+        className="corn-editor__options corn-editor__card"
+        disabled={disabled}
+      >
         <legend className="corn-visually-hidden">这个 Bot 使用的模型</legend>
         {modelChoices(settings).map((entry) => (
           <label

@@ -35,6 +35,9 @@ export const PROFILE_EDITOR: BotEditorSpec<ProfileDraft> = {
 
 export const MODEL_UNAVAILABLE_ERROR = '这个模型当前不可用，请选择其他模型'
 
+/** An earlier write landed, but edits made meanwhile are still unsaved. */
+export const DRAFT_STILL_UNSAVED = '保存期间又有新的修改，尚未保存，请再次保存'
+
 /** `null` follows the global default; the global default itself lives in Settings. */
 export const MODEL_EDITOR: BotEditorSpec<string | null> = {
   fromBot: (bot) => bot.modelOverride,
