@@ -13,7 +13,7 @@ import {
 
 const root = dirname(dirname(fileURLToPath(import.meta.url)))
 const home = process.env.CORN_DSH_HOME ?? defaultDevelopmentHome()
-const host = new DshHostSupervisor(home)
+const host = new DshHostSupervisor(home, undefined, null)
 try {
   await host.start()
 } finally {
@@ -43,7 +43,7 @@ try {
   async function run(command, args, cwd) {
     const child = spawn(command, args, {
       cwd,
-      env: cornHostEnvironment(home),
+      env: cornHostEnvironment(home, null),
       stdio: 'inherit',
     })
     await new Promise((resolve, reject) => {

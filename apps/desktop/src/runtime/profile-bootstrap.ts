@@ -2,6 +2,7 @@ import { realpathSync } from 'node:fs'
 import { mkdir, readdir, readFile, writeFile } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path'
+import { type CornModelConfig, routePlan } from './model-provider.ts'
 
 export const CORN_PROFILE = 'corn-dev'
 const MARKER = '.corn-bot-home.json'
@@ -71,8 +72,11 @@ export async function claimCornHome(candidate: string): Promise<string> {
   return home
 }
 
-/** Only explicit Corn model credentials enter this standalone runtime. */
-export function cornHostEnvironment(home: string): NodeJS.ProcessEnv {
+/** Only the selected Corn route's credential enters this standalone runtime. */
+export function cornHostEnvironment(
+  home: string,
+  model: CornModelConfig | null,
+): NodeJS.ProcessEnv {
   const environment: NodeJS.ProcessEnv = {
     DSH_HOME: assertIsolatedHome(home),
     DSH_TELEMETRY_DISABLED: '1',
@@ -91,21 +95,29 @@ export function cornHostEnvironment(home: string): NodeJS.ProcessEnv {
   ]) {
     if (process.env[key] !== undefined) environment[key] = process.env[key]
   }
-  if (process.env.CORN_DEEPSEEK_API_KEY) {
-    environment.DEEPSEEK_API_KEY = process.env.CORN_DEEPSEEK_API_KEY
-  }
+  if (model) environment[routePlan(model.route).hostKeyEnv] = model.apiKey
   if (process.versions.electron) environment.ELECTRON_RUN_AS_NODE = '1'
   return environment
 }
 
-/** The default workspace must also stay inside Corn-owned data. */
-export async function writeIsolationPatch(home: string): Promise<string> {
+/**
+ * The default workspace must also stay inside Corn-owned data. Route entries
+ * carry credential references only; JSON is emitted because it is valid YAML.
+ */
+export async function writeIsolationPatch(
+  home: string,
+  model: CornModelConfig | null,
+): Promise<string> {
   const path = join(home, 'corn-isolation.patch.yml')
-  const documentDirectory = JSON.stringify(join(home, 'documents'))
-  await writeFile(
-    path,
-    `- id: workspace-controller\n  config:\n    documentsDirectory: ${documentDirectory}\n`,
-    { mode: 0o600 },
-  )
+  const entries = [
+    {
+      id: 'workspace-controller',
+      config: { documentsDirectory: join(home, 'documents') },
+    },
+    ...(model ? routePlan(model.route).patch : []),
+  ]
+  await writeFile(path, `${JSON.stringify(entries, null, 2)}\n`, {
+    mode: 0o600,
+  })
   return path
 }

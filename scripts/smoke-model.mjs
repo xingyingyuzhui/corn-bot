@@ -2,20 +2,24 @@ import assert from 'node:assert/strict'
 import { randomUUID } from 'node:crypto'
 import { mkdir, writeFile } from 'node:fs/promises'
 import { DshHostSupervisor } from '../apps/desktop/src/runtime/dsh-host-supervisor.ts'
+import { resolveCornModelConfig } from '../apps/desktop/src/runtime/model-provider.ts'
 import { defaultDevelopmentHome } from '../apps/desktop/src/runtime/profile-bootstrap.ts'
 import { ClawRegistryClient } from '../packages/dsh-adapter/src/claw-registry-client.ts'
 import { record } from '../packages/dsh-adapter/src/remote-error.ts'
 import { SessionClient } from '../packages/dsh-adapter/src/session-client.ts'
 import { HostTransport } from '../packages/dsh-adapter/src/transport.ts'
 
-// Fail before boot unless a new Corn-specific configuration was supplied locally.
-if (!process.env.CORN_DEEPSEEK_API_KEY || !process.env.CORN_MODEL_ID)
+// Fail before boot unless a Corn-only model configuration was supplied locally.
+const model = resolveCornModelConfig()
+if (!model)
   throw new Error(
-    'Configure a new Corn-only key and CORN_MODEL_ID locally before the real model smoke',
+    'Configure CORN_MODEL_PROVIDER, CORN_MODEL_ID and CORN_MODEL_API_KEY locally before the real model smoke',
   )
 
 const host = new DshHostSupervisor(
   process.env.CORN_DSH_HOME ?? defaultDevelopmentHome(),
+  undefined,
+  model,
 )
 let mux
 let cancelFollow
@@ -27,15 +31,13 @@ try {
   assert.ok(Array.isArray(catalog.groups))
   const group = catalog.groups
     .map(record)
-    .find((item) => item.id === 'deepseek-official')
+    .find((item) => item.id === model.route)
   assert.ok(
     group && Array.isArray(group.models),
-    'New Corn DeepSeek route must be available',
+    `Corn model route ${model.route} must be available`,
   )
   assert.ok(
-    group.models
-      .map(record)
-      .some((item) => item.id === process.env.CORN_MODEL_ID),
+    group.models.map(record).some((item) => item.id === model.model),
     'Requested Corn model must be in the live catalog',
   )
   const agent = await registry.create(
@@ -51,8 +53,8 @@ try {
   await registry.bind(agent, sessionId)
   await sessions.selectModel({
     sessionId,
-    provider: 'deepseek-official',
-    model: process.env.CORN_MODEL_ID,
+    provider: model.route,
+    model: model.model,
   })
   await registry.state(sessionId, 'ready')
   mux = await transport.connect()
@@ -168,7 +170,7 @@ try {
     })
     await writeFile(
       new URL('../.artifacts/m0-model-smoke.json', import.meta.url),
-      `${JSON.stringify({ recordedAt: new Date().toISOString(), passed: true, chunks, assistantMessages, persistedCompletion: true, scope: 'Real Corn-only model call; no response content or credentials exported.' }, null, 2)}\n`,
+      `${JSON.stringify({ recordedAt: new Date().toISOString(), passed: true, route: model.route, model: model.model, chunks, assistantMessages, persistedCompletion: true, scope: 'Real Corn-only model call; no response content or credentials exported.' }, null, 2)}\n`,
       { mode: 0o600 },
     )
     console.log(

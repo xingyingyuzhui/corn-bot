@@ -4,6 +4,10 @@ import { dirname, join } from 'node:path'
 import { DSH_VERSION } from '../../../../packages/contracts/src/runtime.ts'
 import { HostAuth } from './host-auth.ts'
 import { parseReadinessLine, redactHostDiagnostic } from './host-readiness.ts'
+import {
+  type CornModelConfig,
+  resolveCornModelConfig,
+} from './model-provider.ts'
 import { acquireProcessLock } from './process-lock.ts'
 import {
   CORN_PROFILE,
@@ -27,10 +31,17 @@ export class DshHostSupervisor {
 
   readonly home: string
   readonly onFailure: (message: string) => void
+  /** `undefined` resolves the private Corn model configuration at each start; `null` boots keyless. */
+  readonly model: CornModelConfig | null | undefined
 
-  constructor(home: string, onFailure: (message: string) => void = () => {}) {
+  constructor(
+    home: string,
+    onFailure: (message: string) => void = () => {},
+    model?: CornModelConfig | null,
+  ) {
     this.home = home
     this.onFailure = onFailure
+    this.model = model
   }
 
   /** Main-only process ownership diagnostics; never exposed over Renderer IPC. */
@@ -55,7 +66,9 @@ export class DshHostSupervisor {
     this.#release = await acquireProcessLock(this.home)
     let timer: ReturnType<typeof setTimeout> | undefined
     try {
-      const patch = await writeIsolationPatch(this.home)
+      const model =
+        this.model === undefined ? resolveCornModelConfig() : this.model
+      const patch = await writeIsolationPatch(this.home, model)
       const args = [cliEntry, CORN_PROFILE]
       // DSH creates this named profile from its own shipped template, never the user's profile.
       const { existsSync } = await import('node:fs')
@@ -67,7 +80,7 @@ export class DshHostSupervisor {
       args.push('--patch', patch, '--no-open', '--port', '0')
       const child = spawn(process.execPath, args, {
         cwd: this.home,
-        env: cornHostEnvironment(this.home),
+        env: cornHostEnvironment(this.home, model),
         stdio: ['ignore', 'pipe', 'pipe'],
       })
       this.#child = child
