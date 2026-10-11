@@ -306,6 +306,9 @@ export async function probeLayout(window: BrowserWindow): Promise<LayoutProbe> {
   // into the evidence screenshots.
   window.webContents.sendInputEvent({ type: 'mouseLeave', x: 0, y: 0 })
   await delay(300)
+  // Smoke windows are shown inactive; page focus routes insertText without
+  // activating the app.
+  window.webContents.focus()
   await run(window, `document.querySelector('.corn-composer__field').focus()`)
   window.webContents.insertText(DRAFT)
   await delay(120)
