@@ -392,7 +392,7 @@ export class RuntimeHarness {
           )
           if (this.#options.gateExchange)
             await Promise.race([exchange.gate.promise, aborted(signal)])
-          return HostAuth.exchange(launch)
+          return HostAuth.exchange(launch, signal)
         },
         schedule: (run, delayMs) => {
           const entry = { run, delayMs, cancelled: false }

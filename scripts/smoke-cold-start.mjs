@@ -1,8 +1,10 @@
 import assert from 'node:assert/strict'
+import { existsSync } from 'node:fs'
 import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { DshHostSupervisor } from '../apps/desktop/src/runtime/dsh-host-supervisor.ts'
+import { HostStoppedError } from '../apps/desktop/src/runtime/runtime-failure.ts'
 import { SessionClient } from '../packages/dsh-adapter/src/session-client.ts'
 import { HostTransport } from '../packages/dsh-adapter/src/transport.ts'
 
@@ -30,12 +32,11 @@ try {
   const startup = host.start()
   await assert.rejects(host.start(), /already started/u)
   const stopped = host.stop()
-  const auth = await startup
+  await assert.rejects(startup, HostStoppedError)
   await stopped
-  await assert.rejects(
-    fetch(auth.origin, { signal: AbortSignal.timeout(2_000) }),
-  )
-  console.log('PASS stop during startup waits and releases its owned Host')
+  assert.equal(host.processId, undefined)
+  assert.equal(existsSync(join(home, 'corn-host.lock')), false)
+  console.log('PASS stop during startup cancels it and releases its owned Host')
 } finally {
   await host.stop()
   await rm(home, { recursive: true, force: true })

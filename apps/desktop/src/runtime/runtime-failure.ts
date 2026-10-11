@@ -38,6 +38,15 @@ export class RuntimeFailure extends Error {
   }
 }
 
+/** Startup cancelled by stop or quit: normal cleanup, never a crash and never retried. */
+export class HostStoppedError extends Error {
+  override readonly name = 'HostStoppedError'
+
+  constructor() {
+    super('DSH Host startup was cancelled by stop')
+  }
+}
+
 /** Unclassified errors are transient Host failures and feed bounded recovery. */
 export function runtimeFailureOf(error: unknown): RuntimeFailure {
   if (error instanceof RuntimeFailure) return error

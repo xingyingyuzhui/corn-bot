@@ -12,7 +12,11 @@ import {
 import type { HostAuth } from './host-auth.ts'
 import { redactHostDiagnostic } from './host-readiness.ts'
 import { HostRecovery } from './host-recovery.ts'
-import { runtimeFailureOf } from './runtime-failure.ts'
+import {
+  HostStoppedError,
+  RuntimeFailure,
+  runtimeFailureOf,
+} from './runtime-failure.ts'
 
 const MESSAGES: Record<RuntimeStatus, string> = {
   stopped: 'Corn 独立运行时已停止。',
@@ -55,7 +59,10 @@ function failureMessage(code: RuntimeErrorCode): string {
 
 export interface StartupHost {
   start(): Promise<HostAuth>
+  /** Also cancels an in-flight start. */
   stop(): Promise<void>
+  /** The committed child is still alive. */
+  readonly running: boolean
 }
 
 /** Runs `run` after `delayMs`; returns a cancel function. */
@@ -112,16 +119,28 @@ export class StartupControl {
     return this.#boot(false)
   }
 
-  /** Supervisor callback for an unexpected Host exit. */
+  /**
+   * Supervisor callback for a committed child that exited. While a boot is in
+   * flight its own liveness check owns the outcome, so this never double-schedules.
+   */
   hostFailed(): void {
+    if (this.#cleanup || this.#booting || this.#view.status !== 'ready') return
+    this.#auth = undefined
     this.#scheduleRecovery()
   }
 
+  /** Quit: cancels recovery and any in-flight start; never publishes a late ready. */
   shutdown(): Promise<void> {
     this.#cleanup ??= (async () => {
       this.#cancelRecovery?.()
-      await this.#startup?.catch(() => {})
-      await this.#host.stop()
+      this.#cancelRecovery = undefined
+      this.#auth = undefined
+      try {
+        await this.#host.stop()
+      } finally {
+        await this.#startup?.catch(() => {})
+        this.#set('stopped')
+      }
     })()
     return this.#cleanup
   }
@@ -145,11 +164,24 @@ export class StartupControl {
       try {
         if (stopFirst) await this.#host.stop()
         if (this.#cleanup) return
-        this.#auth = await this.#host.start()
+        const auth = await this.#host.start()
+        if (this.#cleanup) return
+        if (!this.#host.running)
+          throw new RuntimeFailure(
+            'host_unavailable',
+            'DSH Host exited before it was ready',
+          )
+        this.#auth = auth
+        this.#booting = false
         this.#set('ready')
       } catch (error) {
         this.#auth = undefined
         this.#booting = false
+        if (this.#cleanup) return
+        if (error instanceof HostStoppedError) {
+          this.#set('stopped')
+          return
+        }
         const failure = runtimeFailureOf(error)
         this.#lastFailure = redactHostDiagnostic(
           `${failure.code}: ${failure.message}`,
@@ -164,8 +196,7 @@ export class StartupControl {
   }
 
   #scheduleRecovery(): void {
-    if (this.#cleanup || this.#booting || this.#cancelRecovery) return
-    this.#auth = undefined
+    if (this.#cleanup || this.#cancelRecovery) return
     const wait = this.#recovery.nextDelay()
     if (wait === null) {
       this.#set('failed', 'host_unavailable')
