@@ -15,7 +15,11 @@ import {
   refuseExternalHome,
   verifyRuntimeVersions,
 } from '../lib/model-audit-fixtures.mjs'
-import { runAudit, scanForFakeKeys } from '../lib/model-audit-report.mjs'
+import {
+  finishAudit,
+  runAudit,
+  scanForFakeKeys,
+} from '../lib/model-audit-report.mjs'
 import { buildProfileTemplate } from '../lib/profile-template-build.mjs'
 
 // Run: node scripts/audit/model-config-api-audit.mjs   (takes no home; CORN_DSH_HOME is refused)
@@ -67,6 +71,8 @@ let auth
 let stub
 
 const record = (step, facts) => audit.record(step, facts)
+const requestSignal = (signal) =>
+  AbortSignal.any([signal ?? AbortSignal.timeout(30_000), audit.signal])
 
 /** Raw Connection RPC; failures are returned as observed envelopes rather than thrown. */
 async function rpc(endpoint, args, signal) {
@@ -81,7 +87,7 @@ async function rpc(endpoint, args, signal) {
       payload: { args },
     }),
     redirect: 'error',
-    signal: signal ?? AbortSignal.timeout(30_000),
+    signal: requestSignal(signal),
   })
   const text = await response.text()
   wire.push(text)
@@ -116,7 +122,7 @@ async function claw(path, body) {
     headers: { ...auth.headers(), 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
     redirect: 'error',
-    signal: AbortSignal.timeout(30_000),
+    signal: requestSignal(),
   })
   const text = await response.text()
   wire.push(text)
@@ -180,7 +186,7 @@ async function auditBody(ownedLab, run) {
   home = lab.home
   profile = lab.profile
   const template = join(lab.root, 'template')
-  await buildProfileTemplate(template)
+  await buildProfileTemplate(template, { signal: audit.signal })
   await lab.seedProfile(template)
   const versions = await verifyRuntimeVersions({ profile })
   audit.facts.versions = versions
@@ -792,4 +798,4 @@ console.log(
     problems: report.problems,
   }),
 )
-process.exitCode = report.exitCode
+finishAudit(report)

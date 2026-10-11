@@ -67,7 +67,7 @@ export function fakeTemplateDeps(hold, { report = announce } = {}) {
     verify: async () => {
       report('verify')
       if (hold === 'verify')
-        await new Promise((resolve) => setTimeout(resolve, 30_000).unref())
+        await new Promise((resolve) => setTimeout(resolve, 30_000))
     },
   }
 }

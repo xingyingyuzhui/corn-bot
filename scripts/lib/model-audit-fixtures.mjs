@@ -32,6 +32,9 @@ import {
   CLAW_VERSION,
   DSH_VERSION,
 } from '../../packages/contracts/src/runtime.ts'
+import { settleWithin } from './owned-resources.mjs'
+
+export { settleWithin }
 
 const repo = dirname(dirname(dirname(fileURLToPath(import.meta.url))))
 const require = createRequire(import.meta.url)
@@ -74,22 +77,6 @@ export function refuseExternalHome(argv, env, { positional = 0 } = {}) {
       `Refusing arguments: expected ${positional} positional argument(s) and no home path`,
     )
   return [...argv]
-}
-
-/** Resolves with `{ settled, value }`; never waits longer than `ms`. */
-export async function settleWithin(promise, ms) {
-  let timer
-  const timeout = new Promise((resolve) => {
-    timer = setTimeout(resolve, ms, { settled: false })
-  })
-  try {
-    return await Promise.race([
-      promise.then((value) => ({ settled: true, value })),
-      timeout,
-    ])
-  } finally {
-    clearTimeout(timer)
-  }
 }
 
 /** Corn's allowlisted Host environment plus fake `CORN_AUDIT_*` refs; nothing ambient. */
@@ -315,13 +302,21 @@ class AuditLab {
   #destroyFlight
   #spawnHost
 
-  constructor(root, timing, spawnHost) {
+  constructor(root, timing, spawnHost, signal) {
     this.root = root
     this.home = join(root, 'home')
     this.profile = join(this.home, 'profiles', CORN_PROFILE)
     this.labId = randomUUID()
     this.timing = timing
+    this.signal = signal
     this.#spawnHost = spawnHost
+    signal?.addEventListener(
+      'abort',
+      () => {
+        for (const host of this.#hosts) host.stop().catch(() => {})
+      },
+      { once: true },
+    )
     Object.freeze(this)
   }
 
@@ -355,6 +350,7 @@ class AuditLab {
     env = {},
     electron = false,
   } = {}) {
+    this.signal?.throwIfAborted()
     const patch = join(this.home, 'corn-audit.patch.yml')
     await writeFile(
       patch,
@@ -383,6 +379,7 @@ class AuditLab {
     )
     const host = new AuditHost(child, this.timing)
     this.#hosts.push(host)
+    if (this.signal?.aborted) host.stop().catch(() => {})
     host.launch = await host.ready
     return host
   }
@@ -460,11 +457,17 @@ export async function createAuditLab({
   parent = tmpdir(),
   timing = {},
   spawnHost = spawn,
+  signal,
 } = {}) {
   const root = await realpath(
     await mkdtemp(join(parent, `corn-audit-${label}-`)),
   )
-  const lab = new AuditLab(root, { ...DEFAULT_TIMING, ...timing }, spawnHost)
+  const lab = new AuditLab(
+    root,
+    { ...DEFAULT_TIMING, ...timing },
+    spawnHost,
+    signal,
+  )
   try {
     await lab.claim()
   } catch (error) {

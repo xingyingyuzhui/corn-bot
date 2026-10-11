@@ -1,5 +1,5 @@
 import { join } from 'node:path'
-import { runAudit } from '../../lib/model-audit-report.mjs'
+import { finishAudit, runAudit } from '../../lib/model-audit-report.mjs'
 import { buildProfileTemplate } from '../../lib/profile-template-build.mjs'
 import { fakeTemplateDeps } from './fake-template-deps.mjs'
 
@@ -31,4 +31,4 @@ console.log(
     exitCode: report.exitCode,
   }),
 )
-process.exitCode = report.exitCode
+finishAudit(report)

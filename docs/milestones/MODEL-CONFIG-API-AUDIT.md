@@ -200,7 +200,7 @@ Risks:
 
 ## 10. Audit harness guarantees (re-review F3/F4)
 
-Status: verified on branch `fix/model-audit-isolation`; awaiting independent review before merge. Until that merges, `main`'s audit script still has the F3/F4 defects and its runs are not acceptable evidence.
+Status: on branch `fix/model-audit-isolation`; awaiting independent review before merge. F3/F4 were verified by a live headless audit. Round 3 N4 (interrupted template build) is code-fixed with unit evidence only, and its real-audit acceptance is pending. Until that merges, `main`'s audit script still has the F3/F4 defects and its runs are not acceptable evidence.
 
 ### Lab lifecycle (`scripts/lib/model-audit-fixtures.mjs`)
 
@@ -208,12 +208,24 @@ Status: verified on branch `fix/model-audit-isolation`; awaiting independent rev
 - **Owned lab.** `mkdtemp` in the OS temp dir. `home/` gets an owner marker `{ owner: 'corn-bot', purpose: 'model-config-audit', labId }` and passes Corn's `claimCornHome`, and the Corn process lock is held for the whole run. The lab path is fixed at creation. Removal re-checks that the marker still carries this `labId` and refuses otherwise.
 - **Profile source.** The profile comes only from a template that `assertCredentialFreeTemplate` accepts: top level limited to `package.json`, `cordis.yml`, `cordis.patch.yml`, `node_modules` and the manifest, no `.env*` / `.credentials*` entry anywhere, and `verifyTemplate` hash/version check. The API audit builds that template inside the lab with `buildProfileTemplate` (locked DSH plus the SHA-checked Claw release, the same flow as `package:mac`). The packaged probe uses the app's bundled template read-only. Existing homes are never copied.
 - **Versions** are read from the installed packages: DSH from the resolved `@deepseek-ai/dsh/package.json` (or the app's bundled copy), Claw from `profiles/corn-dev/node_modules/dsh-claw-suite` and all 9 components. They are compared with the contract and `runtime.lock.json`. A mismatch fails the run and destroys the lab.
-- **Host process.** Each Host is spawned in its own process group. A spawn `error`, an `exit` before readiness or a 45 s readiness deadline rejects the start. Stop sends SIGTERM with an 8 s grace, then SIGKILL with a 5 s bound, then reaps any survivor in the group. A survivor is a cleanup failure, never an endless wait. SIGINT/SIGTERM to the audit destroys the lab and exits 130.
+- **Host process.** Each Host is spawned in its own process group. A spawn `error`, an `exit` before readiness or a 45 s readiness deadline rejects the start. Stop sends SIGTERM with an 8 s grace, then SIGKILL with a 5 s bound, then reaps any survivor in the group. A survivor is a cleanup failure, never an endless wait. After cancellation the lab refuses new Hosts and stops running ones.
 - **Cleanup order** on success and failure: stop every Host, close tracked stubs (all connections dropped, 5 s bound), release the lock, verify the marker, remove the lab. Any failed step makes `cleanup.ok: false` and a non-zero exit, and nothing claims the cleanup succeeded.
+
+### Interruption and the template build (round 3 N4)
+
+- **Signals only cancel.** SIGINT/SIGTERM abort the run's `AbortController` (`audit.signal`). The handler does not exit. The body and everything it owns settle, then the lab is destroyed, then the report is written, then the script exits. Repeated signals during cleanup are logged and change nothing.
+- **Template build ownership** (`scripts/lib/owned-resources.mjs`, `profile-template-build.mjs`). The build's `corn-profile-template-*` temp home, the bootstrap and governed Hosts and every Claw release/install child (`tar`, `shasum`, the release installer) are registered the moment they exist.
+  - The signal is checked before each phase (bootstrap, install, governed check, copy, verify, manifest). No phase starts after cancellation.
+  - On abort, owned processes are stopped at once, including one registered after the abort. Each release runs at most once, has a bound (Host stop 20 s; children: SIGTERM, 8 s grace, SIGKILL, 5 s, then a process-group reap) and is awaited before the build settles.
+  - The copy is not abandoned mid-way, because it could keep writing after its target is removed. It finishes, then the signal is checked.
+  - If a Host or child is not confirmed stopped, the build fails with `OwnedCleanupError`. Its temp home is **kept**, not removed underneath a live process. The report records `cleanup.ok: false` and `cleanup.owned` (`released`, `failed`, `retained`).
+- **Interrupted report.** The terminal status is `interrupted`, with `interrupted: 'SIGINT' | 'SIGTERM'`, never `running` or `passed`.
+  - Exit code is the shell convention 128 + signal: **130** for SIGINT, **143** for SIGTERM. It is used even when cleanup also failed; `cleanup.ok: false` then records the failure.
+  - After writing the report the scripts exit explicitly, so a child that survived a failed cleanup cannot keep the run alive.
 
 ### Report semantics (`scripts/lib/model-audit-report.mjs`)
 
-- At start the report is replaced by `{ status: 'running' }`. A failed, crashed or interrupted run can therefore never leave an older `passed` report behind.
+- At start the report is replaced by `{ status: 'running' }`. A failed, crashed or interrupted run can therefore never leave an older `passed` report behind. A signalled run ends `interrupted`, see above.
 - `passed` (exit 0) requires every required capability recorded as `pass` with no `false` fact, no failed capability, no error and `cleanup.ok`. Anything else is `failed` with exit 1, and the safe failure reason is recorded. A report containing a fake key is not written. A failure record without evidence is written instead.
 - API audit required capabilities: `runtime-versions`, `discovery-cancellation`, `global-default-write`, `global-default-restart-persistence`, `lab-restored` and `fake-key-leak-scan`. Packaged probe: `runtime-versions`, `packaged-read`, and `app-unmodified` (path/mode/size/mtime fingerprint of the whole bundle, equal before and after).
 
@@ -229,6 +241,9 @@ The abort fires only after the request has arrived at the hanging stub; there is
 | Same via a positional path / `--home` flag; packaged probe with an env home or a non-`.app` argument | old packaged probe read the bundle path first (exit 1) | exit 2, home unchanged |
 | Cancellation that never reaches upstream, is not propagated, answers early, or never settles | swallowed by `catch(() => false)`, so the audit could still exit 0 | each fails the probe within its bound (1–2 s per case in tests) and the run exits 1 |
 | Regression suites `scripts/tests/model-audit-{isolation,cancellation}.test.mjs` (23 tests) | fail (commit `e6362a8`: missing harness; CLI cases spawn a Host / exit 1) | 23/23 pass inside root `pnpm check` (273 tests, 9 s) |
+| SIGINT to a running audit (`scripts/tests/model-audit-interrupt.test.mjs`, fake Host) | exit 130 but the report **stays `running`** (handler exits right after `lab.destroy`) | `interrupted`, exit 130, lab removed, Host dead, lock released |
+| SIGINT/SIGTERM during the template build's bootstrap Host, Claw install (TERM-ignoring child), governed check and verify; repeated signals; a Host whose stop never settles (6 tests, injected fake Hosts and children) | not runnable: the old builder takes no signal and owns nothing (the old-code run fails at load) | each ends `interrupted` with 130/143 within 8 s. No owned process or template home is left, and no later phase starts. The wedged Host hits the bound, keeps its home and reports `cleanup.ok: false` |
+| Ownership unit tests (`scripts/tests/owned-resources.test.mjs`, 6 tests) | — (new module) | idempotent close, abort stops at once, bounded wedged release keeps the directory, TERM→KILL escalation, completed build releases everything, a pre-aborted build creates nothing |
 
 ### Live runs (2026-10-11, keyless, fake keys only)
 
@@ -241,7 +256,8 @@ The abort fires only after the request has arrived at the hanging stub; there is
 
 - Not run for acceptance: any `smoke:*` script, `package:mac`, Electron, and the packaged `.app` probe (see the table above).
 
-- An audit killed with SIGKILL (or a machine crash) cannot clean up. Its lab stays under the OS temp dir with its marker. The next run does not reuse it.
-- `buildProfileTemplate` builds in its own `corn-profile-template-*` temp home and removes it in `finally`. Its Hosts are stopped by the product `DshHostSupervisor`, which waits for `close` after SIGKILL without a bound. That is product code outside this package.
+- An audit killed with SIGKILL (or a machine crash) cannot clean up. Its lab and any `corn-profile-template-*` home stay under the OS temp dir. The next run does not reuse them. This exception is SIGKILL only; SIGINT/SIGTERM always go through cleanup.
+- N4 is fixed in code and covered by fake-child tests only. **Real-audit acceptance is pending**: interrupting a real template build and a real headless audit (round 3 §10, "C headless lifecycle") has not been run while smokes are paused.
+- The template build's Host stop is bounded here at 20 s regardless of the product supervisor. The product's own bounded SIGKILL wait is a separate change (round 3 §5) and is not required by this package.
 - The cancellation evidence covers discovery HTTP only. Settings and credential write timeouts stay unknown outcomes that require a read-back (§2).
 - The `session.selectModel` side-effect step (§7) remains an observation with a 10 s poll, not a required capability.

@@ -176,7 +176,7 @@ test('SIGTERM during the governed check never copies the profile', async (t) => 
   })
   assertInterrupted(result, 'SIGTERM')
   assertCleaned(result)
-  assert.deepEqual(result.phases, ['bootstrap', 'install', 'governed'])
+  assert.deepEqual(result.phases, ['bootstrap', 'governed'])
 })
 
 test('SIGINT after the copy never finishes the template', async (t) => {

@@ -10,7 +10,7 @@ import {
   refuseExternalHome,
   verifyRuntimeVersions,
 } from '../lib/model-audit-fixtures.mjs'
-import { runAudit } from '../lib/model-audit-report.mjs'
+import { finishAudit, runAudit } from '../lib/model-audit-report.mjs'
 
 // Run: node scripts/audit/packaged-model-config-probe.mjs "<path>/Corn Bot.app"
 // Read-only against the app: boots its bundled runtime keyless from its bundled
@@ -95,7 +95,7 @@ async function probe(lab, audit) {
         payload: { args },
       }),
       redirect: 'error',
-      signal: AbortSignal.timeout(30_000),
+      signal: AbortSignal.any([AbortSignal.timeout(30_000), audit.signal]),
     })
     const result = (await response.json()).result
     assert.equal(result.ok, true, `${endpoint} failed`)
@@ -175,4 +175,4 @@ console.log(
     2,
   ),
 )
-process.exitCode = report.exitCode
+finishAudit(report)
