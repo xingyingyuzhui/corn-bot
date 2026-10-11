@@ -9,7 +9,7 @@ import { resolveAppPaths } from './app-paths.ts'
 import { redactHostDiagnostic } from './runtime/host-readiness.ts'
 import { createAppRuntime } from './runtime/startup-control.ts'
 import { assertTrustedSender } from './security/ipc-allowlist.ts'
-import { probeLayout } from './smoke/layout-probe.ts'
+import { probeLayout, probeRecoveringNotice } from './smoke/layout-probe.ts'
 
 app.setName('Corn Bot')
 const paths = resolveAppPaths({
@@ -67,6 +67,7 @@ async function runSmoke(window: BrowserWindow): Promise<void> {
     facts.rendererDuringRecovery = await window.webContents.executeJavaScript(
       'window.corn.runtimeStatus().then((view) => view.status)',
     )
+    facts.recoveringNotice = await probeRecoveringNotice(window)
     facts.recovered = await untilStatus((s) => s === 'ready', 60_000)
     facts.hostReplaced =
       supervisor.processId !== undefined && supervisor.processId !== pid
@@ -115,6 +116,7 @@ async function runSmoke(window: BrowserWindow): Promise<void> {
     (crashSmoke || (facts.layout as { passed?: boolean }).passed === true) &&
     (!crashSmoke ||
       (facts.recoveringObserved === true &&
+        (facts.recoveringNotice as { passed?: boolean }).passed === true &&
         facts.hostReplaced === true &&
         facts.clawReadyAfterRecovery === true))
   process.exitCode = passed ? 0 : 1
