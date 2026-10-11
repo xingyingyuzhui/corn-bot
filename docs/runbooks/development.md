@@ -12,12 +12,19 @@ pnpm smoke:cold
 pnpm smoke:host
 pnpm smoke:governance
 pnpm smoke:governance-ptc
+pnpm smoke:review
 pnpm dev:desktop
 pnpm package:mac
 pnpm smoke:packaged
 ```
 
-`setup:runtime` initializes the isolated `corn-dev` profile using the exact installed DSH CLI, downloads the pinned official Claw release, checks the archive SHA-256 and its inner package checksums, then invokes its installer with that named profile. Setup takes an exclusive Corn-home lock. It never uses `userDesktop` or the user's installed DSH. `smoke:host` creates disposable test agents/sessions in Corn's developer home, so repeated runs leave test records there. `smoke:cold` uses and removes temporary homes.
+Every App start goes through the governed entry (`createGovernedHost`): the profile must contain the locked Claw suite and components, list the suite in `dsh.profile.bundles` and not disable or replace any Claw row in a patch layer; after authentication DSH must not have skipped the suite and the Claw Registry must answer. An existing profile is re-validated, never repaired ([ADR-0006](../adr/ADR-0006-claw-admission.md)). The separately named bootstrap entry is used only by `setup:runtime`, the package-time template build and `smoke:cold`; `smoke:cold` is therefore basic-engine evidence. `smoke:host`, `smoke:model`, `smoke:model-lifecycle` and the governance smokes use the governed admission.
+
+A failed start publishes a fixed safe message and one `RuntimeErrorCode`: `model_config_invalid`, `model_config_permissions`, `model_config_unreadable`, `runtime_home_rejected`, `runtime_home_locked`, `runtime_version_mismatch`, `claw_missing`, `claw_version_mismatch`, `claw_disabled`, `claw_check_failed` (all terminal) or `host_unavailable` (retried within the recovery budget first).
+
+`smoke:review` builds, then runs `smoke:review-claw` (real Host through the App entry on disposable copies of the developer profile) and `smoke:review-desktop` (development Electron per case with fresh user data, a disposable home and a fake or absent model file). It fails if any required scenario is missing, stale or failed, and writes `.artifacts/review/`. It never calls a model; the paid `smoke:model*` runs stay separate. `pnpm check` remains lint, typecheck and unit tests only.
+
+`setup:runtime` initializes the isolated `corn-dev` profile using the exact installed DSH CLI, downloads the pinned official Claw release, checks the archive SHA-256 and its inner package checksums, then invokes its installer with that named profile; it reports success only after a governed start passes the Claw admission. Setup takes an exclusive Corn-home lock. It never uses `userDesktop` or the user's installed DSH. `smoke:host` creates disposable test agents/sessions in Corn's developer home, so repeated runs leave test records there. `smoke:cold` uses and removes temporary homes.
 
 The default data root is `~/.corn-bot-dev/dsh`. `CORN_DSH_HOME` can select an absolute empty or already Corn-owned alternative. The user's `~/.dsh`, descendants, ancestors and symlink aliases are rejected. Do not remove a lock until its recorded process owner is confirmed dead; recovery is intentionally manual in M0.
 
@@ -61,4 +68,4 @@ Add `CORN_DESKTOP_CRASH_SMOKE=1` to that command to kill only the diagnostic app
 
 The packaged app needs no Node, pnpm, network or installed DeepSeek Harness. Its data lives in `~/Library/Application Support/Corn Bot/`: `dsh` (Host home), `artifacts` and `model.env` (same format and mode `600` rule as the developer file). `CORN_DSH_HOME`, `CORN_ARTIFACTS_DIR` and `CORN_MODEL_ENV_FILE` override them.
 
-`pnpm smoke:packaged` launches the built app three times with fresh scratch data and a clean environment, the third time with a forced Host crash, and checks that `~/.dsh` is untouched. Gatekeeper blocks the unsigned app if it is downloaded; open local builds directly or with right-click → Open.
+`pnpm smoke:packaged` launches the built app three times with fresh scratch data and a clean environment, the third time with a forced Host crash, then once on an existing profile without Claw, which must fail with `claw_missing` without spawning a Host or changing the profile. It also checks that `~/.dsh` is untouched. Gatekeeper blocks the unsigned app if it is downloaded; open local builds directly or with right-click → Open.
