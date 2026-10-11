@@ -1,6 +1,6 @@
 # Corn 模型配置修复与官方能力接入计划
 
-日期：2026-10-11（Asia/Shanghai）。状态：**待执行；本文件只形成修复计划，没有修改 App 代码，也没有证明正式配置流程已接通。**
+日期：2026-10-11（Asia/Shanghai）。状态：**第一、二工作包已合并；第三工作包（全局模型设置、凭据写入、首次引导、撤掉正式 env 路径）已在 `feat/m2-model-settings` 实现并以假 Key 验证，证据见 [M2 模型设置证据](../milestones/M2-MODEL-SETTINGS-EVIDENCE.md)；用真实 Key 的端到端请求待用户在界面中完成。第四工作包（Bot 模型覆盖）未开始。**
 
 基线：main `d28f085`。runtime 修复分支已存在，读取时 HEAD 为 `40d9f66`；U1 与头像各有独立分支。本计划位于 `docs/bot-management-plan` 工作区，接续[管理面板计划](CORN_BOT_MANAGEMENT_PANEL_PLAN.md)，不修改正在进行的修复代码。
 
