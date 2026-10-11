@@ -1,0 +1,200 @@
+{
+  "schemaVersion": 1,
+  "kit": {
+    "name": "corn-avatar-kit-v1",
+    "version": "0.1.0",
+    "origin": "corn-original",
+    "lockedOn": "2026-10-11"
+  },
+  "sourceInputs": {
+    "assets/app-icon.png": "4b783687756c2c104b94ced8e609ca170d3c609108052665e4faa2f3354d2942",
+    "src/artwork.ts": "642d014ca54a310a761d6e998cf2460678b725973bcad2ca2c1bc24987670061",
+    "src/avatar.ts": "075f81274ca4b9717235c7be4c6f659fd0670cd689c352f8b1296a0f7eb8e314",
+    "assets/catalog.json": "a539555892cb2ec1521fe2e99a6ac188185716ad05d63396772968b446e5536f"
+  },
+  "catalog": {
+    "variants": [
+      "xiaohuang",
+      "ops",
+      "backend",
+      "frontend",
+      "architect",
+      "news",
+      "excel",
+      "cad",
+      "word",
+      "pdf",
+      "ppt",
+      "wechat",
+      "video",
+      "audio",
+      "sales",
+      "research"
+    ],
+    "shapes": [
+      "cob",
+      "baby-cob",
+      "round-cob",
+      "tall-cob",
+      "kernel",
+      "twin-kernel",
+      "husk-bud",
+      "husk-fan",
+      "popcorn"
+    ],
+    "states": [
+      "idle",
+      "sleeping",
+      "waking",
+      "listening",
+      "thinking",
+      "searching",
+      "working",
+      "dictating",
+      "writing",
+      "sending",
+      "receiving",
+      "uploading",
+      "alerting",
+      "happy",
+      "celebrate",
+      "confused",
+      "progress",
+      "powering-down"
+    ],
+    "groups": ["technical", "office", "content", "business", "corn-team"],
+    "eyeDirection": "top-right / bottom-left"
+  },
+  "migrated": [
+    {
+      "path": "packages/ui/assets/catalog.json",
+      "from": "assets/catalog.json",
+      "sha256": "a539555892cb2ec1521fe2e99a6ac188185716ad05d63396772968b446e5536f"
+    },
+    {
+      "path": "packages/ui/assets/avatars/architect.svg",
+      "from": "assets/avatars/architect.svg",
+      "sha256": "bb99e795c5277ac4c3a811ba2709e71ad3cedf90052c21da70e5370e949108d5"
+    },
+    {
+      "path": "packages/ui/assets/avatars/audio.svg",
+      "from": "assets/avatars/audio.svg",
+      "sha256": "bc053d48c42015f0bdc75997aa16d1e2c419736688c67e61c409205dc56d11b9"
+    },
+    {
+      "path": "packages/ui/assets/avatars/backend.svg",
+      "from": "assets/avatars/backend.svg",
+      "sha256": "eacfb20a6ca156c7de9d6a344bd1b46c731467838635d9d91f8c086beb4640e2"
+    },
+    {
+      "path": "packages/ui/assets/avatars/cad.svg",
+      "from": "assets/avatars/cad.svg",
+      "sha256": "fa3e1be96ce44e85b126a49c832b839ca873784a5aa6d20948fa5275b2235e4e"
+    },
+    {
+      "path": "packages/ui/assets/avatars/excel.svg",
+      "from": "assets/avatars/excel.svg",
+      "sha256": "3122fdecc221db0ffbba9029da16ba994bf0a484eca4d3f54c24cc9f590ddaf2"
+    },
+    {
+      "path": "packages/ui/assets/avatars/frontend.svg",
+      "from": "assets/avatars/frontend.svg",
+      "sha256": "d8f1302a696cef843b959740213ace95d5a1b573c43be1f3e89d0b61b904f068"
+    },
+    {
+      "path": "packages/ui/assets/avatars/news.svg",
+      "from": "assets/avatars/news.svg",
+      "sha256": "c3652a24a3a5771558b92e86b303c4b2952e1e091d36332a97c344b39f9afbd8"
+    },
+    {
+      "path": "packages/ui/assets/avatars/ops.svg",
+      "from": "assets/avatars/ops.svg",
+      "sha256": "5272d7b6550d65b549ce909390095ad780bb3ce8a7b7dd930b9a14679bd80494"
+    },
+    {
+      "path": "packages/ui/assets/avatars/pdf.svg",
+      "from": "assets/avatars/pdf.svg",
+      "sha256": "6d05eb4cfebd40dafb750019ce2bd8ed577a4920ff7dc9a0ff03d9c0c8f8050f"
+    },
+    {
+      "path": "packages/ui/assets/avatars/ppt.svg",
+      "from": "assets/avatars/ppt.svg",
+      "sha256": "907d1d27676715c5cc1c84f0e953e7d3afd1bceb3d741e0cb71e6406849897f4"
+    },
+    {
+      "path": "packages/ui/assets/avatars/research.svg",
+      "from": "assets/avatars/research.svg",
+      "sha256": "861cd259ff44c442eed8febee82b98c3087b5396b262407a181ab3ec3bb22a03"
+    },
+    {
+      "path": "packages/ui/assets/avatars/sales.svg",
+      "from": "assets/avatars/sales.svg",
+      "sha256": "e8aeaafe2551557d1a274df91a16002039b4da10c510fc76b882ba4178494760"
+    },
+    {
+      "path": "packages/ui/assets/avatars/video.svg",
+      "from": "assets/avatars/video.svg",
+      "sha256": "dcbf75804d676cd1c07f6ae8ce58096fc64285a7c30046c3db79ee6b35717d0e"
+    },
+    {
+      "path": "packages/ui/assets/avatars/wechat.svg",
+      "from": "assets/avatars/wechat.svg",
+      "sha256": "ae4c1451a89ce70df844a127224502905ca4af201208cd6c9629c761e54ecf69"
+    },
+    {
+      "path": "packages/ui/assets/avatars/word.svg",
+      "from": "assets/avatars/word.svg",
+      "sha256": "dae15a7aa3f9962a1f50ac4be63a8cffe87ac03f551f87b09f7a23a106135c98"
+    },
+    {
+      "path": "packages/ui/assets/avatars/xiaohuang.svg",
+      "from": "assets/avatars/xiaohuang.svg",
+      "sha256": "1f4c855259c374997c56407bc5572be5f5a0d919368854e43f3d9d8c5b7018f7"
+    },
+    {
+      "path": "packages/ui/assets/groups/business.svg",
+      "from": "assets/groups/business.svg",
+      "sha256": "79a86bfd94752e300c7b51fcc1f155644bd1e5bf5ff94cb49f4be3119d80016c"
+    },
+    {
+      "path": "packages/ui/assets/groups/content.svg",
+      "from": "assets/groups/content.svg",
+      "sha256": "c0fc7dde868f0f51ff39e2ecce78d77b8549c4ac09bee1ca9c534e63650d9a8e"
+    },
+    {
+      "path": "packages/ui/assets/groups/corn-team.svg",
+      "from": "assets/groups/corn-team.svg",
+      "sha256": "ac2c0c3756be4f4cb7f9b8e6fb5316160e5a974cc8c41296b1cd99472c7ec66b"
+    },
+    {
+      "path": "packages/ui/assets/groups/office.svg",
+      "from": "assets/groups/office.svg",
+      "sha256": "d662e089cd1dba3d1ce00ac39649ea0ffef5ac301181e29620ab6160f9ef788d"
+    },
+    {
+      "path": "packages/ui/assets/groups/technical.svg",
+      "from": "assets/groups/technical.svg",
+      "sha256": "f23b9075ccb3acd4a47566bab4df36f41a005742c269b90ea2e47df8528e8cb2"
+    }
+  ],
+  "adapted": [
+    {
+      "path": "packages/ui/src/avatar/artwork.ts",
+      "from": "src/artwork.ts",
+      "note": "Geometry, eyes and decorations returned as an element tree; per-instance id prefix; compact detail for 24 px and below",
+      "sha256": "861e37c33b076246cacd224a187672d0bc7e44ba6b1a051c64e0c84a5d9e5913"
+    },
+    {
+      "path": "packages/ui/src/avatar/variants.ts",
+      "from": "src/artwork.ts",
+      "note": "CORN_VARIANTS catalog typed against packages/contracts/src/avatar.ts",
+      "sha256": "2f39e2761591ecfbbca5ecb4c3fc3f14f24bf859cb59b6d88a4c53ebdbf701e0"
+    }
+  ],
+  "notMigrated": [
+    "src/avatar.ts and dist/avatar.js (motion controller; PR-02D-2 rewrites motion for React)",
+    "dist/artwork.js",
+    "assets/role-states/**, assets/states/**, assets/shapes/** (design review samples)",
+    "assets/contact-sheet.svg, assets/contact-sheet.jpg, assets/gallery-preview.jpg, index.html, gallery.* (gallery)"
+  ]
+}

@@ -11,6 +11,7 @@
       "!.build",
       "!release",
       "!**/dist",
+      "!packages/ui/assets",
       "!pnpm-lock.yaml"
     ]
   },

@@ -1,0 +1,22 @@
+.corn-avatar {
+  display: inline-grid;
+  flex: none;
+  place-items: center;
+  inline-size: var(--corn-avatar-size);
+  block-size: var(--corn-avatar-size);
+  line-height: 1;
+}
+
+.corn-avatar[data-kind="initial"] {
+  border-radius: 50%;
+  background: hsl(var(--corn-avatar-hue) 62% 58%);
+  color: #fff;
+  font-size: calc(var(--corn-avatar-size) * 0.42);
+  font-weight: 600;
+}
+
+.corn-avatar__art {
+  display: block;
+  inline-size: 100%;
+  block-size: 100%;
+}
