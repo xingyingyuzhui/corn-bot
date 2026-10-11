@@ -62,12 +62,12 @@
 }
 
 .corn-details__chip {
-  padding-inline: 8px;
+  padding-inline: 7px;
   border-radius: var(--corn-radius-pill);
   background: var(--corn-surface-selected);
   color: var(--corn-text-secondary);
   font-size: var(--corn-text-xs);
-  line-height: 20px;
+  line-height: var(--corn-leading-xs);
 }
 
 .corn-details__tabs {
