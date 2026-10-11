@@ -150,8 +150,7 @@ try {
     patch,
     `- id: workspace-controller\n  config:\n    documentsDirectory: ${JSON.stringify(join(home, 'documents'))}\n- insert:\n    - id: dsh-corn-m0-probe\n      name: ${JSON.stringify(fixture)}\n      config:\n        enabled: true\n        testHome: ${JSON.stringify(home)}\n`,
   )
-  const env = cornHostEnvironment(home)
-  delete env.DEEPSEEK_API_KEY
+  const env = cornHostEnvironment(home, null)
   child = spawn(
     process.execPath,
     [

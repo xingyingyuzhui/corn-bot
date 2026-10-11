@@ -18,9 +18,17 @@ pnpm dev:desktop
 
 The default data root is `~/.corn-bot-dev/dsh`. `CORN_DSH_HOME` can select an absolute empty or already Corn-owned alternative. The user's `~/.dsh`, descendants, ancestors and symlink aliases are rejected. Do not remove a lock until its recorded process owner is confirmed dead; recovery is intentionally manual in M0.
 
-No model credential is configured by setup. Ambient DSH/provider variables are not inherited. New Corn-only DeepSeek credentials can later be supplied locally through `CORN_DEEPSEEK_API_KEY`; do not paste a key into chat, commit it, print it or enter it directly in a shell command that persists to history. A user-facing model setup screen and credential storage are not implemented yet. Other providers require an explicit Corn-owned configuration path before validation.
+No model credential is configured by setup, and setup, `smoke:cold`, `smoke:host` and `smoke:governance` always boot keyless. Ambient DSH/provider variables are not inherited. The Corn-only model configuration lives in a private file outside the repository, `~/.corn-bot-dev/model.env` (override with `CORN_MODEL_ENV_FILE`). It must be mode `600`; a group- or world-readable file is refused. Process variables with the same names take precedence:
 
-After privately supplying a new Corn key and `CORN_MODEL_ID`, run `pnpm smoke:model`. The requested model must be present under the official RC2 `deepseek-official` route. This makes a real billable model request, checks live chunks and durable completion, and exports counts only. No model test has been run without a new Corn configuration. Model selection changes the isolated Host's default as well as the test Session.
+```sh
+CORN_MODEL_PROVIDER=xiaomi-token-plan-cn   # or deepseek-official
+CORN_MODEL_ID=mimo-v2.6-flash              # or mimo-v2.6-pro
+CORN_MODEL_API_KEY=...                     # never commit, print or paste into chat
+```
+
+Corn maps routes in `apps/desktop/src/runtime/model-provider.ts`. Each route passes only its own credential variable into the Host. `deepseek-official` uses the RC2 DeepSeek adapter through `DEEPSEEK_API_KEY`. `xiaomi-token-plan-cn` (MiMo Token Plan, `https://token-plan-cn.xiaomimimo.com/v1`) uses pi-ai's shipped catalog through the dormant `llm-pi-ai` mount: the generated `corn-isolation.patch.yml` adds only an `apiKeyEnv: XIAOMI_TOKEN_PLAN_CN_API_KEY` reference, never the key. pi-ai supplies the endpoint, models and the MiMo `reasoning_content` replay requirement. Adding a provider means adding a route to that table and a test. A user-facing model setup screen and Keychain credential storage are not implemented yet.
+
+`pnpm smoke:model` reads that configuration, requires the model under the selected live catalog route, makes a real billable request, checks live chunks and durable completion, and exports route, model and counts only. Model selection changes the isolated Host's default as well as the test Session.
 
 Design work reads the private UI/UX research kit from a git-ignored checkout pinned in `design/grok-kit/kit.lock.json`:
 

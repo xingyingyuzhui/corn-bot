@@ -1,6 +1,6 @@
 # M0 developer runtime evidence
 
-Recorded 2026-10-11. **M0 is not complete.** These are developer-runtime results on macOS, not an installable product or a claim of real model conversation.
+Recorded 2026-10-11. **M0 is not complete.** These are developer-runtime results on macOS, not an installable product.
 
 ## Verified
 
@@ -8,7 +8,7 @@ Recorded 2026-10-11. **M0 is not complete.** These are developer-runtime results
 | --- | --- |
 | Frozen dependency install | `pnpm install --frozen-lockfile` passed; DSH 0.2.0-rc.2, Electron 44.7.0 |
 | Source and package pin | `pnpm verify:runtime` passed; DSH contract commit `639ed015397290b3745d163aafe02ffee4aa3f84` |
-| Static checks and build | `pnpm check` and `pnpm build` passed; 10 boundary/admission tests |
+| Static checks and build | `pnpm check` and `pnpm build` passed; 19 boundary/admission/model-route/kit tests |
 | Published Claw release | Archive SHA-256 and ten internal package checksums verified; own `corn-dev` install only |
 | Independent cold boot | `pnpm smoke:cold`: three empty temporary homes booted/authenticated/listed/stopped; concurrent stop and stop-during-start also passed |
 | Real Host integration | `pnpm smoke:host`: 16 checks passed, listed below |
@@ -16,6 +16,7 @@ Recorded 2026-10-11. **M0 is not complete.** These are developer-runtime results
 | SQLite candidate | CLI and Electron Node mode opened/read/wrote WAL database; Electron's Node 24.21.0 / SQLite 3.53.4 |
 | Native governance and cancellation | `pnpm smoke:governance`: real Gate deny, Remote reject and Remote cancel passed; queue retained, approval withdrawn, trace matched, zero bash body executions |
 | UI/UX research kit pin | `pnpm verify:ui-kit` against `.research/grok-bot-ui-ux-kit` at `0248419`: commit and 16 pinned file hashes match, and no Corn file copies a kit file. The kit's own `npm ci && npm run build && npm run check` reproduced byte-identical outputs and passed 7/7 tests. See [source lock](../../design/grok-kit/SOURCE_LOCK.md). CI has no checkout (private repository) and reports `skipped` |
+| Real model stream (MiMo Token Plan) | `pnpm smoke:model` with route `xiaomi-token-plan-cn`, model `mimo-v2.6-flash` through pi-ai: 6 live stream chunks, 1 committed assistant message, completed Turn, contiguous durable seqs and page recovery of the message and Turn end. Key only in private mode-600 `~/.corn-bot-dev/model.env`; patch carries a credential reference only |
 | Forced crash indication | `CORN_DESKTOP_SMOKE=1 CORN_DESKTOP_CRASH_SMOKE=1 pnpm dev:desktop`: owned Host killed, sandboxed Renderer received failed status and rendered disconnect message |
 
 The 16 Host checks establish: independent startup/token-cookie exchange; unauthenticated HTTP and WS 401; authenticated wrong-Origin HTTP and WS 403; Session listing; real Claw agent creation and preset ensure; real Session creation and binding; authenticated follow snapshot; reconnect with consistent fresh snapshot; nonexistent Session binding rejected; missing Claw preset rejected; SQLite WAL; concurrent graceful shutdown releases port; restart re-ensures the preset and recovers the durable Session; forced child crash notifies its supervisor and a subsequent manual restart recovers the Session.
@@ -30,7 +31,7 @@ Review found and fixed two concrete bugs: path names beginning with `..` could b
 | --- | --- |
 | M0-01 three fresh profiles | Baseline DSH cold boot passed; complete fresh Claw distribution/packaged runtime still pending |
 | M0-02 authentication | Passed against real owned Host: 401 and 403 cases |
-| M0-03 real model stream and final durable event | Pending a new Corn-only model configuration; `pnpm smoke:model` is prepared but has not been model-validated |
+| M0-03 real model stream and final durable event | Passed with MiMo Token Plan `mimo-v2.6-flash` (pi-ai route `xiaomi-token-plan-cn`); `deepseek-official` route remains wired but not model-validated |
 | M0-04 cancel active Turn, preserve queue | Passed for real native tool/approval Turn: end is aborted/user, second queued input remains in public inbox projection; model-in-flight cancellation still pending |
 | M0-05 forced Host failure, UI disconnect and log recovery | Forced crash shows disconnected Renderer status; manual Host restart recovers durable Session; model log recovery and automatic product recovery remain pending |
 | M0-06 no preset downgrade | Passed: missing `wa-*` preset is rejected |
@@ -39,7 +40,7 @@ Review found and fixed two concrete bugs: path names beginning with `..` could b
 | PR-00E avatar source and engine | Avatar source matrix, behaviour mapping and [ADR-0003](../adr/ADR-0003-avatar-engine.md) (`corn-original`) recorded; no kit code or asset is a Corn dependency |
 | Packaged application and SQLite driver | Developer runtime passed; bundled `Corn Bot.app`, arm64 packaging and signing pending |
 
-No existing DSH credentials, settings or memories were read or copied. Ambient provider keys are dropped from the Host environment. `smoke:model` requires explicit new `CORN_DEEPSEEK_API_KEY` and `CORN_MODEL_ID`, verifies the `deepseek-official` live catalog route, then requires stream chunks, a committed assistant message, a completed Turn and durable page recovery. It exports counts only. This script is prepared validation code, not evidence of a successful model call.
+No existing DSH credentials, settings or memories were read or copied. Ambient provider keys are dropped from the Host environment; only the selected Corn route's credential variable is passed. `smoke:model` requires an explicit Corn model configuration (`CORN_MODEL_PROVIDER`, `CORN_MODEL_ID`, `CORN_MODEL_API_KEY`), verifies the selected live catalog route, then requires stream chunks, a committed assistant message, a completed Turn and durable page recovery. It exports route, model and counts only.
 
 ## Governance probe boundary
 

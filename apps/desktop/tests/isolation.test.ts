@@ -68,14 +68,19 @@ test('ambient unrelated credentials and Node injection flags never enter the Hos
   try {
     process.env.DEEPSEEK_API_KEY = 'do-not-inherit-ambient-key'
     process.env.NODE_OPTIONS = '--inspect=0.0.0.0:9229'
-    const environment = cornHostEnvironment(join(tmpdir(), 'corn-env-test'))
-    assert.equal(
-      environment.DEEPSEEK_API_KEY,
-      process.env.CORN_DEEPSEEK_API_KEY,
-    )
-    assert.equal(environment.NODE_OPTIONS, undefined)
-    assert.equal(environment.GOOGLE_API_KEY, undefined)
-    assert.equal(environment.DSH_TELEMETRY_DISABLED, '1')
+    const home = join(tmpdir(), 'corn-env-test')
+    const keyless = cornHostEnvironment(home, null)
+    assert.equal(keyless.DEEPSEEK_API_KEY, undefined)
+    assert.equal(keyless.NODE_OPTIONS, undefined)
+    assert.equal(keyless.GOOGLE_API_KEY, undefined)
+    assert.equal(keyless.DSH_TELEMETRY_DISABLED, '1')
+    const mimo = cornHostEnvironment(home, {
+      route: 'xiaomi-token-plan-cn',
+      model: 'mimo-v2.6-flash',
+      apiKey: 'corn-test-key',
+    })
+    assert.equal(mimo.XIAOMI_TOKEN_PLAN_CN_API_KEY, 'corn-test-key')
+    assert.equal(mimo.DEEPSEEK_API_KEY, undefined)
   } finally {
     if (previous === undefined) delete process.env.DEEPSEEK_API_KEY
     else process.env.DEEPSEEK_API_KEY = previous
