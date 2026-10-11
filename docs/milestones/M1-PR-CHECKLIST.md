@@ -1,6 +1,6 @@
 # M1 product UI slice
 
-M0 is accepted except signing and notarization ([ADR-0001](../adr/ADR-0001-dsh-transport.md), [M0 evidence](M0-EVIDENCE.md)). This is the file-level review checklist for M1. Scope follows plan §14 maintainer decisions; kit references follow [SPEC_MAPPING](../../design/grok-kit/SPEC_MAPPING.md).
+M0 acceptance is reopened: **open P1 (R1)** — an existing Corn profile without the Claw suite can still reach `ready`; the runtime review-fix PR (R1/R2/R3) must close it with evidence before full acceptance is restored. Signing and notarization remain the approved deferral ([ADR-0001](../adr/ADR-0001-dsh-transport.md), [M0 evidence](M0-EVIDENCE.md)). This is the file-level review checklist for M1. Scope follows plan §14 maintainer decisions; kit references follow [SPEC_MAPPING](../../design/grok-kit/SPEC_MAPPING.md).
 
 | PR | Files | Reviewable behaviour |
 | --- | --- | --- |
