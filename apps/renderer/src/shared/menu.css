@@ -1,0 +1,46 @@
+/* Kit menu metrics: 30px rows, 13/18 text, 12px menu and 6px row radius. */
+.corn-menu {
+  position: fixed;
+  inset: auto;
+  min-inline-size: 180px;
+  max-inline-size: 280px;
+  margin: 4px 0 0;
+  padding: 4px;
+  border: 0;
+  border-radius: 12px;
+  background: var(--corn-surface-page);
+  color: var(--corn-text-primary);
+  box-shadow: var(--corn-shadow-dialog);
+  position-area: block-end span-inline-start;
+  position-try-fallbacks: flip-block, flip-inline;
+}
+
+.corn-menu[data-align="start"] {
+  position-area: block-end span-inline-end;
+}
+
+.corn-menu__item {
+  display: flex;
+  align-items: center;
+  inline-size: 100%;
+  min-block-size: 30px;
+  padding: 0 10px;
+  border-radius: 6px;
+  font-size: var(--corn-text-sm);
+  line-height: 18px;
+  text-align: start;
+}
+
+.corn-menu__item:hover,
+.corn-menu__item:focus-visible {
+  background: var(--corn-surface-hover);
+  outline: none;
+}
+
+.corn-menu__item[aria-disabled="true"] {
+  color: var(--corn-text-tertiary);
+}
+
+.corn-menu__item[data-tone="danger"] {
+  color: var(--corn-text-danger);
+}
