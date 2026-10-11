@@ -49,6 +49,56 @@ test('private env file supplies the route; process variables win', async () => {
   })
 })
 
+test("a process route or key never borrows the file's key or model", async () => {
+  await withTemporary(async (directory) => {
+    const file = join(directory, 'model.env')
+    await writeFile(
+      file,
+      'CORN_MODEL_PROVIDER=xiaomi-token-plan-cn\nCORN_MODEL_ID=mimo-v2.6-pro\nCORN_MODEL_API_KEY=mimo-file-key\n',
+      { mode: 0o600 },
+    )
+    assert.throws(
+      () =>
+        resolveCornModelConfig({
+          CORN_MODEL_ENV_FILE: file,
+          CORN_MODEL_PROVIDER: 'deepseek-official',
+          CORN_MODEL_ID: 'deepseek-chat',
+        }),
+      /both required/u,
+    )
+    assert.throws(
+      () =>
+        resolveCornModelConfig({
+          CORN_MODEL_ENV_FILE: file,
+          CORN_MODEL_PROVIDER: 'deepseek-official',
+          CORN_MODEL_API_KEY: 'deepseek-process-key',
+        }),
+      /both required/u,
+    )
+    assert.throws(
+      () =>
+        resolveCornModelConfig({
+          CORN_MODEL_ENV_FILE: file,
+          CORN_MODEL_API_KEY: 'process-key',
+        }),
+      /must be one of/u,
+    )
+    assert.deepEqual(
+      resolveCornModelConfig({
+        CORN_MODEL_ENV_FILE: file,
+        CORN_MODEL_PROVIDER: 'deepseek-official',
+        CORN_MODEL_ID: 'deepseek-chat',
+        CORN_MODEL_API_KEY: 'deepseek-process-key',
+      }),
+      {
+        route: 'deepseek-official',
+        model: 'deepseek-chat',
+        apiKey: 'deepseek-process-key',
+      },
+    )
+  })
+})
+
 test('readable env files, unknown routes and partial configs are refused', async () => {
   await withTemporary(async (directory) => {
     const file = join(directory, 'model.env')

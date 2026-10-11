@@ -10,6 +10,7 @@ import { verifyUiKitReference } from '../lib/ui-kit-reference.mjs'
 
 const run = promisify(execFile)
 const researchBody = 'research-only specification\n'.repeat(20)
+const assetBody = 'unpinned research asset bytes\n'.repeat(20)
 
 async function git(cwd, ...args) {
   return (await run('git', args, { cwd })).stdout.trim()
@@ -29,6 +30,8 @@ async function fixture({ commitOverride, docBody = researchBody } = {}) {
   await initRepo(kit)
   await mkdir(join(kit, 'docs'))
   await writeFile(join(kit, 'docs/spec.md'), researchBody)
+  await mkdir(join(kit, 'assets'))
+  await writeFile(join(kit, 'assets/glyphs.bin'), assetBody)
   await git(kit, 'add', '.')
   await git(kit, 'commit', '--quiet', '-m', 'kit')
   const head = await git(kit, 'rev-parse', 'HEAD')
@@ -115,3 +118,25 @@ test('rejects Corn files that are byte copies of research files', async () => {
     await rm(root, { recursive: true, force: true })
   }
 })
+
+for (const [label, tamper] of [
+  ['edited', (path) => writeFile(path, 'locally edited\n')],
+  ['deleted', (path) => rm(path)],
+]) {
+  test(`detects copies of unpinned research assets ${label} after pinning`, async () => {
+    const { root, corn, kit } = await fixture()
+    try {
+      await mkdir(join(corn, 'apps'), { recursive: true })
+      await writeFile(join(corn, 'apps/glyphs.bin'), assetBody)
+      await tamper(join(kit, 'assets/glyphs.bin'))
+      const report = await verifyUiKitReference({ repoRoot: corn })
+      assert.equal(report.status, 'failed')
+      assert.match(
+        report.failures.join('\n'),
+        /apps\/glyphs\.bin is a byte copy of research file assets\/glyphs\.bin/u,
+      )
+    } finally {
+      await rm(root, { recursive: true, force: true })
+    }
+  })
+}

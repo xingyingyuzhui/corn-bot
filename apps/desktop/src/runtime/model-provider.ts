@@ -70,19 +70,25 @@ function readModelEnvFile(path: string): Record<string, string> {
 }
 
 /**
- * Explicit Corn-only model configuration: process variables win over the
- * private env file; ambient provider variables are never consulted.
+ * Explicit Corn-only model configuration; ambient provider variables are never
+ * consulted. Route and key always come from one source: a process-level route
+ * or key replaces the private env file entirely, so one provider's key can
+ * never be sent to another. Only the model id may override the file's route.
  */
 export function resolveCornModelConfig(
   env: NodeJS.ProcessEnv = process.env,
 ): CornModelConfig | null {
-  const file = readModelEnvFile(
-    env.CORN_MODEL_ENV_FILE ?? defaultModelEnvFile(),
-  )
-  const pick = (key: string) => env[key] ?? file[key]
-  const route = pick('CORN_MODEL_PROVIDER')
-  const model = pick('CORN_MODEL_ID')
-  const apiKey = pick('CORN_MODEL_API_KEY')
+  const processOwned =
+    env.CORN_MODEL_PROVIDER !== undefined ||
+    env.CORN_MODEL_API_KEY !== undefined
+  const source = processOwned
+    ? env
+    : readModelEnvFile(env.CORN_MODEL_ENV_FILE ?? defaultModelEnvFile())
+  const route = source.CORN_MODEL_PROVIDER
+  const model = processOwned
+    ? env.CORN_MODEL_ID
+    : (env.CORN_MODEL_ID ?? source.CORN_MODEL_ID)
+  const apiKey = source.CORN_MODEL_API_KEY
   if (!route && !model && !apiKey) return null
   if (!route || !isRoute(route))
     throw new Error(

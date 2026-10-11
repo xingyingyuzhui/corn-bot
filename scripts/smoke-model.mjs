@@ -57,7 +57,7 @@ try {
   })
   await writeFile(
     new URL('../.artifacts/m0-model-smoke.json', import.meta.url),
-    `${JSON.stringify({ recordedAt: new Date().toISOString(), passed: true, route: model.route, model: model.model, chunks, assistantMessages: messages.length, persistedCompletion: true, scope: 'Real Corn-only model call; no response content or credentials exported.' }, null, 2)}\n`,
+    `${JSON.stringify({ recordedAt: new Date().toISOString(), passed: true, route: model.route, model: model.model, chunks, assistantMessages: messages.length, livePageCompletion: true, scope: 'Real Corn-only model call read back from the live Host; disk persistence is covered by smoke:model-lifecycle. No response content or credentials exported.' }, null, 2)}\n`,
     { mode: 0o600 },
   )
   console.log(

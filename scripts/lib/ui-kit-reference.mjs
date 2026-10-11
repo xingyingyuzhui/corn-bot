@@ -35,40 +35,65 @@ async function sha256File(path) {
     .digest('hex')
 }
 
-async function gitFiles(cwd, args) {
-  const { stdout } = await run('git', ['ls-files', '-z', ...args], {
+async function git(cwd, args) {
+  const { stdout } = await run('git', args, {
     cwd,
     maxBuffer: 64 * 1024 * 1024,
   })
-  return stdout.split('\0').filter(Boolean)
+  return stdout
 }
 
-async function hashIndex(root, files, minBytes) {
+/** Blob ids at the pinned commit, so research working-tree edits cannot hide a copy. */
+async function pinnedBlobIndex(kitDir, commit, minBytes) {
   const index = new Map()
-  for (const file of files) {
-    const path = join(root, file)
-    let info
-    try {
-      info = await stat(path)
-    } catch {
-      continue
-    }
-    if (!info.isFile() || info.size < minBytes) continue
-    index.set(await sha256File(path), file)
+  for (const entry of (
+    await git(kitDir, ['ls-tree', '-r', '-l', '-z', commit])
+  ).split('\0')) {
+    const match = /^\d+ blob ([0-9a-f]+) +(\d+)\t(.+)$/su.exec(entry)
+    if (match && Number(match[2]) >= minBytes) index.set(match[1], match[3])
   }
   return index
 }
 
-export async function findCopiedKitFiles({ repoRoot, kitDir, minBytes }) {
-  const kit = await hashIndex(kitDir, await gitFiles(kitDir, []), minBytes)
-  const corn = await hashIndex(
-    repoRoot,
-    await gitFiles(repoRoot, ['--cached', '--others', '--exclude-standard']),
-    minBytes,
+async function cornBlobIndex(repoRoot, minBytes) {
+  const files = []
+  for (const file of (
+    await git(repoRoot, [
+      'ls-files',
+      '-z',
+      '--cached',
+      '--others',
+      '--exclude-standard',
+    ])
   )
+    .split('\0')
+    .filter(Boolean)) {
+    const info = await stat(join(repoRoot, file)).catch(() => null)
+    if (info?.isFile() && info.size >= minBytes) files.push(file)
+  }
+  const index = new Map()
+  for (let start = 0; start < files.length; start += 500) {
+    const batch = files.slice(start, start + 500)
+    const ids = (
+      await git(repoRoot, ['hash-object', '--no-filters', '--', ...batch])
+    )
+      .trim()
+      .split('\n')
+    for (const [offset, id] of ids.entries()) index.set(id, batch[offset])
+  }
+  return index
+}
+
+export async function findCopiedKitFiles({
+  repoRoot,
+  kitDir,
+  commit,
+  minBytes,
+}) {
+  const kit = await pinnedBlobIndex(kitDir, commit, minBytes)
   const copies = []
-  for (const [hash, cornFile] of corn) {
-    const kitFile = kit.get(hash)
+  for (const [id, cornFile] of await cornBlobIndex(repoRoot, minBytes)) {
+    const kitFile = kit.get(id)
     if (kitFile) copies.push({ cornFile, kitFile })
   }
   return copies
@@ -115,7 +140,11 @@ export async function verifyUiKitReference({ repoRoot, kitDirOverride }) {
     const copies = await findCopiedKitFiles({
       repoRoot,
       kitDir,
+      commit: lock.commit,
       minBytes: lock.copyDetectionMinBytes,
+    }).catch(() => {
+      report.failures.push(`Pinned commit ${lock.commit} is not available`)
+      return []
     })
     for (const { cornFile, kitFile } of copies)
       report.failures.push(
