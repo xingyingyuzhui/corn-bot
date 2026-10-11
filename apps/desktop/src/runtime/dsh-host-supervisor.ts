@@ -11,6 +11,8 @@ import {
 } from './host-readiness.ts'
 import {
   type CornModelConfig,
+  type ModelOverrideFacts,
+  overrideFacts,
   resolveCornModelConfig,
 } from './model-provider.ts'
 import { acquireProcessLock } from './process-lock.ts'
@@ -56,10 +58,14 @@ export interface SupervisorOptions {
   /** Chosen explicitly by every caller: the App's governed entry or a setup-only bootstrap. */
   readonly admission: HostAdmission
   readonly onFailure?: (message: string) => void
-  /** `undefined` resolves the private Corn model configuration at each start; `null` boots keyless. */
+  /** Explicit model for a script-driven smoke; absent or `null` boots keyless unless `devModelOverrideFile` is set. */
   readonly model?: CornModelConfig | null
-  /** Private model file the App selected; read lazily inside each start. */
-  readonly modelEnvFile?: string
+  /**
+   * Development-only override file, read lazily inside each start. The App
+   * passes one only for an unpackaged build started with an explicit path;
+   * production and the default development App boot keyless.
+   */
+  readonly devModelOverrideFile?: string | undefined
   /** Verified bundled profile used instead of DSH's online template on first start. */
   readonly profileTemplate?: string | undefined
   /** Test seam; production spawns the bundled DSH CLI. */
@@ -123,8 +129,9 @@ export class DshHostSupervisor {
   readonly home: string
   readonly onFailure: (message: string) => void
   readonly model: CornModelConfig | null | undefined
-  readonly modelEnvFile: string | undefined
+  readonly devModelOverrideFile: string | undefined
   readonly profileTemplate: string | undefined
+  #modelOverride: ModelOverrideFacts | null = null
   readonly #admission: HostAdmission
   readonly #spawnHost: SpawnHost
   readonly #exchangeAuth: (
@@ -137,7 +144,7 @@ export class DshHostSupervisor {
     this.#admission = options.admission
     this.onFailure = options.onFailure ?? (() => {})
     this.model = options.model
-    this.modelEnvFile = options.modelEnvFile
+    this.devModelOverrideFile = options.devModelOverrideFile
     this.profileTemplate = options.profileTemplate
     this.#spawnHost = options.spawnHost ?? spawn
     this.#exchangeAuth = options.exchangeAuth ?? HostAuth.exchange
@@ -146,6 +153,11 @@ export class DshHostSupervisor {
   /** Main-only process ownership diagnostics; never exposed over Renderer IPC. */
   get processId(): number | undefined {
     return this.#life?.child.pid
+  }
+
+  /** What the current start injected for a model override; never carries the key. */
+  get modelOverride(): ModelOverrideFacts | null {
+    return this.#modelOverride
   }
 
   /** Main-only diagnostic: Host processes spawned by this supervisor. */
@@ -196,7 +208,9 @@ export class DshHostSupervisor {
     }
     try {
       this.#throwIfStopRequested()
+      this.#modelOverride = null
       const model = this.#resolveModel()
+      this.#modelOverride = model && overrideFacts(model)
       const patch = await writeIsolationPatch(this.home, model)
       const args = [cliEntry, CORN_PROFILE]
       const profile = join(this.home, 'profiles', CORN_PROFILE)
@@ -341,13 +355,13 @@ export class DshHostSupervisor {
     })
   }
 
+  /** Never consults the process environment: only an explicit model or override file. */
   #resolveModel(): CornModelConfig | null {
     if (this.model !== undefined) return this.model
-    return resolveCornModelConfig(
-      this.modelEnvFile === undefined
-        ? process.env
-        : { ...process.env, CORN_MODEL_ENV_FILE: this.modelEnvFile },
-    )
+    if (this.devModelOverrideFile === undefined) return null
+    return resolveCornModelConfig({
+      CORN_MODEL_ENV_FILE: this.devModelOverrideFile,
+    })
   }
 
   /** Cancels any in-flight start (readiness, auth) before stopping its child. */

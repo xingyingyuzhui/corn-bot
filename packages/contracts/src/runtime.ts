@@ -8,6 +8,8 @@ export type RuntimeStatus =
 /**
  * Closed set of safe startup failure reasons. Each names a category only; the
  * Renderer never receives keys, cookies, launch URLs, stacks or raw config.
+ * `model_config_*` can only come from an explicit development model override;
+ * production model configuration is a model status, never a startup failure.
  */
 export const RUNTIME_ERROR_CODES = [
   'model_config_invalid',
