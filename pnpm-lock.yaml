@@ -30,7 +30,17 @@ importers:
         specifier: 8.21.0
         version: 8.21.0
 
-  apps/desktop: {}
+  apps/desktop:
+    dependencies:
+      '@deepseek-ai/dsh':
+        specifier: 0.2.0-rc.2
+        version: 0.2.0-rc.2(52df50d74d75c24b3f93b027a4d92ac6)
+      '@deepseek-ai/dsh-api-gateway':
+        specifier: 0.2.0-rc.2
+        version: 0.2.0-rc.2(@deepseek-ai/cordis@4.0.4)(@deepseek-ai/dsh-client-connection@0.2.0-rc.2(@deepseek-ai/cordis@4.0.4)(@deepseek-ai/dsh-invariants@0.2.0-rc.2(@deepseek-ai/cordis@4.0.4))(@deepseek-ai/dsh-scope@0.2.0-rc.2(@deepseek-ai/cordis@4.0.4)(@deepseek-ai/dsh-invariants@0.2.0-rc.2(@deepseek-ai/cordis@4.0.4))))
+      ws:
+        specifier: 8.21.0
+        version: 8.21.0
 
   apps/renderer: {}
 

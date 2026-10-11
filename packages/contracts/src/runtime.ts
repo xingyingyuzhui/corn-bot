@@ -1,4 +1,9 @@
-export type RuntimeStatus = 'stopped' | 'starting' | 'ready' | 'failed'
+export type RuntimeStatus =
+  | 'stopped'
+  | 'starting'
+  | 'ready'
+  | 'recovering'
+  | 'failed'
 
 /** Public runtime facts. Authentication never crosses this boundary. */
 export interface RuntimeView {

@@ -13,7 +13,7 @@ import {
 
 const root = dirname(dirname(fileURLToPath(import.meta.url)))
 const home = process.env.CORN_DSH_HOME ?? defaultDevelopmentHome()
-const host = new DshHostSupervisor(home, undefined, null)
+const host = new DshHostSupervisor(home, { model: null })
 try {
   await host.start()
 } finally {

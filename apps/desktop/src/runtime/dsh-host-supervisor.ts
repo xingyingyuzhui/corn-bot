@@ -1,4 +1,5 @@
 import { type ChildProcess, spawn } from 'node:child_process'
+import { existsSync } from 'node:fs'
 import { createRequire } from 'node:module'
 import { dirname, join } from 'node:path'
 import { DSH_VERSION } from '../../../../packages/contracts/src/runtime.ts'
@@ -15,10 +16,19 @@ import {
   cornHostEnvironment,
   writeIsolationPatch,
 } from './profile-bootstrap.ts'
+import { materializeProfile } from './profile-template.ts'
 
 const require = createRequire(import.meta.url)
 const cliManifest = require.resolve('@deepseek-ai/dsh/package.json')
 const cliEntry = join(dirname(cliManifest), 'lib', 'bin.js')
+
+export interface SupervisorOptions {
+  readonly onFailure?: (message: string) => void
+  /** `undefined` resolves the private Corn model configuration at each start; `null` boots keyless. */
+  readonly model?: CornModelConfig | null
+  /** Verified bundled profile used instead of DSH's online template on first start. */
+  readonly profileTemplate?: string | undefined
+}
 
 export class DshHostSupervisor {
   #child: ChildProcess | undefined
@@ -31,17 +41,14 @@ export class DshHostSupervisor {
 
   readonly home: string
   readonly onFailure: (message: string) => void
-  /** `undefined` resolves the private Corn model configuration at each start; `null` boots keyless. */
   readonly model: CornModelConfig | null | undefined
+  readonly profileTemplate: string | undefined
 
-  constructor(
-    home: string,
-    onFailure: (message: string) => void = () => {},
-    model?: CornModelConfig | null,
-  ) {
+  constructor(home: string, options: SupervisorOptions = {}) {
     this.home = home
-    this.onFailure = onFailure
-    this.model = model
+    this.onFailure = options.onFailure ?? (() => {})
+    this.model = options.model
+    this.profileTemplate = options.profileTemplate
   }
 
   /** Main-only process ownership diagnostics; never exposed over Renderer IPC. */
@@ -70,13 +77,12 @@ export class DshHostSupervisor {
         this.model === undefined ? resolveCornModelConfig() : this.model
       const patch = await writeIsolationPatch(this.home, model)
       const args = [cliEntry, CORN_PROFILE]
-      // DSH creates this named profile from its own shipped template, never the user's profile.
-      const { existsSync } = await import('node:fs')
-      if (
-        !existsSync(join(this.home, 'profiles', CORN_PROFILE, 'package.json'))
-      ) {
+      const profile = join(this.home, 'profiles', CORN_PROFILE)
+      if (this.profileTemplate)
+        await materializeProfile(this.profileTemplate, profile)
+      // Otherwise DSH creates this named profile from its own shipped template, never the user's profile.
+      else if (!existsSync(join(profile, 'package.json')))
         args.push('--from-default-profile', 'web')
-      }
       args.push('--patch', patch, '--no-open', '--port', '0')
       const child = spawn(process.execPath, args, {
         cwd: this.home,

@@ -13,13 +13,12 @@ import { HostTransport } from '../packages/dsh-adapter/src/transport.ts'
 
 const home = process.env.CORN_DSH_HOME ?? defaultDevelopmentHome()
 let unexpectedExit = false
-const host = new DshHostSupervisor(
-  home,
-  () => {
+const host = new DshHostSupervisor(home, {
+  onFailure: () => {
     unexpectedExit = true
   },
-  null,
-)
+  model: null,
+})
 const checks = []
 const artifacts = new URL('../.artifacts/', import.meta.url)
 let mux

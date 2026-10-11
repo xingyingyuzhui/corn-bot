@@ -3,5 +3,10 @@
   "version": "0.1.0-dev.0",
   "private": true,
   "type": "module",
-  "main": "dist/apps/desktop/src/main.js"
+  "main": "dist/apps/desktop/src/main.js",
+  "dependencies": {
+    "@deepseek-ai/dsh": "0.2.0-rc.2",
+    "@deepseek-ai/dsh-api-gateway": "0.2.0-rc.2",
+    "ws": "8.21.0"
+  }
 }

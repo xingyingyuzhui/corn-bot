@@ -9,7 +9,7 @@ import { HostTransport } from '../packages/dsh-adapter/src/transport.ts'
 // Empty, disposable homes; no profile, settings, model key or Claw import.
 for (let round = 1; round <= 3; round++) {
   const home = await mkdtemp(join(tmpdir(), 'corn-cold-start-'))
-  const host = new DshHostSupervisor(home, undefined, null)
+  const host = new DshHostSupervisor(home, { model: null })
   try {
     const auth = await host.start()
     await new SessionClient(new HostTransport(auth)).list()
@@ -25,7 +25,7 @@ for (let round = 1; round <= 3; round++) {
 }
 
 const home = await mkdtemp(join(tmpdir(), 'corn-early-stop-'))
-const host = new DshHostSupervisor(home, undefined, null)
+const host = new DshHostSupervisor(home, { model: null })
 try {
   const startup = host.start()
   await assert.rejects(host.start(), /already started/u)

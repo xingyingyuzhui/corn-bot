@@ -15,8 +15,7 @@ if (!model)
 
 const host = new DshHostSupervisor(
   process.env.CORN_DSH_HOME ?? defaultDevelopmentHome(),
-  undefined,
-  model,
+  { model },
 )
 let harness
 let follow
