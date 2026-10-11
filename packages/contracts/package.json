@@ -5,6 +5,7 @@
   "type": "module",
   "exports": {
     ".": "./src/runtime.ts",
-    "./avatar": "./src/avatar.ts"
+    "./avatar": "./src/avatar.ts",
+    "./model-settings": "./src/model-settings.ts"
   }
 }

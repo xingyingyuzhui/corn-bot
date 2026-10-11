@@ -13,6 +13,10 @@ export interface HostAuthority {
   headers(): Record<string, string>
 }
 
+/**
+ * Settings writes are limited to `replace` and path `mutate`: `update` merges
+ * and would keep stale fields of a complete selection.
+ */
 const RPC_ENDPOINTS = new Set([
   'session/list',
   'session/create',
@@ -22,6 +26,14 @@ const RPC_ENDPOINTS = new Set([
   'session/modelCatalog',
   'session/selectModel',
   '$events/result',
+  'settings/describe',
+  'settings/replace',
+  'settings/mutate',
+  'credentials/describe',
+  'credentials/set',
+  'credentials/unset',
+  'llm/listProviders',
+  'llm/listConfigurableProviders',
 ])
 const STREAM_ENDPOINTS = new Set([
   'session/follow',
