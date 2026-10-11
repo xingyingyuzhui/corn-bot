@@ -36,7 +36,8 @@ test('the fixture ops summary loses its absolute path', () => {
 })
 
 test('included fields are exactly the allow-list', () => {
-  const result = buildRestrictedExport(botOf('xiaohuang'), snapshot)
+  const bot = { ...botOf('xiaohuang'), tagIds: ['tag-dispatch'] }
+  const result = buildRestrictedExport(bot, withBot(bot))
   assert.deepEqual(
     result.included.map((field) => field.key),
     ['name', 'role', 'workStyle', 'summary', 'tags', 'model'],

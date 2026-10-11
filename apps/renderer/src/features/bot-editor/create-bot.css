@@ -1,0 +1,15 @@
+.corn-create-bot__select {
+  block-size: 35px;
+  appearance: auto;
+}
+
+.corn-create-bot .corn-field + .corn-field {
+  margin-block-start: 14px;
+}
+
+.corn-create-bot__error {
+  margin: 14px 0 0;
+  color: var(--corn-text-danger);
+  font-size: var(--corn-text-sm);
+  line-height: var(--corn-leading-sm);
+}

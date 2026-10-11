@@ -8,12 +8,23 @@ import type { AttachmentView } from '../model/workspace.ts'
 export const DETAILS_TABS = ['details', 'library', 'computer'] as const
 export type DetailsTab = (typeof DETAILS_TABS)[number]
 
-/** `user-screenshots` profile, measured at 1024×764 CSS px, DPR 2 (ADR-0004). */
+/**
+ * `user-screenshots` profile, measured at 1024×764 CSS px, DPR 2 (ADR-0004).
+ * The sidebar range, rail, main-content reserve and drag thresholds follow the
+ * kit (E01–E05); only the 276 default comes from the screenshot calibration.
+ */
 export const LAYOUT = {
   sidebarWidth: 276,
+  sidebarMinWidth: 240,
+  sidebarMaxWidth: 400,
+  sidebarRailWidth: 88,
+  mainReserve: 424,
+  dragCollapseBelow: 210,
+  dragExpandFrom: 220,
+  /** Corn's own keyboard enhancement on the resize separator. */
+  sidebarKeyStep: 8,
   detailsRatio: 0.367,
   chatMinWidth: 340,
-  autoCompactBelow: 820,
 } as const
 
 /** Per-Bot composer contents; attachments are staged locally, never uploaded. */
@@ -42,16 +53,32 @@ export interface ChatScroll {
   readonly pinnedToBottom: boolean
 }
 
+/** Roster search is closed when `null`; each open request re-focuses it. */
+export interface RosterSearch {
+  readonly query: string
+  readonly focusRequest: number
+}
+
 export interface LayoutState {
   readonly selectedBotId: string
   readonly detailsOpen: boolean
   readonly detailsTabs: Readonly<Record<string, DetailsTab>>
   readonly drafts: Readonly<Record<string, ComposerDraft>>
   readonly scroll: Readonly<Record<string, ChatScroll>>
+  readonly viewportWidth: number
+  /** Expanded width the user chose; kept while collapsed or auto-compact. */
+  readonly sidebarPreferredWidth: number
   readonly sidebarManualCollapsed: boolean
   readonly sidebarAutoCompact: boolean
+  readonly rosterSearch: RosterSearch | null
+  readonly foldedGroupIds: readonly string[]
   readonly overlay: Overlay | null
 }
+
+export type SidebarSnapshot = Pick<
+  LayoutState,
+  'sidebarPreferredWidth' | 'sidebarManualCollapsed' | 'sidebarAutoCompact'
+>
 
 export type LayoutAction =
   | { readonly type: 'select-bot'; readonly botId: string }
@@ -62,19 +89,109 @@ export type LayoutAction =
   | { readonly type: 'record-scroll'; readonly scroll: ChatScroll }
   | { readonly type: 'toggle-sidebar' }
   | { readonly type: 'viewport'; readonly width: number }
+  /** Proposed rendered width from a drag or keyboard step on the separator. */
+  | { readonly type: 'resize-sidebar'; readonly width: number }
+  | { readonly type: 'restore-sidebar'; readonly snapshot: SidebarSnapshot }
+  | { readonly type: 'open-roster-search' }
+  | { readonly type: 'edit-roster-search'; readonly query: string }
+  | { readonly type: 'close-roster-search' }
+  | { readonly type: 'toggle-group'; readonly groupId: string }
   | { readonly type: 'open-overlay'; readonly overlay: Overlay }
   | { readonly type: 'close-overlay' }
 
-export function initialLayout(selectedBotId: string): LayoutState {
+export function initialLayout(
+  selectedBotId: string,
+  viewportWidth: number = Number.POSITIVE_INFINITY,
+): LayoutState {
   return {
     selectedBotId,
     detailsOpen: false,
     detailsTabs: {},
     drafts: {},
     scroll: {},
+    viewportWidth,
+    sidebarPreferredWidth: LAYOUT.sidebarWidth,
     sidebarManualCollapsed: false,
-    sidebarAutoCompact: false,
+    sidebarAutoCompact: autoCompactFor(viewportWidth, LAYOUT.sidebarWidth),
+    rosterSearch: null,
+    foldedGroupIds: [],
     overlay: null,
+  }
+}
+
+export function clampSidebarWidth(width: number): number {
+  return Math.round(
+    Math.min(LAYOUT.sidebarMaxWidth, Math.max(LAYOUT.sidebarMinWidth, width)),
+  )
+}
+
+/** Kit E02: compact when the window cannot fit the sidebar plus main reserve. */
+export function autoCompactFor(
+  viewportWidth: number,
+  preferredWidth: number,
+): boolean {
+  return viewportWidth < preferredWidth + LAYOUT.mainReserve
+}
+
+export type SidebarDrag =
+  | { readonly kind: 'collapse' }
+  | { readonly kind: 'expand'; readonly width: number }
+
+/**
+ * Kit E03/E04: an expanded sidebar collapses below 210; a collapsed or
+ * auto-compact one only expands from 220 and when the main reserve still
+ * fits, so a drag never forces the sidebar open over the chat.
+ */
+export function resolveSidebarDrag(
+  from: 'expanded' | 'collapsed',
+  proposedWidth: number,
+  viewportWidth: number,
+): SidebarDrag {
+  const room = viewportWidth - LAYOUT.mainReserve
+  if (from === 'expanded') {
+    if (proposedWidth < LAYOUT.dragCollapseBelow) return { kind: 'collapse' }
+    return {
+      kind: 'expand',
+      width: clampSidebarWidth(Math.min(proposedWidth, room)),
+    }
+  }
+  const width = clampSidebarWidth(proposedWidth)
+  return proposedWidth < LAYOUT.dragExpandFrom || width > room
+    ? { kind: 'collapse' }
+    : { kind: 'expand', width }
+}
+
+export function sidebarSnapshot(state: LayoutState): SidebarSnapshot {
+  return {
+    sidebarPreferredWidth: state.sidebarPreferredWidth,
+    sidebarManualCollapsed: state.sidebarManualCollapsed,
+    sidebarAutoCompact: state.sidebarAutoCompact,
+  }
+}
+
+function resizeSidebar(state: LayoutState, width: number): LayoutState {
+  const collapsed = sidebarCollapsed(state)
+  const drag = resolveSidebarDrag(
+    collapsed ? 'collapsed' : 'expanded',
+    width,
+    state.viewportWidth,
+  )
+  switch (drag.kind) {
+    case 'collapse':
+      return collapsed ? state : { ...state, sidebarManualCollapsed: true }
+    case 'expand':
+      return !collapsed && drag.width === state.sidebarPreferredWidth
+        ? state
+        : {
+            ...state,
+            sidebarPreferredWidth: drag.width,
+            sidebarManualCollapsed: false,
+            sidebarAutoCompact: false,
+          }
+    default: {
+      const unreachable: never = drag
+      throw new Error(`Unknown sidebar drag ${JSON.stringify(unreachable)}`)
+    }
   }
 }
 
@@ -115,12 +232,48 @@ export function layoutReducer(
         sidebarManualCollapsed: !sidebarCollapsed(state),
         sidebarAutoCompact: false,
       }
-    case 'viewport': {
-      const compact = action.width < LAYOUT.autoCompactBelow
-      return compact === state.sidebarAutoCompact
+    case 'viewport':
+      return action.width === state.viewportWidth
         ? state
-        : { ...state, sidebarAutoCompact: compact }
-    }
+        : {
+            ...state,
+            viewportWidth: action.width,
+            sidebarAutoCompact: autoCompactFor(
+              action.width,
+              state.sidebarPreferredWidth,
+            ),
+          }
+    case 'resize-sidebar':
+      return resizeSidebar(state, action.width)
+    case 'restore-sidebar':
+      return { ...state, ...action.snapshot }
+    case 'open-roster-search':
+      return {
+        ...state,
+        rosterSearch: {
+          query: state.rosterSearch?.query ?? '',
+          focusRequest: (state.rosterSearch?.focusRequest ?? 0) + 1,
+        },
+      }
+    case 'edit-roster-search':
+      return {
+        ...state,
+        rosterSearch: {
+          query: action.query,
+          focusRequest: state.rosterSearch?.focusRequest ?? 0,
+        },
+      }
+    case 'close-roster-search':
+      return state.rosterSearch === null
+        ? state
+        : { ...state, rosterSearch: null }
+    case 'toggle-group':
+      return {
+        ...state,
+        foldedGroupIds: state.foldedGroupIds.includes(action.groupId)
+          ? state.foldedGroupIds.filter((id) => id !== action.groupId)
+          : [...state.foldedGroupIds, action.groupId],
+      }
     case 'open-overlay':
       return { ...state, overlay: action.overlay }
     case 'close-overlay':
@@ -156,13 +309,16 @@ export interface ResolvedLayout {
 /**
  * Details take ~37% of the **total** window width as a third column. When the
  * chat column would fall below its minimum, details overlay the chat instead.
+ * A collapsed sidebar stays on screen as the 88px rail.
  */
 export function resolveLayout(
   state: LayoutState,
   viewportWidth: number,
 ): ResolvedLayout {
   const collapsed = sidebarCollapsed(state)
-  const sidebarWidth = collapsed ? 0 : LAYOUT.sidebarWidth
+  const sidebarWidth = collapsed
+    ? LAYOUT.sidebarRailWidth
+    : state.sidebarPreferredWidth
   const detailsWidth = Math.round(viewportWidth * LAYOUT.detailsRatio)
   const chatWidth = viewportWidth - sidebarWidth - detailsWidth
   const details: DetailsMode = !state.detailsOpen

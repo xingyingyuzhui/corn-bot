@@ -1,31 +1,45 @@
 /*
  * Sidebar is a fixed first column. Opening details appends a third column of
  * ~37% of the total window width; the sidebar column never moves.
+ * `--corn-roster-width` is the rendered width resolved by `resolveLayout`
+ * (preferred width, or the rail when collapsed).
  */
 .corn-shell {
   --corn-details-width: calc(100vw * var(--corn-details-ratio));
   position: relative;
   display: grid;
-  grid-template-columns: var(--corn-sidebar-width) minmax(0, 1fr);
-  height: 100%;
-}
-
-.corn-shell[data-sidebar="collapsed"] {
-  grid-template-columns: minmax(0, 1fr);
-}
-
-.corn-shell[data-details="column"] {
-  grid-template-columns: var(--corn-sidebar-width) minmax(0, 1fr) var(
-      --corn-details-width
+  grid-template-columns: var(--corn-roster-width, var(--corn-sidebar-width)) minmax(
+      0,
+      1fr
     );
+  height: 100%;
+  transition: grid-template-columns var(--corn-sidebar-duration)
+    var(--corn-ease);
 }
 
-.corn-shell[data-sidebar="collapsed"][data-details="column"] {
-  grid-template-columns: minmax(0, 1fr) var(--corn-details-width);
+/*
+ * The details track is `auto` and the pane carries its own width, so a window
+ * resize never changes the track list and never replays the sidebar
+ * transition on the details column.
+ */
+.corn-shell[data-details="column"] {
+  grid-template-columns:
+    var(--corn-roster-width, var(--corn-sidebar-width)) minmax(0, 1fr)
+    auto;
 }
 
-.corn-shell[data-sidebar="collapsed"] .corn-roster {
-  display: none;
+.corn-shell[data-details="column"] .corn-details {
+  inline-size: var(--corn-details-width);
+}
+
+.corn-shell:has(.corn-roster__resize[data-dragging]) {
+  transition: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .corn-shell {
+    transition: none;
+  }
 }
 
 .corn-shell[data-details="overlay"] .corn-details {
