@@ -39,7 +39,7 @@ Corn must retain explicit relationships among Run, submission `requestId`, accep
 
 `session.cancel` targets the current live Agent activity by Session, preserves its pending inbox, and returns an acknowledgement before the durable terminal event. Main must reconcile the addressed Turn's `turn/end` and leave unrelated pending work intact. If Corn needs cancellation conditional on an exact Turn, RC2's Session endpoint alone does not provide an atomic expected-Turn check; validate a serialized Main policy or a minimal public Host extension before promising that behavior.
 
-`session.selectModel` installs a Session selection and also saves it as the Host global default in the background. Corn must own its global default independently and explicitly apply Bot selections. A Session-only model extension, if needed, must use an audited public Host seam rather than a private-method shortcut.
+`session.selectModel` installs a Session selection and also saves it as the Host global default in the background. Corn never uses it to set the global default. Corn writes the global default through the public settings Remote (see "Model configuration interfaces") and applies Bot selections explicitly. A Session-only model extension, if needed, must use an audited public Host seam rather than a private-method shortcut.
 
 ## Alternatives
 
@@ -51,6 +51,28 @@ If B fails a required check, record the failure and validate A or a minimal publ
 ## Maintainer selection (2026-10-11)
 
 B is the selected production direction, and A is no longer pursued unless B fails a required check. Plan §2's `plugins/dsh-corn-bridge` Host plugin is deferred. Main already calls the public Session Remote and Claw Registry routes directly, so the plugin is created only when Corn needs a Host-side route that RC2 and Claw do not expose. Each such route must be recorded here with the reason. The remaining checks named at selection time (real model streaming, model-in-flight cancellation and the packaged runtime) have since passed.
+
+## Model configuration interfaces (M2 Work Package 2, 2026-10-11)
+
+Verified against RC2 source, generated descriptors and a live Corn-owned Host; evidence is in [model-configuration API audit](../milestones/MODEL-CONFIG-API-AUDIT.md). These are interface decisions. The Corn adapter, IPC and UI that use them are Work Package 3 and are not implemented here.
+
+Accepted decisions:
+
+1. Corn's existing profile composition (`dsh-base` + `dsh-web-app` + `dsh-claw-suite`) already mounts the official Settings Controller, settings forms, config editor, `credentials-local`, the LLM registry and the default-model service, in dev and in the packaged app. Corn adds no package and writes no substitute service.
+2. Global default model: Main calls `settings/replace { ns: 'agent-default-model', section: { provider, model, reasoningEffort? }, expectedRevision }`. Before the write, Main validates the selection against a fresh `session/modelCatalog`; after it, Main re-reads `session/modelCatalog().default`. The write persists to the Corn profile's `cordis.patch.yml` through the official config editor, survived a Host restart and is read by Session creation and Claw `registry/models`. Corn stores no second copy. **No `plugins/dsh-corn-bridge` route is needed for this.**
+3. Provider profiles: Main writes them with `settings/mutate` path ops on the namespace and path from `llm/listConfigurableProviders`. It never uses wholesale `replace` for provider namespaces, because the descriptor is redacted. Profile shape and protocols come from the live settings schema.
+4. Credentials: Main calls `credentials/describe { refs }`, `credentials/set { ref, value }` and `credentials/unset { ref }`. Main derives the ref from the provider profile's `apiKeyEnv` or the official `<ROUTE>_API_KEY` rule; Renderer never supplies one. Reads return only `configured/source/writable`.
+5. Concurrency: every settings write carries the revision read from the same Host generation. `settings/conflict` is a recoverable state. Revisions reset when the Host restarts and are discarded on a generation change. Settings and credential writes are not cancellable, so an aborted or timed-out write is resolved by re-reading.
+6. Corn's Host `--patch` overlay carries only isolation rows. An overlay row for a settings namespace makes the official editor refuse writes to it. A provider key in the Host environment makes that ref read-only.
+
+Credential input exception (maintainer decision, 2026-10-11): the API key exists only in a password input and one write request. It crosses one restricted IPC method to Main, which forwards it once to `credentials/set`. It is never read back or returned over IPC, and it is never kept in Renderer state, drafts, storage or logs. `docs/security-boundaries.md` records this exception in Work Package 3.
+
+Credential storage (maintainer decision, 2026-10-11): this round uses the official `credentials-local` provider. It is a plaintext YAML file at `<Corn home>/.credentials.yaml`, mode `0600`, inside a `0700` home. File permissions are its only protection. It is not Keychain and does not isolate keys from same-user processes, including Agent tools. An OS credential vault would be a separate `CredentialProvider` behind the same seam.
+
+Proposals, not yet decided:
+
+- Bot model overrides (Work Package 4): RC2's Remote surface has no Session-only model selection; `session.selectModel` always saves the global default. Claw `registry/model` only stores a per-agent model. Before Bot overrides ship, audit whether a public Host service applies a Session-only selection. If none exists, propose an upstream patch. Select-then-restore and private-method calls are excluded. A Corn Host Bridge route is allowed only if it calls official public services, awaits completion and reads back.
+- Upgrade guard: re-run `scripts/audit/model-config-api-audit.mjs` on every DSH upgrade. The default-model path depends on the generic settings contract and the volatile `agent-default-model` fields, not on an official UI flow.
 
 ## Evidence and consequences
 
