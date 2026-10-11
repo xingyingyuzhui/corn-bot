@@ -43,8 +43,10 @@ export class ClawRegistryClient {
       throw new Error('Claw preset does not match the registered Bot')
   }
 
-  async revision(): Promise<number> {
-    const value = await this.transport.registry('list', {})
+  async revision(
+    options: { readonly signal?: AbortSignal } = {},
+  ): Promise<number> {
+    const value = await this.transport.registry('list', {}, options)
     if (!Number.isSafeInteger(value.revision))
       throw new Error('Invalid Claw Registry revision')
     return value.revision as number

@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { mkdir, writeFile } from 'node:fs/promises'
-import { DshHostSupervisor } from '../apps/desktop/src/runtime/dsh-host-supervisor.ts'
+import { createGovernedHost } from '../apps/desktop/src/runtime/claw-runtime-check.ts'
 import { resolveCornModelConfig } from '../apps/desktop/src/runtime/model-provider.ts'
 import { defaultDevelopmentHome } from '../apps/desktop/src/runtime/profile-bootstrap.ts'
 import { record } from '../packages/dsh-adapter/src/remote-error.ts'
@@ -13,7 +13,7 @@ if (!model)
     'Configure CORN_MODEL_PROVIDER, CORN_MODEL_ID and CORN_MODEL_API_KEY locally before the real model smoke',
   )
 
-const host = new DshHostSupervisor(
+const host = createGovernedHost(
   process.env.CORN_DSH_HOME ?? defaultDevelopmentHome(),
   { model },
 )

@@ -4,7 +4,7 @@ import { mkdir, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
 import WebSocket from 'ws'
-import { DshHostSupervisor } from '../apps/desktop/src/runtime/dsh-host-supervisor.ts'
+import { createGovernedHost } from '../apps/desktop/src/runtime/claw-runtime-check.ts'
 import { defaultDevelopmentHome } from '../apps/desktop/src/runtime/profile-bootstrap.ts'
 import { ClawRegistryClient } from '../packages/dsh-adapter/src/claw-registry-client.ts'
 import { record } from '../packages/dsh-adapter/src/remote-error.ts'
@@ -13,7 +13,8 @@ import { HostTransport } from '../packages/dsh-adapter/src/transport.ts'
 
 const home = process.env.CORN_DSH_HOME ?? defaultDevelopmentHome()
 let unexpectedExit = false
-const host = new DshHostSupervisor(home, {
+// Governed entry: every start and restart below re-runs the formal Claw admission.
+const host = createGovernedHost(home, {
   onFailure: () => {
     unexpectedExit = true
   },

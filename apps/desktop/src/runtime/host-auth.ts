@@ -10,11 +10,13 @@ export class HostAuth {
     this.#cookie = cookie
   }
 
-  static async exchange(input: URL): Promise<HostAuth> {
+  /** `lifetime` cancels the exchange when its child exits or a stop is requested. */
+  static async exchange(input: URL, lifetime?: AbortSignal): Promise<HostAuth> {
     const url = validateLaunchUrl(input.href)
+    const timeout = AbortSignal.timeout(10_000)
     const response = await fetch(url, {
       redirect: 'manual',
-      signal: AbortSignal.timeout(10_000),
+      signal: lifetime ? AbortSignal.any([lifetime, timeout]) : timeout,
     })
     const cookie = response.headers
       .getSetCookie()
