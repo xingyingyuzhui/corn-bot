@@ -8,6 +8,8 @@
       "!.runtime",
       "!.artifacts",
       "!.research",
+      "!.build",
+      "!release",
       "!**/dist",
       "!pnpm-lock.yaml"
     ]

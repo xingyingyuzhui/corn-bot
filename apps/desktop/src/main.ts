@@ -12,6 +12,7 @@ import { HostTransport } from '../../../packages/dsh-adapter/src/transport.ts'
 import { resolveAppPaths } from './app-paths.ts'
 import { DshHostSupervisor } from './runtime/dsh-host-supervisor.ts'
 import type { HostAuth } from './runtime/host-auth.ts'
+import { redactHostDiagnostic } from './runtime/host-readiness.ts'
 import { HostRecovery } from './runtime/host-recovery.ts'
 import { resolveCornModelConfig } from './runtime/model-provider.ts'
 import { assertTrustedSender } from './security/ipc-allowlist.ts'
@@ -42,6 +43,8 @@ const currentStatus = (): RuntimeStatus => view.status
 
 const recovery = new HostRecovery()
 let auth: HostAuth | undefined
+/** Main-only, redacted; surfaced in smoke reports, never over Renderer IPC. */
+let lastFailure: string | undefined
 let startup: Promise<void> | undefined
 let booting = false
 let recoveryTimer: ReturnType<typeof setTimeout> | undefined
@@ -66,8 +69,9 @@ function boot(stopFirst: boolean): Promise<void> {
       if (cleanup) return
       auth = await supervisor.start()
       setStatus('ready')
-    } catch {
+    } catch (error) {
       auth = undefined
+      lastFailure = redactHostDiagnostic(String(error)).slice(-2_000)
       booting = false
       scheduleRecovery()
     } finally {
@@ -122,6 +126,7 @@ async function runSmoke(window: BrowserWindow): Promise<void> {
     independentRuntime: true,
   }
   facts.initialStatus = currentStatus()
+  facts.lastFailure = lastFailure ?? null
   facts.clawReady = await clawReady()
   if (crashSmoke) {
     const pid = supervisor.processId

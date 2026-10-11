@@ -36,8 +36,11 @@ jobs:
       - run: pnpm smoke:cold
       - run: pnpm smoke:host
       - run: pnpm smoke:governance
+      - run: pnpm smoke:governance-ptc
       - run: CORN_DESKTOP_SMOKE=1 pnpm dev:desktop
       - run: CORN_DESKTOP_SMOKE=1 CORN_DESKTOP_CRASH_SMOKE=1 pnpm dev:desktop
+      - run: pnpm package:mac
+      - run: pnpm smoke:packaged
       - uses: actions/upload-artifact@v4
         with:
           name: m0-sanitized-reports

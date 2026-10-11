@@ -5,6 +5,7 @@ packages:
   - services/*
 allowBuilds:
   electron: true
+  electron-winstaller: false
   esbuild: true
   '@deepseek-ai/terminal-runtime': true
   '@deepseek-ai/dsh-subprocess-local': true

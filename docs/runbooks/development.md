@@ -11,7 +11,10 @@ pnpm setup:runtime
 pnpm smoke:cold
 pnpm smoke:host
 pnpm smoke:governance
+pnpm smoke:governance-ptc
 pnpm dev:desktop
+pnpm package:mac
+pnpm smoke:packaged
 ```
 
 `setup:runtime` initializes the isolated `corn-dev` profile using the exact installed DSH CLI, downloads the pinned official Claw release, checks the archive SHA-256 and its inner package checksums, then invokes its installer with that named profile. Setup takes an exclusive Corn-home lock. It never uses `userDesktop` or the user's installed DSH. `smoke:host` creates disposable test agents/sessions in Corn's developer home, so repeated runs leave test records there. `smoke:cold` uses and removes temporary homes.
@@ -48,6 +51,14 @@ To verify the current sandboxed diagnostic app:
 CORN_DESKTOP_SMOKE=1 pnpm dev:desktop
 ```
 
-The app checks its status bridge, writes private artifacts under `.artifacts/` and exits. This is a developer build. macOS may emit an unsigned Electron helper resource warning; signing, notarization, packaged runtime resolution and installable `Corn Bot.app` remain pending. Product UI, computer control, routines and messaging are later milestones.
+The app checks its status bridge, writes private artifacts under `.artifacts/` and exits. macOS may emit an unsigned Electron helper resource warning. Product UI, computer control, routines and messaging are later milestones.
 
-Add `CORN_DESKTOP_CRASH_SMOKE=1` to that command to kill only the diagnostic app's owned Host and verify the disconnected Renderer status. Automatic product restart is not implemented. `smoke:governance` uses a disposable keyless profile with a test-only public tool probe; it does not configure or call a model.
+Add `CORN_DESKTOP_CRASH_SMOKE=1` to that command to kill only the diagnostic app's owned Host and verify automatic recovery: the Renderer sees `recovering`, Main starts a new Host (at most 3 attempts per 60 s) and status returns to `ready`. `smoke:governance` uses a disposable keyless profile with a test-only public tool probe; it does not configure or call a model. `smoke:governance-ptc` runs the same probe with the official `run_code` tool enabled.
+
+## Packaged app
+
+`pnpm package:mac` (macOS arm64 only) builds an unsigned `release/mac-arm64/Corn Bot.app`; see [ADR-0005](../adr/ADR-0005-packaging.md). It downloads and verifies the pinned Claw release once (cached in `.runtime/claw`), builds the bundled profile template in a temporary home, and stages the production dependency tree under `.build/`. Do not interrupt it while `pnpm deploy` runs; it restores pnpm's workspace state file afterwards.
+
+The packaged app needs no Node, pnpm, network or installed DeepSeek Harness. Its data lives in `~/Library/Application Support/Corn Bot/`: `dsh` (Host home), `artifacts` and `model.env` (same format and mode `600` rule as the developer file). `CORN_DSH_HOME`, `CORN_ARTIFACTS_DIR` and `CORN_MODEL_ENV_FILE` override them.
+
+`pnpm smoke:packaged` launches the built app three times with fresh scratch data and a clean environment, the third time with a forced Host crash, and checks that `~/.dsh` is untouched. Gatekeeper blocks the unsigned app if it is downloaded; open local builds directly or with right-click → Open.

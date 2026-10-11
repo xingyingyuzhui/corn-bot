@@ -6,6 +6,7 @@
 - Research existing official implementations first. Independent audits may run in parallel.
 - Use a Corn-owned isolated DSH home and `corn-dev` profile. Never modify `~/.dsh`, existing Desktop packages or registered user bots.
 - Never log or commit startup tokens, authentication cookies, model credentials, personal runtime logs or screenshots.
+- The packaged app is self-contained ([ADR-0005](docs/adr/ADR-0005-packaging.md)): no package manager, network install or installed DSH at runtime, and never boot without the verified Claw template.
 - Renderer receives narrowly typed IPC only. No arbitrary URL, endpoint, filesystem, credentials or SQL access.
 - Keep DSH logs authoritative. Corn persists metadata and reconstructable projections.
 - Feature branches and reviewable PRs after initial main. Report verified capabilities separately from missing/manual checks.

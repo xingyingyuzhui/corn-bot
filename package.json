@@ -23,7 +23,10 @@
     "smoke:model": "node scripts/smoke-model.mjs",
     "smoke:model-lifecycle": "node scripts/smoke-model-lifecycle.mjs",
     "smoke:governance": "node scripts/smoke-governance.mjs",
+    "smoke:governance-ptc": "node scripts/smoke-governance.mjs --ptc",
     "dev:desktop": "pnpm build && electron apps/desktop",
+    "package:mac": "node scripts/package-macos.mjs",
+    "smoke:packaged": "node scripts/smoke-packaged.mjs",
     "check": "pnpm lint && pnpm typecheck && pnpm test"
   },
   "devDependencies": {
@@ -32,6 +35,7 @@
     "@types/node": "24.19.2",
     "@types/ws": "8.18.1",
     "electron": "44.7.0",
+    "electron-builder": "26.15.3",
     "typescript": "5.9.3",
     "ws": "8.21.0"
   }
