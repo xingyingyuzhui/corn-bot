@@ -244,11 +244,25 @@ test('preferred width survives collapse and drives the expanded column', () => {
 
 test('roster search keeps its query and re-focuses on every open request', () => {
   const opened = run(initialLayout('a'), { type: 'open-roster-search' })
-  assert.deepEqual(opened.rosterSearch, { query: '', focusRequest: 1 })
-  const typed = run(opened, { type: 'edit-roster-search', query: '工程' })
+  assert.deepEqual(opened.rosterSearch, { query: '', focusPending: true })
+  const focused = run(opened, { type: 'roster-search-focused' })
+  assert.equal(focused.rosterSearch?.focusPending, false)
+  assert.equal(
+    layoutReducer(focused, { type: 'roster-search-focused' }),
+    focused,
+  )
+  const typed = run(focused, { type: 'edit-roster-search', query: '工程' })
+  assert.equal(typed.rosterSearch?.focusPending, false)
   const again = run(typed, { type: 'open-roster-search' })
-  assert.deepEqual(again.rosterSearch, { query: '工程', focusRequest: 2 })
-  assert.equal(run(again, { type: 'close-roster-search' }).rosterSearch, null)
+  assert.deepEqual(again.rosterSearch, { query: '工程', focusPending: true })
+  const closed = run(
+    again,
+    { type: 'roster-search-focused' },
+    { type: 'close-roster-search' },
+  )
+  assert.equal(closed.rosterSearch, null)
+  const reopened = run(closed, { type: 'open-roster-search' })
+  assert.equal(reopened.rosterSearch?.focusPending, true)
 })
 
 test('group folds toggle independently', () => {

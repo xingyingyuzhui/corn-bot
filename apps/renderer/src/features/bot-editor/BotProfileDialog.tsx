@@ -11,6 +11,7 @@ import { Dialog } from '../../shared/Dialog.tsx'
 import { useNotice } from '../../shared/notice.tsx'
 import { TextField } from '../../shared/TextField.tsx'
 import { UNAVAILABLE } from '../../shared/unavailable.ts'
+import { nameLengthError } from './create-bot-form.ts'
 import { ConflictNotice, FormError, MissingBotDialog } from './EditorParts.tsx'
 import {
   draftFromBot,
@@ -169,7 +170,7 @@ function ProfileForm({
           required
           autoFocus
           hint={`${nameLength(draft.name)}/${NAME_MAX}`}
-          {...fieldError('name')}
+          error={errors.name ?? nameLengthError(draft.name, NAME_MAX)}
         />
         <TextField
           label="职责"

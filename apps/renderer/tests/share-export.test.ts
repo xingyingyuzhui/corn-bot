@@ -131,6 +131,10 @@ test('quoted keys, Basic auth and paths with spaces are fully redacted', () => {
     ['见 /Users/qin/DSH/Corn Bot/corn-bot/notes.md 文件', ['Bot/', 'notes']],
     ['~/Library/Application Support/Corn/x.db', ['Support', 'x.db']],
     ['C:\\Users\\qin\\My Documents\\corn\\a.txt', ['Documents', 'a.txt']],
+    ['{"api_key": "abc def"}', ['abc', 'def']],
+    ['DB_PASSWORD=hunter2 MY_TOKEN=xyz789', ['hunter2', 'xyz789']],
+    ['authorization: basic dXNlcjpwYXNz', ['dXNlcjpwYXNz']],
+    ['放在 /Users/qin/My Documents', ['Documents']],
   ]
   for (const [input, leaks] of cases) {
     const { text } = redactText(input)
@@ -146,8 +150,20 @@ test('ordinary text, dates, ratios and URLs survive redaction', () => {
     '参考 https://example.com/docs 的说明',
     '前端界面与视觉资产',
     'task-force 与 desk-top 不是密钥',
+    'Basic Authentication 和 Basic configuration 是普通说明',
+    'tokenizer: 中文分词器',
   ])
     assert.deepEqual(redactText(text), { text, redactions: 0 })
+})
+
+test('a path does not swallow the prose after it', () => {
+  for (const [input, kept] of [
+    ['日志在 /tmp/app.log 读/写 都要审批', '读/写 都要审批'],
+    ['见 /Users/qin/notes.md and then reply', 'and then reply'],
+  ] as const) {
+    const { text } = redactText(input)
+    assert.ok(text.endsWith(kept), `${input} → ${text}`)
+  }
 })
 
 test('an unknown model override is kept as a redacted id, never resolved', () => {

@@ -123,7 +123,7 @@ function ModelPicker({
       actions={
         <>
           <span className="corn-editor__actions-start">
-            <Button variant="ghost" onClick={onOpenSettings}>
+            <Button variant="ghost" disabled={pending} onClick={onOpenSettings}>
               在设置中修改全局默认
             </Button>
           </span>

@@ -5,7 +5,7 @@ interface TextFieldProps {
   readonly label: string
   readonly value: string
   readonly onChange: (value: string) => void
-  readonly error?: string
+  readonly error?: string | null
   readonly hint?: string
   readonly multiline?: boolean
   readonly required?: boolean

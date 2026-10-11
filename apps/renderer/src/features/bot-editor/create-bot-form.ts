@@ -20,6 +20,11 @@ export type CreateBotErrors = Partial<
   Record<keyof CreateBotForm | 'form', string>
 >
 
+/** Over-long names are flagged while typing, not only on submit. */
+export function nameLengthError(name: string, nameMax: number): string | null {
+  return nameLength(name) > nameMax ? `名称最多 ${nameMax} 个字` : null
+}
+
 /** Same rules as the repository, checked first so typos never round-trip. */
 export function validateCreateBot(
   form: CreateBotForm,
@@ -28,7 +33,10 @@ export function validateCreateBot(
   const errors: { -readonly [K in keyof CreateBotErrors]: string } = {}
   const name = form.name.trim()
   if (!name) errors.name = '请填写名称'
-  else if (nameLength(name) > nameMax) errors.name = `名称最多 ${nameMax} 个字`
+  else {
+    const tooLong = nameLengthError(name, nameMax)
+    if (tooLong) errors.name = tooLong
+  }
   if (!form.role.trim()) errors.role = '请填写职责'
   return Object.keys(errors).length ? errors : null
 }

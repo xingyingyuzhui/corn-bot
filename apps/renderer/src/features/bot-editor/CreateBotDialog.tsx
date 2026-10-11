@@ -1,6 +1,7 @@
 import { type FormEvent, useId, useRef, useState } from 'react'
 import { useRepository, useWorkspace } from '../../app/workspace-context.tsx'
 import { NAME_MAX } from '../../model/limits.ts'
+import { nameLength } from '../../model/names.ts'
 import type { BotDraft } from '../../model/repository.ts'
 import { Button } from '../../shared/Button.tsx'
 import { Dialog } from '../../shared/Dialog.tsx'
@@ -11,10 +12,10 @@ import {
   type CreateBotForm,
   EMPTY_CREATE_BOT_FORM,
   errorsFromResult,
+  nameLengthError,
   validateCreateBot,
 } from './create-bot-form.ts'
 import './create-bot.css'
-import { nameLength } from '../../model/names.ts'
 
 export interface CreateBotDialogProps {
   readonly onClose: () => void
@@ -110,7 +111,7 @@ export function CreateBotDialog({ onClose, onCreated }: CreateBotDialogProps) {
           placeholder="例如：数据分析师"
           autoFocus
           hint={`${nameLength(form.name)}/${NAME_MAX}`}
-          {...(errors.name ? { error: errors.name } : {})}
+          error={errors.name ?? nameLengthError(form.name, NAME_MAX)}
           onChange={(name) => edit({ name })}
         />
         <TextField

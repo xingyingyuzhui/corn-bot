@@ -1,6 +1,7 @@
 /**
  * User-facing reasons for controls that are visible but not connected yet.
- * Every "unavailable" reason in the renderer comes from here.
+ * Every "not connected yet" reason comes from here; state-dependent reasons
+ * (such as an unavailable model) stay with the logic that decides them.
  */
 export const UNAVAILABLE = {
   dictation: '语音听写尚未接通',

@@ -39,16 +39,30 @@ export function Dialog({
 }: DialogProps) {
   const ref = useRef<HTMLDialogElement>(null)
   const pressedBackdrop = useRef(false)
+  const unmounting = useRef(false)
   const titleId = useId()
   const descriptionId = useId()
 
   useEffect(() => {
     const dialog = ref.current
     if (!dialog || dialog.open) return
+    unmounting.current = false
     dialog.showModal()
     dialog.querySelector<HTMLElement>(`[${DIALOG_AUTOFOCUS}]`)?.focus()
-    return () => dialog.close()
+    return () => {
+      unmounting.current = true
+      dialog.close()
+    }
   }, [])
+
+  // Disabled buttons drop focus to <body>; bring it back once the write settles.
+  useEffect(() => {
+    const dialog = ref.current
+    if (busy || !dialog?.open || dialog.contains(document.activeElement)) return
+    ;(
+      dialog.querySelector<HTMLElement>(`[${DIALOG_AUTOFOCUS}]`) ?? dialog
+    ).focus()
+  }, [busy])
 
   return (
     // biome-ignore lint/a11y/useKeyWithClickEvents: backdrop click is a pointer shortcut; Escape closes through the native cancel event
@@ -62,6 +76,14 @@ export function Dialog({
       onCancel={(event) => {
         event.preventDefault()
         if (!busy) onClose()
+      }}
+      onClose={() => {
+        // Chromium lets a page veto Escape only once per user activation; a
+        // repeated Escape closes the dialog natively, so reopen or follow it.
+        // StrictMode's remount reopens the dialog before the stale event lands.
+        if (unmounting.current || ref.current?.open) return
+        if (busy) ref.current?.showModal()
+        else onClose()
       }}
       onPointerDown={(event) => {
         pressedBackdrop.current = event.target === event.currentTarget

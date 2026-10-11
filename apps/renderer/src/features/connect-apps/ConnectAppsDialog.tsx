@@ -2,9 +2,9 @@ import { useWorkspace } from '../../app/workspace-context.tsx'
 import type { ConnectorView } from '../../model/workspace.ts'
 import { ActionButton } from '../../shared/ActionButton.tsx'
 import { Dialog } from '../../shared/Dialog.tsx'
+import { UNAVAILABLE } from '../../shared/unavailable.ts'
 import '../../shared/controls.css'
 import './connect-apps.css'
-import { UNAVAILABLE } from '../../shared/unavailable.ts'
 
 export interface ConnectAppsDialogProps {
   readonly onClose: () => void

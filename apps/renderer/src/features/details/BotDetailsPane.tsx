@@ -12,10 +12,10 @@ import { ActionButton } from '../../shared/ActionButton.tsx'
 import { Avatar } from '../../shared/Avatar.tsx'
 import { BotOriginBadge } from '../../shared/BotOriginBadge.tsx'
 import { Menu, type MenuItem } from '../../shared/Menu.tsx'
+import { useCopy } from '../../shared/use-copy.ts'
 import { botBrief } from '../bot-editor/share-export.ts'
 import { BotTagChips } from './BotTagChips.tsx'
 import './details.css'
-import { useCopy } from '../../shared/use-copy.ts'
 
 const TAB_LABELS: Readonly<Record<DetailsTab, string>> = {
   details: '详情',

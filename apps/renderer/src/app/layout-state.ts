@@ -50,10 +50,13 @@ export interface ChatScroll {
   readonly pinnedToBottom: boolean
 }
 
-/** Roster search is closed when `null`; each open request re-focuses it. */
+/**
+ * Roster search is closed when `null`. Opening it asks for focus once; the
+ * field reports back, so a remount never steals focus again.
+ */
 export interface RosterSearch {
   readonly query: string
-  readonly focusRequest: number
+  readonly focusPending: boolean
 }
 
 export interface LayoutState {
@@ -102,6 +105,7 @@ export type LayoutAction =
   | { readonly type: 'restore-sidebar'; readonly snapshot: SidebarSnapshot }
   | { readonly type: 'open-roster-search' }
   | { readonly type: 'edit-roster-search'; readonly query: string }
+  | { readonly type: 'roster-search-focused' }
   | { readonly type: 'close-roster-search' }
   | { readonly type: 'toggle-group'; readonly groupId: string }
   | { readonly type: 'open-overlay'; readonly overlay: Overlay }
@@ -276,7 +280,7 @@ export function layoutReducer(
         ...state,
         rosterSearch: {
           query: state.rosterSearch?.query ?? '',
-          focusRequest: (state.rosterSearch?.focusRequest ?? 0) + 1,
+          focusPending: true,
         },
       }
     case 'edit-roster-search':
@@ -284,9 +288,16 @@ export function layoutReducer(
         ...state,
         rosterSearch: {
           query: action.query,
-          focusRequest: state.rosterSearch?.focusRequest ?? 0,
+          focusPending: state.rosterSearch?.focusPending ?? false,
         },
       }
+    case 'roster-search-focused':
+      return state.rosterSearch?.focusPending
+        ? {
+            ...state,
+            rosterSearch: { ...state.rosterSearch, focusPending: false },
+          }
+        : state
     case 'close-roster-search':
       return state.rosterSearch === null
         ? state

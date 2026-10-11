@@ -1,5 +1,5 @@
 import { Blocks, ChevronRight, Plus, Search } from 'lucide-react'
-import { type Dispatch, useRef } from 'react'
+import { type Dispatch, useCallback, useRef } from 'react'
 import {
   type LayoutAction,
   type LayoutState,
@@ -43,10 +43,13 @@ export function BotRoster({
   dispatch,
 }: BotRosterProps) {
   const searchButton = useRef<HTMLButtonElement>(null)
-  const handledFocusRequest = useRef(0)
   const sections = rosterSections(roster, filter)
   const search = layout.rosterSearch
   const onSelect = (botId: string) => dispatch({ type: 'select-bot', botId })
+  const onSearchFocused = useCallback(
+    () => dispatch({ type: 'roster-search-focused' }),
+    [dispatch],
+  )
   const onOpenOverlay = (overlay: Overlay) =>
     dispatch({ type: 'open-overlay', overlay })
   const openSearch = () => {
@@ -129,10 +132,8 @@ export function BotRoster({
           {search ? (
             <RosterSearchField
               query={search.query}
-              focusPending={search.focusRequest > handledFocusRequest.current}
-              onFocused={() => {
-                handledFocusRequest.current = search.focusRequest
-              }}
+              focusPending={search.focusPending}
+              onFocused={onSearchFocused}
               onQuery={(query) =>
                 dispatch({ type: 'edit-roster-search', query })
               }

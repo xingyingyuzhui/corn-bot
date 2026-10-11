@@ -14,9 +14,12 @@ const STOP = String.raw`\s'"\x60<>，。；：！？、,;)）\]}`
  * half-matched as a path.
  */
 const SECRET_PATTERNS: readonly RegExp[] = [
-  /\b(api[_-]?key|access[_-]?token|token|secret|password|passwd|pwd)(["']?\s*[:=]\s*["']?)[^\s,;，；"']+/giu,
-  /\bBearer\s+[\w.~+/-]+=*/gu,
-  /\bBasic\s+[A-Za-z0-9+/]{8,}={0,2}/gu,
+  /(authorization)(["']?\s*[:=]\s*["']?)(?:[A-Za-z]+\s+)?[^\s,;，；"']+/giu,
+  /** No leading `\b`: `DB_PASSWORD=` must match, and the separator must follow the key directly. */
+  /(api[_-]?key|access[_-]?token|token|secret|password|passwd|pwd)(["']?\s*[:=]\s*)(?:"[^"\n]*"|'[^'\n]*'|[^\s,;，；"']+)/giu,
+  /\bBearer\s+[\w.~+/-]+=*/giu,
+  /** A credential, not prose: "Basic configuration" has no digit or base64 symbol. */
+  /\bBasic\s+(?=[A-Za-z0-9+/]*[0-9+/])[A-Za-z0-9+/]{8,}={0,2}/giu,
   /\beyJ[\w-]+\.[\w-]+\.[\w-]+/gu,
   /\b(?:sk|tp|pk|rk)-[\w-]{6,}/gu,
   /\bgh[pousr]_\w{20,}/gu,
@@ -26,9 +29,16 @@ const SECRET_PATTERNS: readonly RegExp[] = [
   /(?<![\w+/=-])(?=[\w+/=-]*\d)(?=[\w+/=-]*[A-Za-z])[\w+/-]{32,}={0,2}/gu,
 ]
 
-/** A path keeps going across spaces while the next word still holds a separator. */
-const unixTail = String.raw`(?:[ \t]+[^${STOP}]*\/[^${STOP}]*)*`
-const windowsTail = String.raw`(?:[ \t]+[^${STOP}]*\\[^${STOP}]*)*`
+/**
+ * A path keeps going across a space while the next word looks like more path:
+ * it starts with an ASCII name character and holds a separator (`Bot/x.md`),
+ * or it is a capitalised folder name at the end (`My Documents`). `读/写`
+ * never continues a path.
+ */
+const pathTail = (separator: string) =>
+  String.raw`(?:[ \t]+(?:[\w.@~-][^${STOP}]*${separator}[^${STOP}]*|[A-Z][\w.-]*(?=$|[${STOP}])))*`
+const unixTail = pathTail(String.raw`\/`)
+const windowsTail = pathTail(String.raw`\\`)
 
 const PATH_PATTERNS: readonly RegExp[] = [
   /\bfile:\/\/\S+/giu,
