@@ -12,6 +12,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { PassThrough } from 'node:stream'
 import { CLAW_VERSION } from '../../../../packages/contracts/src/runtime.ts'
+import type { StopTimeouts } from '../../src/runtime/dsh-host-supervisor.ts'
 import { HostAuth } from '../../src/runtime/host-auth.ts'
 import {
   type AppRuntime,
@@ -87,6 +88,9 @@ export class FakeChild extends EventEmitter {
   readonly kills: string[] = []
   exitCode: number | null = null
   signalCode: NodeJS.Signals | null = null
+  /** Records signals without exiting, like a wedged process. */
+  ignoreSignals = false
+  #closed = false
   readonly #port: number
 
   constructor(
@@ -110,16 +114,23 @@ export class FakeChild extends EventEmitter {
 
   kill(signal: NodeJS.Signals = 'SIGTERM'): boolean {
     this.kills.push(signal)
-    queueMicrotask(() => this.exit(null, signal))
+    if (!this.ignoreSignals) queueMicrotask(() => this.exit(null, signal))
     return true
   }
 
   exit(code: number | null, signal: NodeJS.Signals | null = null): void {
+    this.exitOnly(code, signal)
+    if (this.#closed) return
+    this.#closed = true
+    this.emit('close', this.exitCode, this.signalCode)
+  }
+
+  /** Process exit while a descendant still holds the stdio pipes: no `close`. */
+  exitOnly(code: number | null, signal: NodeJS.Signals | null = null): void {
     if (this.exitCode !== null || this.signalCode !== null) return
     this.exitCode = code
     this.signalCode = signal
     this.emit('exit', code, signal)
-    this.emit('close', code, signal)
   }
 }
 
@@ -295,6 +306,9 @@ export interface HarnessOptions {
   readonly autoReady?: boolean
   readonly gateExchange?: boolean
   readonly profileTemplate?: string
+  /** Every spawned child ignores SIGTERM and SIGKILL. */
+  readonly wedgedChildren?: boolean
+  readonly stopTimeouts?: StopTimeouts
 }
 
 interface ScheduledRecovery {
@@ -374,6 +388,7 @@ export class RuntimeHarness {
             options.env ?? {},
             this.host.port,
           )
+          child.ignoreSignals = this.#options.wedgedChildren === true
           const index = this.children.length
           this.children.push(child)
           this.#childArrivals[index] ??= deferred()
@@ -394,6 +409,9 @@ export class RuntimeHarness {
             await Promise.race([exchange.gate.promise, aborted(signal)])
           return HostAuth.exchange(launch, signal)
         },
+        ...(this.#options.stopTimeouts
+          ? { stopTimeouts: this.#options.stopTimeouts }
+          : {}),
         schedule: (run, delayMs) => {
           const entry = { run, delayMs, cancelled: false }
           this.schedules.push(entry)
