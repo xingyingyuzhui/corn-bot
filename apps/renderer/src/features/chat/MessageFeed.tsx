@@ -17,7 +17,6 @@ const scrollToEnd = (element: HTMLElement | null) => {
 interface MessageFeedProps {
   readonly bots: Readonly<Record<string, BotView>>
   readonly conversation: ConversationView
-  readonly notice: string
   readonly initialScroll: ChatScroll | undefined
   /** Changes each time the user sends from this Bot's composer. */
   readonly followToken: number
@@ -32,7 +31,6 @@ interface MessageFeedProps {
 export function MessageFeed({
   bots,
   conversation,
-  notice,
   initialScroll,
   followToken,
   onScroll,
@@ -122,7 +120,6 @@ export function MessageFeed({
         aria-busy={conversation.state === 'loading' || undefined}
         onScroll={report}
       >
-        <p className="corn-feed__notice">{notice}</p>
         {conversation.readOnly ? (
           <p className="corn-feed__state" data-tone="muted">
             <Eye size={13} strokeWidth={2} aria-hidden />
