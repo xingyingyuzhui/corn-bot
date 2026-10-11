@@ -27,8 +27,9 @@ import {
 } from './lib/review-fixtures.mjs'
 
 // Run after `pnpm build` and `pnpm setup:runtime`. Development Electron with
-// a fresh userData, a disposable home and a Corn-only model env file per case.
-// Only fake credentials are written; no real key is ever read.
+// a fresh userData and a disposable home per case. Model configuration lives
+// in the official DSH settings; env files reach the App only as the explicit,
+// labelled development override. Only fake credentials are written.
 const root = dirname(dirname(fileURLToPath(import.meta.url)))
 const electron = createRequire(import.meta.url)('electron')
 const source = assertIsolatedHome(
@@ -110,6 +111,42 @@ const SCENARIOS = [
       hostSpawns: 1,
       bridgeVerified: true,
       clawReady: true,
+      modelStatus: 'needs_configuration',
+      devModelOverride: false,
+    },
+  },
+  {
+    name: 'legacy-model-env-ignored',
+    prepare: (home) => copyClawProfile(source, home),
+    legacy: (scratch) =>
+      envFile(
+        scratch,
+        `CORN_MODEL_PROVIDER=deepseek-official\nCORN_MODEL_ID=deepseek-flash\nCORN_MODEL_API_KEY=${FAKE_CREDENTIAL}\n`,
+      ),
+    expected: {
+      exit: 0,
+      status: 'ready',
+      hostSpawns: 1,
+      clawReady: true,
+      modelStatus: 'needs_configuration',
+      devModelOverride: false,
+    },
+  },
+  {
+    name: 'dev-override-labelled',
+    prepare: (home) => copyClawProfile(source, home),
+    model: (scratch) =>
+      envFile(
+        scratch,
+        `CORN_MODEL_PROVIDER=deepseek-official\nCORN_MODEL_ID=deepseek-flash\nCORN_MODEL_API_KEY=${FAKE_CREDENTIAL}\n`,
+      ),
+    expected: {
+      exit: 0,
+      status: 'ready',
+      hostSpawns: 1,
+      clawReady: true,
+      modelStatus: 'available',
+      devModelOverride: true,
     },
   },
   {
@@ -126,6 +163,8 @@ const SCENARIOS = [
       recovered: true,
       hostReplaced: true,
       clawReadyAfterRecovery: true,
+      modelStatus: 'needs_configuration',
+      modelStatusAfterRecovery: 'needs_configuration',
     },
   },
 ]
@@ -164,9 +203,18 @@ async function run(scenario) {
       ? await plantSentinels(home)
       : undefined
     const baseline = await fingerprint?.()
-    const modelEnvFile = scenario.model
-      ? await scenario.model(scratch)
-      : join(scratch, 'absent-model.env')
+    const override = scenario.model
+      ? { CORN_DEV_MODEL_ENV_FILE: await scenario.model(scratch) }
+      : {}
+    const legacy = scenario.legacy
+      ? {
+          CORN_MODEL_ENV_FILE: await scenario.legacy(scratch),
+          CORN_MODEL_PROVIDER: 'deepseek-official',
+          CORN_MODEL_ID: 'deepseek-flash',
+          CORN_MODEL_API_KEY: FAKE_CREDENTIAL,
+          DEEPSEEK_API_KEY: FAKE_CREDENTIAL,
+        }
+      : {}
     await rm(join(artifacts, report), { force: true })
     const startedAt = Date.now()
     const exit = await launch(
@@ -178,7 +226,8 @@ async function run(scenario) {
         CORN_DESKTOP_SMOKE: '1',
         ...(scenario.crash ? { CORN_DESKTOP_CRASH_SMOKE: '1' } : {}),
         CORN_DSH_HOME: home,
-        CORN_MODEL_ENV_FILE: modelEnvFile,
+        ...override,
+        ...legacy,
       },
       join(scratch, 'user-data'),
     )

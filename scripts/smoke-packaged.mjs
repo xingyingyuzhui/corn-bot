@@ -1,9 +1,17 @@
 import assert from 'node:assert/strict'
 import { spawn } from 'node:child_process'
 import { existsSync } from 'node:fs'
-import { mkdir, mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises'
+import {
+  mkdir,
+  mkdtemp,
+  readdir,
+  readFile,
+  rm,
+  stat,
+  writeFile,
+} from 'node:fs/promises'
 import { homedir, tmpdir } from 'node:os'
-import { dirname, join } from 'node:path'
+import { dirname, join, sep } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import {
   createReviewHome,
@@ -19,6 +27,40 @@ const binary = join(
   'release/mac-arm64/Corn Bot.app/Contents/MacOS/Corn Bot',
 )
 assert.ok(existsSync(binary), 'Run pnpm package:mac first')
+const FAKE_KEY = 'sk-corn-wp3-FAKE-PACKAGED-0000'
+const template = join(
+  root,
+  'release/mac-arm64/Corn Bot.app/Contents/Resources/profile-template',
+)
+assert.ok(existsSync(template), 'The bundled profile template is missing')
+for (const entry of await readdir(template))
+  assert.ok(
+    [
+      'package.json',
+      'cordis.yml',
+      'cordis.patch.yml',
+      'node_modules',
+      'corn-profile-template.json',
+    ].includes(entry),
+    `The keyless profile template carries ${entry}`,
+  )
+
+/** Text files under `dir` (skipping package trees) that contain `needle`. */
+async function filesContaining(dir, needle) {
+  const hits = []
+  for (const entry of await readdir(dir, {
+    recursive: true,
+    withFileTypes: true,
+  })) {
+    if (!entry.isFile()) continue
+    const path = join(entry.parentPath, entry.name)
+    if (path.includes(`${sep}node_modules${sep}`)) continue
+    const info = await stat(path)
+    if (info.size > 4_000_000) continue
+    if ((await readFile(path, 'utf8')).includes(needle)) hits.push(path)
+  }
+  return hits
+}
 
 async function userDshFingerprint() {
   const rows = []
@@ -55,6 +97,12 @@ for (let round = 1; round <= 3; round++) {
   try {
     const home = join(scratch, 'dsh')
     const artifacts = join(scratch, 'artifacts')
+    const legacyEnv = join(scratch, 'model.env')
+    await writeFile(
+      legacyEnv,
+      `CORN_MODEL_PROVIDER=deepseek-official\nCORN_MODEL_ID=deepseek-flash\nCORN_MODEL_API_KEY=${FAKE_KEY}\n`,
+      { mode: 0o600 },
+    )
     const code = await launch(
       {
         PATH: process.env.PATH,
@@ -65,7 +113,17 @@ for (let round = 1; round <= 3; round++) {
         ...(crash ? { CORN_DESKTOP_CRASH_SMOKE: '1' } : {}),
         CORN_DSH_HOME: home,
         CORN_ARTIFACTS_DIR: artifacts,
-        CORN_MODEL_ENV_FILE: join(scratch, 'no-model.env'),
+        // Retired model variables must be inert in a packaged App.
+        ...(round === 1
+          ? {
+              CORN_MODEL_ENV_FILE: legacyEnv,
+              CORN_DEV_MODEL_ENV_FILE: legacyEnv,
+              CORN_MODEL_PROVIDER: 'deepseek-official',
+              CORN_MODEL_ID: 'deepseek-flash',
+              CORN_MODEL_API_KEY: FAKE_KEY,
+              DEEPSEEK_API_KEY: FAKE_KEY,
+            }
+          : {}),
       },
       [`--user-data-dir=${join(scratch, 'user-data')}`],
     )
@@ -80,6 +138,18 @@ for (let round = 1; round <= 3; round++) {
     assert.equal(report.clawReady, true)
     assert.equal(report.bridgeVerified, true)
     assert.equal(report.hostSpawns, crash ? 2 : 1)
+    assert.equal(report.modelStatus, 'needs_configuration')
+    assert.equal(report.devModelOverride, false)
+    assert.equal(report.modelBridgeVerified, true)
+    assert.equal(report.modelSnapshotRedacted, true)
+    assert.deepEqual(
+      [
+        ...(await filesContaining(home, FAKE_KEY)),
+        ...(await filesContaining(artifacts, FAKE_KEY)),
+      ],
+      [],
+      'A retired model variable reached the Host home or the report',
+    )
     const profile = join(home, 'profiles', 'corn-dev')
     assert.ok(existsSync(join(profile, 'node_modules', 'dsh-claw-suite')))
     // Installer and package-manager residue would mean the template was bypassed.
@@ -91,6 +161,7 @@ for (let round = 1; round <= 3; round++) {
       assert.equal(report.recovered, true)
       assert.equal(report.hostReplaced, true)
       assert.equal(report.clawReadyAfterRecovery, true)
+      assert.equal(report.modelStatusAfterRecovery, 'needs_configuration')
     }
     rounds.push({ round, crash, ...report })
     console.log(
@@ -119,7 +190,6 @@ try {
       CORN_DESKTOP_SMOKE: '1',
       CORN_DSH_HOME: legacyHome,
       CORN_ARTIFACTS_DIR: artifacts,
-      CORN_MODEL_ENV_FILE: join(legacyScratch, 'no-model.env'),
     },
     [`--user-data-dir=${join(legacyScratch, 'user-data')}`],
   )
