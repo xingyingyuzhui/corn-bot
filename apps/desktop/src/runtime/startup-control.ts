@@ -1,5 +1,6 @@
 import {
   DSH_VERSION,
+  type RuntimeErrorCode,
   type RuntimeStatus,
   type RuntimeView,
 } from '../../../../packages/contracts/src/runtime.ts'
@@ -11,7 +12,7 @@ import {
 import type { HostAuth } from './host-auth.ts'
 import { redactHostDiagnostic } from './host-readiness.ts'
 import { HostRecovery } from './host-recovery.ts'
-import { resolveCornModelConfig } from './model-provider.ts'
+import { runtimeFailureOf } from './runtime-failure.ts'
 
 const MESSAGES: Record<RuntimeStatus, string> = {
   stopped: 'Corn 独立运行时已停止。',
@@ -19,6 +20,37 @@ const MESSAGES: Record<RuntimeStatus, string> = {
   ready: 'Corn 独立运行时已连接。',
   recovering: '独立运行时意外退出，正在自动恢复…',
   failed: '独立运行时多次启动失败，已停止自动恢复。',
+}
+
+function failureMessage(code: RuntimeErrorCode): string {
+  switch (code) {
+    case 'model_config_invalid':
+      return '模型配置不完整或服务商无效，请修正后重新启动 Corn Bot。'
+    case 'model_config_permissions':
+      return '模型配置文件权限不正确（需仅本人可读），请修正后重新启动。'
+    case 'model_config_unreadable':
+      return '无法读取模型配置文件，请检查后重新启动。'
+    case 'runtime_home_rejected':
+      return 'Corn 运行时目录不属于 Corn Bot，已拒绝使用。'
+    case 'runtime_home_locked':
+      return 'Corn 运行时目录正被其他进程占用。'
+    case 'runtime_version_mismatch':
+      return '内置运行时版本与锁定版本不一致。'
+    case 'claw_missing':
+      return 'Corn profile 缺少 Claw 治理组件，需要修复 Corn profile。'
+    case 'claw_version_mismatch':
+      return 'Corn profile 的 Claw 治理组件版本不匹配，需要修复 Corn profile。'
+    case 'claw_disabled':
+      return 'Corn profile 未启用 Claw 治理组件，需要修复 Corn profile。'
+    case 'claw_check_failed':
+      return 'Claw 治理能力检查未通过，已停止运行时。'
+    case 'host_unavailable':
+      return MESSAGES.failed
+    default: {
+      const unreachable: never = code
+      throw new Error(`Unknown runtime error code ${String(unreachable)}`)
+    }
+  }
 }
 
 export interface StartupHost {
@@ -94,8 +126,16 @@ export class StartupControl {
     return this.#cleanup
   }
 
-  #set(status: RuntimeStatus): void {
-    this.#view = { status, dshVersion: DSH_VERSION, message: MESSAGES[status] }
+  #set(status: RuntimeStatus, errorCode?: RuntimeErrorCode): void {
+    this.#view =
+      status === 'failed' && errorCode !== undefined
+        ? {
+            status,
+            dshVersion: DSH_VERSION,
+            message: failureMessage(errorCode),
+            errorCode,
+          }
+        : { status, dshVersion: DSH_VERSION, message: MESSAGES[status] }
   }
 
   /** One boot or restart at a time; failures feed the bounded recovery budget. */
@@ -109,9 +149,13 @@ export class StartupControl {
         this.#set('ready')
       } catch (error) {
         this.#auth = undefined
-        this.#lastFailure = redactHostDiagnostic(String(error)).slice(-2_000)
         this.#booting = false
-        this.#scheduleRecovery()
+        const failure = runtimeFailureOf(error)
+        this.#lastFailure = redactHostDiagnostic(
+          `${failure.code}: ${failure.message}`,
+        ).slice(-2_000)
+        if (failure.terminal) this.#set('failed', failure.code)
+        else this.#scheduleRecovery()
       } finally {
         this.#booting = false
       }
@@ -124,7 +168,7 @@ export class StartupControl {
     this.#auth = undefined
     const wait = this.#recovery.nextDelay()
     if (wait === null) {
-      this.#set('failed')
+      this.#set('failed', 'host_unavailable')
       return
     }
     this.#set('recovering')
@@ -153,10 +197,7 @@ export function createAppRuntime(
   let control: StartupControl | undefined
   const host = new DshHostSupervisor(paths.home, {
     ...hostSeams,
-    model: resolveCornModelConfig({
-      ...process.env,
-      CORN_MODEL_ENV_FILE: paths.modelEnvFile,
-    }),
+    modelEnvFile: paths.modelEnvFile,
     profileTemplate: paths.profileTemplate,
     onFailure: () => control?.hostFailed(),
   })

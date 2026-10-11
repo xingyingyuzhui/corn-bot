@@ -17,6 +17,7 @@ import {
   writeIsolationPatch,
 } from './profile-bootstrap.ts'
 import { materializeProfile } from './profile-template.ts'
+import { RuntimeFailure } from './runtime-failure.ts'
 
 const require = createRequire(import.meta.url)
 const cliManifest = require.resolve('@deepseek-ai/dsh/package.json')
@@ -32,6 +33,8 @@ export interface SupervisorOptions {
   readonly onFailure?: (message: string) => void
   /** `undefined` resolves the private Corn model configuration at each start; `null` boots keyless. */
   readonly model?: CornModelConfig | null
+  /** Private model file the App selected; read lazily inside each start. */
+  readonly modelEnvFile?: string
   /** Verified bundled profile used instead of DSH's online template on first start. */
   readonly profileTemplate?: string | undefined
   /** Test seam; production spawns the bundled DSH CLI. */
@@ -51,10 +54,12 @@ export class DshHostSupervisor {
   #startFlight: Promise<HostAuth> | undefined
   #stopFlight: Promise<void> | undefined
   #diagnostic = ''
+  #spawnCount = 0
 
   readonly home: string
   readonly onFailure: (message: string) => void
   readonly model: CornModelConfig | null | undefined
+  readonly modelEnvFile: string | undefined
   readonly profileTemplate: string | undefined
   readonly #spawnHost: SpawnHost
   readonly #exchangeAuth: (
@@ -66,6 +71,7 @@ export class DshHostSupervisor {
     this.home = home
     this.onFailure = options.onFailure ?? (() => {})
     this.model = options.model
+    this.modelEnvFile = options.modelEnvFile
     this.profileTemplate = options.profileTemplate
     this.#spawnHost = options.spawnHost ?? spawn
     this.#exchangeAuth = options.exchangeAuth ?? HostAuth.exchange
@@ -74,6 +80,11 @@ export class DshHostSupervisor {
   /** Main-only process ownership diagnostics; never exposed over Renderer IPC. */
   get processId(): number | undefined {
     return this.#child?.pid
+  }
+
+  /** Main-only diagnostic: Host processes spawned by this supervisor. */
+  get spawnCount(): number {
+    return this.#spawnCount
   }
 
   start(): Promise<HostAuth> {
@@ -88,13 +99,31 @@ export class DshHostSupervisor {
   async #start(): Promise<HostAuth> {
     const manifest = require(cliManifest) as { version: string }
     if (manifest.version !== DSH_VERSION)
-      throw new Error('Installed DSH runtime differs from the locked version')
-    await claimCornHome(this.home)
-    this.#release = await acquireProcessLock(this.home)
+      throw new RuntimeFailure(
+        'runtime_version_mismatch',
+        'Installed DSH runtime differs from the locked version',
+      )
+    try {
+      await claimCornHome(this.home)
+    } catch (error) {
+      throw new RuntimeFailure(
+        'runtime_home_rejected',
+        'Corn runtime home is not an isolated Corn-owned directory',
+        { cause: error },
+      )
+    }
+    try {
+      this.#release = await acquireProcessLock(this.home)
+    } catch (error) {
+      throw new RuntimeFailure(
+        'runtime_home_locked',
+        'Corn runtime home is locked by another owner',
+        { cause: error },
+      )
+    }
     let timer: ReturnType<typeof setTimeout> | undefined
     try {
-      const model =
-        this.model === undefined ? resolveCornModelConfig() : this.model
+      const model = this.#resolveModel()
       const patch = await writeIsolationPatch(this.home, model)
       const args = [cliEntry, CORN_PROFILE]
       const profile = join(this.home, 'profiles', CORN_PROFILE)
@@ -104,6 +133,7 @@ export class DshHostSupervisor {
       else if (!existsSync(join(profile, 'package.json')))
         args.push('--from-default-profile', 'web')
       args.push('--patch', patch, '--no-open', '--port', '0')
+      this.#spawnCount++
       const child = this.#spawnHost(process.execPath, args, {
         cwd: this.home,
         env: cornHostEnvironment(this.home, model),
@@ -155,6 +185,15 @@ export class DshHostSupervisor {
     } finally {
       clearTimeout(timer)
     }
+  }
+
+  #resolveModel(): CornModelConfig | null {
+    if (this.model !== undefined) return this.model
+    return resolveCornModelConfig(
+      this.modelEnvFile === undefined
+        ? process.env
+        : { ...process.env, CORN_MODEL_ENV_FILE: this.modelEnvFile },
+    )
   }
 
   stop(): Promise<void> {

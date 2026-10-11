@@ -1,5 +1,12 @@
 import assert from 'node:assert/strict'
-import { chmod, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
+import {
+  chmod,
+  mkdir,
+  mkdtemp,
+  readFile,
+  rm,
+  writeFile,
+} from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { test } from 'node:test'
@@ -126,6 +133,72 @@ test('readable env files, unknown routes and partial configs are refused', async
           CORN_MODEL_PROVIDER: 'deepseek-official',
         }),
       /both required/u,
+    )
+  })
+})
+
+function failsWith(code: string) {
+  return (error: unknown) =>
+    typeof error === 'object' &&
+    error !== null &&
+    'code' in error &&
+    error.code === code
+}
+
+test('an existing but unreadable env file is refused, never treated as keyless', async () => {
+  await withTemporary(async (directory) => {
+    const sealed = join(directory, 'sealed')
+    await mkdir(sealed, { mode: 0o700 })
+    const file = join(sealed, 'model.env')
+    await writeFile(file, 'CORN_MODEL_PROVIDER=deepseek-official\n', {
+      mode: 0o600,
+    })
+    await chmod(sealed, 0o000)
+    try {
+      assert.throws(
+        () => resolveCornModelConfig({ CORN_MODEL_ENV_FILE: file }),
+        failsWith('model_config_unreadable'),
+      )
+    } finally {
+      await chmod(sealed, 0o700)
+    }
+    const folder = join(directory, 'folder.env')
+    await mkdir(folder, { mode: 0o700 })
+    assert.throws(
+      () => resolveCornModelConfig({ CORN_MODEL_ENV_FILE: folder }),
+      failsWith('model_config_unreadable'),
+    )
+  })
+})
+
+test('configuration failures carry a safe category code', async () => {
+  await withTemporary(async (directory) => {
+    const file = join(directory, 'model.env')
+    await writeFile(file, 'CORN_MODEL_PROVIDER=deepseek-official\n')
+    await chmod(file, 0o644)
+    assert.throws(
+      () => resolveCornModelConfig({ CORN_MODEL_ENV_FILE: file }),
+      failsWith('model_config_permissions'),
+    )
+    const missing = join(directory, 'missing.env')
+    assert.throws(
+      () =>
+        resolveCornModelConfig({
+          CORN_MODEL_ENV_FILE: missing,
+          CORN_MODEL_PROVIDER: 'deepseek-official',
+          CORN_MODEL_API_KEY: 'fixture-key',
+        }),
+      failsWith('model_config_invalid'),
+    )
+    assert.throws(
+      () =>
+        resolveCornModelConfig({
+          CORN_MODEL_ENV_FILE: missing,
+          CORN_MODEL_API_KEY: 'fixture-key',
+        }),
+      (error: unknown) =>
+        failsWith('model_config_invalid')(error) &&
+        !String(error).includes('fixture-key'),
     )
   })
 })

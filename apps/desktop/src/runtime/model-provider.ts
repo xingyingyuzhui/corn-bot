@@ -1,7 +1,8 @@
-import { readFileSync, statSync } from 'node:fs'
+import { readFileSync, type Stats, statSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
 import { parseEnv } from 'node:util'
+import { RuntimeFailure } from './runtime-failure.ts'
 
 /** Routes Corn knows how to wire; each owns exactly one Host credential variable. */
 export const CORN_MODEL_ROUTES = [
@@ -57,16 +58,34 @@ function isRoute(value: string): value is CornModelRoute {
   return (CORN_MODEL_ROUTES as readonly string[]).includes(value)
 }
 
+/** Only a missing file means "not configured"; any other problem with an existing file is refused. */
 function readModelEnvFile(path: string): Record<string, string> {
-  let mode: number
+  const unreadable = (cause?: unknown) =>
+    new RuntimeFailure(
+      'model_config_unreadable',
+      'Corn model env file cannot be read',
+      { cause },
+    )
+  let stat: Stats
   try {
-    mode = statSync(path).mode
-  } catch {
-    return {}
+    stat = statSync(path)
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return {}
+    throw unreadable(error)
   }
-  if ((mode & 0o077) !== 0)
-    throw new Error('Corn model env file must not be group or world readable')
-  return parseEnv(readFileSync(path, 'utf8')) as Record<string, string>
+  if (!stat.isFile()) throw unreadable()
+  if ((stat.mode & 0o077) !== 0)
+    throw new RuntimeFailure(
+      'model_config_permissions',
+      'Corn model env file must not be group or world readable',
+    )
+  let text: string
+  try {
+    text = readFileSync(path, 'utf8')
+  } catch (error) {
+    throw unreadable(error)
+  }
+  return parseEnv(text) as Record<string, string>
 }
 
 /**
@@ -91,10 +110,14 @@ export function resolveCornModelConfig(
   const apiKey = source.CORN_MODEL_API_KEY
   if (!route && !model && !apiKey) return null
   if (!route || !isRoute(route))
-    throw new Error(
+    throw new RuntimeFailure(
+      'model_config_invalid',
       `CORN_MODEL_PROVIDER must be one of ${CORN_MODEL_ROUTES.join(', ')}`,
     )
   if (!model || !apiKey)
-    throw new Error('CORN_MODEL_ID and CORN_MODEL_API_KEY are both required')
+    throw new RuntimeFailure(
+      'model_config_invalid',
+      'CORN_MODEL_ID and CORN_MODEL_API_KEY are both required',
+    )
   return { route, model, apiKey }
 }

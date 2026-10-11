@@ -80,6 +80,7 @@ async function runSmoke(window: BrowserWindow): Promise<void> {
     rendererView !== null &&
     'status' in rendererView &&
     rendererView.status === control.view.status
+  facts.hostSpawns = supervisor.spawnCount
   await delay(1_000)
   await mkdir(paths.artifacts, { recursive: true, mode: 0o700 })
   if (!crashSmoke) {
