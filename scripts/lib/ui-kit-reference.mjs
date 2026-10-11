@@ -6,6 +6,17 @@ import { promisify } from 'node:util'
 
 const run = promisify(execFile)
 
+/**
+ * The environment for a git child bound to its `cwd`: inherited `GIT_DIR`,
+ * `GIT_WORK_TREE`, `GIT_INDEX_FILE` and the like would redirect it to another
+ * repository.
+ */
+export function cwdGitEnv(env = process.env) {
+  return Object.fromEntries(
+    Object.entries(env).filter(([key]) => !key.startsWith('GIT_')),
+  )
+}
+
 export async function readKitLock(repoRoot) {
   const lock = JSON.parse(
     await readFile(join(repoRoot, 'design/grok-kit/kit.lock.json'), 'utf8'),
@@ -38,6 +49,7 @@ async function sha256File(path) {
 async function git(cwd, args) {
   const { stdout } = await run('git', args, {
     cwd,
+    env: cwdGitEnv(),
     maxBuffer: 64 * 1024 * 1024,
   })
   return stdout
@@ -115,7 +127,10 @@ export async function verifyUiKitReference({ repoRoot, kitDirOverride }) {
   let head
   try {
     head = (
-      await run('git', ['rev-parse', 'HEAD'], { cwd: kitDir })
+      await run('git', ['rev-parse', 'HEAD'], {
+        cwd: kitDir,
+        env: cwdGitEnv(),
+      })
     ).stdout.trim()
   } catch {
     report.failures.push('Research directory is not a git checkout')
