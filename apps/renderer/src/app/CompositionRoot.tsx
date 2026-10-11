@@ -1,10 +1,12 @@
 import { FixtureWorkspaceRepository } from '../fixtures/fixture-repository.ts'
 import { parseFixtureRoute } from '../fixtures/routes.ts'
+import { parseRuntimeFixture } from '../fixtures/runtime-states.ts'
 import { createUiStatesRepository } from '../fixtures/ui-states.ts'
 import type { WorkspaceRepository } from '../model/repository.ts'
 import { NoticeProvider } from '../shared/notice.tsx'
 import { CornShell } from './CornShell.tsx'
-import { useRuntimeStatus } from './use-runtime-status.ts'
+import { RuntimeAnnouncer } from './RuntimeAnnouncer.tsx'
+import { useRuntimeFixture, useRuntimeStatus } from './use-runtime-status.ts'
 import { WorkspaceProvider } from './workspace-context.tsx'
 
 /**
@@ -26,14 +28,19 @@ function chooseRepository(): WorkspaceRepository {
 }
 
 const repository = chooseRepository()
+const useRuntime =
+  parseRuntimeFixture(window.location.hash, import.meta.env.DEV) === null
+    ? useRuntimeStatus
+    : useRuntimeFixture
 
 export function CompositionRoot() {
-  const runtime = useRuntimeStatus()
+  const runtime = useRuntime()
   return (
     <WorkspaceProvider repository={repository}>
       <NoticeProvider>
         <CornShell runtime={runtime} />
       </NoticeProvider>
+      <RuntimeAnnouncer source={repository.label} reading={runtime} />
     </WorkspaceProvider>
   )
 }

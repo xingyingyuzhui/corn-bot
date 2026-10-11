@@ -1,19 +1,23 @@
 import { PanelLeft } from 'lucide-react'
 import { useState } from 'react'
 import type { ChatScroll, Overlay } from '../../app/layout-state.ts'
+import type { RuntimeNoticeView } from '../../app/runtime-notice.ts'
 import type { ComposerDraft, SendAttempt } from '../../model/draft.ts'
 import type { BotView, ConversationView } from '../../model/workspace.ts'
 import { ActionButton } from '../../shared/ActionButton.tsx'
 import { ConversationHeader } from './ConversationHeader.tsx'
 import { MessageComposer } from './MessageComposer.tsx'
 import { MessageFeed } from './MessageFeed.tsx'
+import { RuntimeNotice } from './RuntimeNotice.tsx'
 import './chat.css'
 
 interface ChatPaneProps {
   readonly bot: BotView
   readonly bots: Readonly<Record<string, BotView>>
   readonly conversation: ConversationView
-  readonly notice: string
+  /** Sample-data marker, or `null` for a live source. */
+  readonly sample: string | null
+  readonly runtime: RuntimeNoticeView
   readonly draft: ComposerDraft
   readonly scroll: ChatScroll | undefined
   readonly detailsOpen: boolean
@@ -68,7 +72,6 @@ export function ChatPane(props: ChatPaneProps) {
         key={bot.id}
         bots={props.bots}
         conversation={conversation}
-        notice={props.notice}
         initialScroll={props.scroll}
         followToken={followToken}
         onScroll={props.onScroll}
@@ -76,6 +79,7 @@ export function ChatPane(props: ChatPaneProps) {
           props.onOpenOverlay({ kind: 'bot-permissions', botId: bot.id })
         }
       />
+      <RuntimeNotice sample={props.sample} runtime={props.runtime} />
       <MessageComposer
         botId={bot.id}
         botName={bot.name}

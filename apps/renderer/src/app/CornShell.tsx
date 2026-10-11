@@ -1,4 +1,3 @@
-import type { RuntimeView } from '@corn-bot/contracts'
 import {
   type CSSProperties,
   useEffect,
@@ -22,6 +21,11 @@ import {
   resolveLayout,
 } from './layout-state.ts'
 import { OverlayHost } from './OverlayHost.tsx'
+import {
+  type RuntimeReading,
+  runtimeNotice,
+  sampleNotice,
+} from './runtime-notice.ts'
 import { useShellShortcuts } from './use-shell-shortcuts.ts'
 import { useRepository, useWorkspace } from './workspace-context.tsx'
 
@@ -34,7 +38,7 @@ const VOICE_FIXTURE =
   parseFixtureRoute(window.location.hash, import.meta.env.DEV) === 'ui-states'
 
 interface CornShellProps {
-  readonly runtime: RuntimeView | null
+  readonly runtime: RuntimeReading
 }
 
 export function CornShell({ runtime }: CornShellProps) {
@@ -74,13 +78,6 @@ export function CornShell({ runtime }: CornShellProps) {
   })
   const openOverlay = (overlay: Overlay) =>
     dispatch({ type: 'open-overlay', overlay })
-  const notice = [
-    repository.label === 'fixture' ? '示例数据，未连接真实 Bot' : null,
-    runtime ? runtime.message : '运行时不可用',
-  ]
-    .filter(Boolean)
-    .join(' · ')
-
   return (
     <div
       className="corn-shell"
@@ -103,7 +100,8 @@ export function CornShell({ runtime }: CornShellProps) {
         bot={bot}
         bots={roster.bots}
         conversation={conversation}
-        notice={notice}
+        sample={sampleNotice(repository.label)}
+        runtime={runtimeNotice(runtime)}
         draft={draftFor(state, bot.id)}
         scroll={state.scroll[bot.id]}
         detailsOpen={state.detailsOpen}

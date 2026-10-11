@@ -6,6 +6,7 @@
  */
 .corn-shell {
   --corn-details-width: calc(100vw * var(--corn-details-ratio));
+  --corn-details-overlay-width: max(var(--corn-details-width), 320px);
   position: relative;
   display: grid;
   grid-template-columns: var(--corn-roster-width, var(--corn-sidebar-width)) minmax(
@@ -46,9 +47,17 @@
   position: absolute;
   inset-block: 0;
   inset-inline-end: 0;
-  inline-size: max(var(--corn-details-width), 320px);
+  inline-size: var(--corn-details-overlay-width);
   box-shadow: var(--corn-shadow-overlay);
   z-index: 2;
+}
+
+/* Keeps the chat's fixed status strip in the part the overlay leaves visible. */
+.corn-shell[data-details="overlay"] .corn-runtime-notice {
+  padding-inline-end: calc(
+    var(--corn-details-overlay-width) +
+    var(--corn-gutter)
+  );
 }
 
 .corn-drag {

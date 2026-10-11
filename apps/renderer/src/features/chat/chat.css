@@ -108,7 +108,8 @@
 }
 
 .corn-feed__spin,
-.corn-composer__spin {
+.corn-composer__spin,
+.corn-runtime-notice__spin {
   animation: corn-chat-spin 0.9s linear infinite;
 }
 
@@ -135,6 +136,49 @@
 
 .corn-feed__latest:hover {
   background: var(--corn-surface-selected);
+}
+
+/* Normal-flow strip between feed and composer; the details overlay pads it in layout.css. */
+.corn-runtime-notice {
+  display: flex;
+  flex: none;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 2px 12px;
+  padding: 0 var(--corn-gutter) 6px;
+  color: var(--corn-text-tertiary);
+  font-size: var(--corn-text-xs);
+  line-height: var(--corn-leading-xs);
+  text-align: center;
+}
+
+.corn-runtime-notice__item {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  max-inline-size: 100%;
+  margin: 0;
+}
+
+.corn-runtime-notice__item[data-tone="error"] {
+  color: var(--corn-text-danger);
+}
+
+.corn-runtime-notice__item svg {
+  flex: none;
+}
+
+.corn-runtime-notice__dot {
+  flex: none;
+  inline-size: 6px;
+  block-size: 6px;
+  border-radius: 50%;
+  background: currentColor;
+}
+
+.corn-runtime-notice__item[data-tone="ok"] .corn-runtime-notice__dot {
+  background: var(--corn-text-success);
 }
 
 .corn-message {
@@ -556,7 +600,8 @@
 
 @media (prefers-reduced-motion: reduce) {
   .corn-feed__spin,
-  .corn-composer__spin {
+  .corn-composer__spin,
+  .corn-runtime-notice__spin {
     animation: none;
   }
 }
