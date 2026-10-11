@@ -109,6 +109,14 @@ for (const [label, claw, code] of [
     'claw_disabled',
   ],
   [
+    'Gate row re-inserted under another plugin by the profile patch layer',
+    {
+      profilePatch:
+        '- insert:\n    - id: dsh-claw-gate\n      name: some-other-plugin\n',
+    },
+    'claw_disabled',
+  ],
+  [
     'unverifiable profile patch layer',
     { profilePatch: "- id: dsh-claw-gate\n  config: !!js/function 'x'\n" },
     'claw_disabled',

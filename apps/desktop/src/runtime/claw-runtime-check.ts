@@ -167,17 +167,21 @@ export async function verifyClawProfile(
   const layers = [join(profile, PATCH_FILE)]
   if (home !== undefined) layers.push(join(home, PATCH_FILE))
   for (const layer of layers)
-    for (const patch of await readPatchLayer(layer))
-      if (
-        isEntry(patch) &&
-        typeof patch.id === 'string' &&
-        CLAW_ROW_IDS.has(patch.id) &&
-        disables(patch)
-      )
-        throw new RuntimeFailure(
-          'claw_disabled',
-          `A profile patch layer disables ${patch.id}`,
+    for (const patch of await readPatchLayer(layer)) {
+      if (!isEntry(patch)) continue
+      const rows = [patch, ...(Array.isArray(patch.insert) ? patch.insert : [])]
+      for (const row of rows)
+        if (
+          isEntry(row) &&
+          typeof row.id === 'string' &&
+          CLAW_ROW_IDS.has(row.id) &&
+          disables(row)
         )
+          throw new RuntimeFailure(
+            'claw_disabled',
+            `A profile patch layer disables or replaces ${row.id}`,
+          )
+    }
 }
 
 /**
