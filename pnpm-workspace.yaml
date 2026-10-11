@@ -1,0 +1,16 @@
+packages:
+  - apps/*
+  - packages/*
+  - plugins/*
+  - services/*
+allowBuilds:
+  electron: true
+  esbuild: true
+  '@deepseek-ai/terminal-runtime': true
+  '@deepseek-ai/dsh-subprocess-local': true
+  '@google/genai': false
+  koffi: true
+  node-pty: true
+  protobufjs: false
+minimumReleaseAgeExclude:
+  - '@types/node@24.19.2'

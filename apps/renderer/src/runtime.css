@@ -1,0 +1,31 @@
+:root {
+  color-scheme: light;
+  font-family: -apple-system, BlinkMacSystemFont, sans-serif;
+}
+body {
+  margin: 0;
+  background: #fafafa;
+  color: #202020;
+}
+main {
+  max-width: 540px;
+  padding: 64px 60px;
+}
+h1 {
+  font-size: 42px;
+  letter-spacing: -1px;
+  margin: 14px 0 24px;
+}
+p {
+  font-size: 16px;
+  line-height: 1.7;
+}
+.stage {
+  color: #737373;
+  font-size: 13px;
+}
+.note {
+  color: #737373;
+  font-size: 14px;
+  margin-top: 40px;
+}

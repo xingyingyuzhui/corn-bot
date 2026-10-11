@@ -1,0 +1,7 @@
+{
+  "name": "@corn-bot/desktop",
+  "version": "0.1.0-dev.0",
+  "private": true,
+  "type": "module",
+  "main": "dist/apps/desktop/src/main.js"
+}

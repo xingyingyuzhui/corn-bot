@@ -1,0 +1,19 @@
+{
+  "$schema": "https://biomejs.dev/schemas/2.5.15/schema.json",
+  "files": {
+    "includes": [
+      "**",
+      "!docs/plans",
+      "!design/references",
+      "!.runtime",
+      "!.artifacts",
+      "!**/dist",
+      "!pnpm-lock.yaml"
+    ]
+  },
+  "formatter": { "indentStyle": "space", "indentWidth": 2 },
+  "javascript": {
+    "formatter": { "quoteStyle": "single", "semicolons": "asNeeded" }
+  },
+  "linter": { "enabled": true, "rules": { "preset": "recommended" } }
+}

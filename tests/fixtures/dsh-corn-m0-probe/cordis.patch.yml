@@ -1,0 +1,6 @@
+# Test fixture only. No bundle or application includes this patch by default.
+- insert:
+    - id: dsh-corn-m0-probe
+      name: dsh-corn-m0-probe
+      config:
+        enabled: false

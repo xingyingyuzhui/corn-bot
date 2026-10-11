@@ -1,0 +1,46 @@
+name: CI
+on:
+  push:
+    branches: [main]
+  pull_request:
+permissions:
+  contents: read
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .node-version
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm check
+      - run: pnpm build
+      - run: pnpm verify:runtime
+  runtime-smoke:
+    runs-on: macos-14
+    env:
+      CORN_DSH_HOME: ${{ github.workspace }}/.runtime/ci-home
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .node-version
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm setup:runtime
+      - run: pnpm smoke:cold
+      - run: pnpm smoke:host
+      - run: pnpm smoke:governance
+      - run: CORN_DESKTOP_SMOKE=1 pnpm dev:desktop
+      - run: CORN_DESKTOP_SMOKE=1 CORN_DESKTOP_CRASH_SMOKE=1 pnpm dev:desktop
+      - uses: actions/upload-artifact@v4
+        with:
+          name: m0-sanitized-reports
+          path: .artifacts/*.json
+          include-hidden-files: true
+          if-no-files-found: error
+          retention-days: 7
