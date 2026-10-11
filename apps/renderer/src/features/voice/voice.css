@@ -1,0 +1,107 @@
+.corn-voice {
+  display: flex;
+  flex-basis: 100%;
+  align-items: center;
+  gap: 8px;
+  order: -1;
+  min-block-size: 28px;
+  padding: 2px 4px 2px 10px;
+  border-radius: var(--corn-radius-pill);
+  background: var(--corn-fill-muted);
+  color: var(--corn-text-secondary);
+  font-size: var(--corn-text-xs);
+  line-height: var(--corn-leading-xs);
+}
+
+.corn-voice__text {
+  flex: 1;
+  min-inline-size: 0;
+}
+
+.corn-voice[data-phase="error"] {
+  color: var(--corn-text-danger);
+}
+
+.corn-voice__dot {
+  inline-size: 8px;
+  block-size: 8px;
+  border-radius: 50%;
+  background: var(--corn-text-danger);
+  animation: corn-voice-pulse 1.2s var(--corn-ease) infinite;
+}
+
+.corn-voice__time {
+  color: var(--corn-text-primary);
+  font-variant-numeric: tabular-nums;
+}
+
+.corn-voice__button {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  min-block-size: 22px;
+  padding: 0 8px;
+  border-radius: 11px;
+  background: var(--corn-surface-raised);
+  color: var(--corn-text-primary);
+  font-size: var(--corn-text-xs);
+}
+
+.corn-voice__button:hover {
+  background: var(--corn-surface-selected);
+}
+
+.corn-voice__close {
+  display: grid;
+  place-items: center;
+  inline-size: 22px;
+  block-size: 22px;
+  border-radius: 50%;
+  color: var(--corn-text-secondary);
+}
+
+.corn-voice__close:hover {
+  background: var(--corn-surface-hover);
+}
+
+.corn-voice__spin {
+  flex: none;
+  animation: corn-voice-spin 0.9s linear infinite;
+}
+
+.corn-voice-scenario {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 6px;
+  margin: 0 18px 4px;
+  color: var(--corn-text-tertiary);
+  font-size: var(--corn-text-xs);
+  line-height: var(--corn-leading-xs);
+}
+
+.corn-voice-scenario select {
+  border: 0;
+  background: transparent;
+  color: var(--corn-text-secondary);
+  font: inherit;
+}
+
+@keyframes corn-voice-pulse {
+  50% {
+    opacity: 0.35;
+  }
+}
+
+@keyframes corn-voice-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .corn-voice__dot,
+  .corn-voice__spin {
+    animation: none;
+  }
+}

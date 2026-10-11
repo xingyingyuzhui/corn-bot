@@ -75,4 +75,7 @@
   --corn-sidebar-duration: 200ms;
   --corn-accent-unread: #1084fe;
   --corn-resize-hit: 8px;
+  /* Kit settled card: padding 12, radius 16, on the bot bubble surface. */
+  --corn-radius-status-card: 16px;
+  --corn-font-mono: ui-monospace, "SF Mono", Menlo, monospace;
 }

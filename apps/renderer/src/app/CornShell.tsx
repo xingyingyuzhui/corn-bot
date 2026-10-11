@@ -12,6 +12,7 @@ import {
   rosterFilterFor,
   visibleBotOrder,
 } from '../features/roster/roster-order.ts'
+import { parseFixtureRoute } from '../fixtures/routes.ts'
 import {
   detailsTabFor,
   draftFor,
@@ -29,6 +30,8 @@ const subscribeViewport = (notify: () => void) => {
   return () => window.removeEventListener('resize', notify)
 }
 const viewportWidth = () => window.innerWidth
+const VOICE_FIXTURE =
+  parseFixtureRoute(window.location.hash, import.meta.env.DEV) === 'ui-states'
 
 interface CornShellProps {
   readonly runtime: RuntimeView | null
@@ -105,6 +108,7 @@ export function CornShell({ runtime }: CornShellProps) {
         scroll={state.scroll[bot.id]}
         detailsOpen={state.detailsOpen}
         sidebarCollapsed={collapsed}
+        voiceFixture={VOICE_FIXTURE}
         onDraft={(draft) => dispatch({ type: 'edit-draft', draft })}
         onScroll={(scroll) => dispatch({ type: 'record-scroll', scroll })}
         onToggleDetails={() =>
@@ -113,6 +117,7 @@ export function CornShell({ runtime }: CornShellProps) {
           })
         }
         onToggleSidebar={() => dispatch({ type: 'toggle-sidebar' })}
+        onOpenOverlay={openOverlay}
       />
       {layout.details === 'closed' ? null : (
         <BotDetailsPane

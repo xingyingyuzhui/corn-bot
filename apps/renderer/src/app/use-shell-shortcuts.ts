@@ -1,4 +1,5 @@
 import { type Dispatch, useEffect, useEffectEvent } from 'react'
+import { COMPOSER_FIELD_ID } from '../features/chat/composer-model.ts'
 import { adjacentBotId } from '../features/roster/roster-order.ts'
 import type { LayoutAction, LayoutState } from './layout-state.ts'
 import {
@@ -7,8 +8,6 @@ import {
   type ShortcutMatch,
   shouldRunShortcut,
 } from './shortcuts.ts'
-
-export const COMPOSER_FIELD_ID = 'corn-composer-field'
 
 interface ShellShortcutOptions {
   readonly state: LayoutState
