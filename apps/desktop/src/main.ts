@@ -2,19 +2,12 @@ import { mkdir, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { setTimeout as delay } from 'node:timers/promises'
 import { app, BrowserWindow, ipcMain } from 'electron'
-import {
-  DSH_VERSION,
-  type RuntimeStatus,
-  type RuntimeView,
-} from '../../../packages/contracts/src/runtime.ts'
+import type { RuntimeStatus } from '../../../packages/contracts/src/runtime.ts'
 import { ClawRegistryClient } from '../../../packages/dsh-adapter/src/claw-registry-client.ts'
 import { HostTransport } from '../../../packages/dsh-adapter/src/transport.ts'
 import { resolveAppPaths } from './app-paths.ts'
-import { DshHostSupervisor } from './runtime/dsh-host-supervisor.ts'
-import type { HostAuth } from './runtime/host-auth.ts'
 import { redactHostDiagnostic } from './runtime/host-readiness.ts'
-import { HostRecovery } from './runtime/host-recovery.ts'
-import { resolveCornModelConfig } from './runtime/model-provider.ts'
+import { createAppRuntime } from './runtime/startup-control.ts'
 import { assertTrustedSender } from './security/ipc-allowlist.ts'
 import { probeLayout } from './smoke/layout-probe.ts'
 
@@ -25,77 +18,10 @@ const paths = resolveAppPaths({
   userData: app.getPath('userData'),
   resourcesPath: process.resourcesPath,
 })
-const MESSAGES: Record<RuntimeStatus, string> = {
-  stopped: 'Corn 独立运行时已停止。',
-  starting: '正在启动 Corn 独立运行时…',
-  ready: 'Corn 独立运行时已连接。',
-  recovering: '独立运行时意外退出，正在自动恢复…',
-  failed: '独立运行时多次启动失败，已停止自动恢复。',
-}
-let view: RuntimeView = {
-  status: 'starting',
-  dshVersion: DSH_VERSION,
-  message: MESSAGES.starting,
-}
-const setStatus = (status: RuntimeStatus) => {
-  view = { status, dshVersion: DSH_VERSION, message: MESSAGES[status] }
-}
-const currentStatus = (): RuntimeStatus => view.status
-
-const recovery = new HostRecovery()
-let auth: HostAuth | undefined
-/** Main-only, redacted; surfaced in smoke reports, never over Renderer IPC. */
-let lastFailure: string | undefined
-let startup: Promise<void> | undefined
-let booting = false
-let recoveryTimer: ReturnType<typeof setTimeout> | undefined
+const { control, host: supervisor } = createAppRuntime(paths)
+const currentStatus = (): RuntimeStatus => control.view.status
 let exitAllowed = false
 let cleanup: Promise<void> | undefined
-
-const supervisor = new DshHostSupervisor(paths.home, {
-  model: resolveCornModelConfig({
-    ...process.env,
-    CORN_MODEL_ENV_FILE: paths.modelEnvFile,
-  }),
-  profileTemplate: paths.profileTemplate,
-  onFailure: () => scheduleRecovery(),
-})
-
-/** One boot or restart at a time; failures feed the bounded recovery budget. */
-function boot(stopFirst: boolean): Promise<void> {
-  booting = true
-  startup = (async () => {
-    try {
-      if (stopFirst) await supervisor.stop()
-      if (cleanup) return
-      auth = await supervisor.start()
-      setStatus('ready')
-    } catch (error) {
-      auth = undefined
-      lastFailure = redactHostDiagnostic(String(error)).slice(-2_000)
-      booting = false
-      scheduleRecovery()
-    } finally {
-      booting = false
-    }
-  })()
-  return startup
-}
-
-function scheduleRecovery(): void {
-  if (cleanup || booting || recoveryTimer) return
-  auth = undefined
-  const wait = recovery.nextDelay()
-  if (wait === null) {
-    setStatus('failed')
-    return
-  }
-  setStatus('recovering')
-  recoveryTimer = setTimeout(() => {
-    recoveryTimer = undefined
-    void boot(true)
-  }, wait)
-}
 
 async function untilStatus(
   accept: (status: RuntimeStatus) => boolean,
@@ -107,6 +33,7 @@ async function untilStatus(
 }
 
 async function clawReady(): Promise<boolean> {
+  const auth = control.auth
   if (!auth) return false
   try {
     await new ClawRegistryClient(new HostTransport(auth)).revision()
@@ -127,13 +54,13 @@ async function runSmoke(window: BrowserWindow): Promise<void> {
     independentRuntime: true,
   }
   facts.initialStatus = currentStatus()
-  facts.lastFailure = lastFailure ?? null
+  facts.lastFailure = control.lastFailure ?? null
   facts.clawReady = await clawReady()
   if (crashSmoke) {
     const pid = supervisor.processId
     if (currentStatus() !== 'ready' || pid === undefined)
       throw new Error(
-        `Crash smoke requires its own ready Host (status ${currentStatus()}, pid ${pid ?? 'none'}, last failure ${lastFailure ?? 'none'})`,
+        `Crash smoke requires its own ready Host (status ${currentStatus()}, pid ${pid ?? 'none'}, last failure ${control.lastFailure ?? 'none'})`,
       )
     process.kill(pid, 'SIGKILL')
     facts.recoveringObserved = await untilStatus((s) => s !== 'ready', 5_000)
@@ -152,7 +79,7 @@ async function runSmoke(window: BrowserWindow): Promise<void> {
     typeof rendererView === 'object' &&
     rendererView !== null &&
     'status' in rendererView &&
-    rendererView.status === view.status
+    rendererView.status === control.view.status
   await delay(1_000)
   await mkdir(paths.artifacts, { recursive: true, mode: 0o700 })
   if (!crashSmoke) {
@@ -177,11 +104,11 @@ async function runSmoke(window: BrowserWindow): Promise<void> {
   )
   await writeFile(
     join(paths.artifacts, `${name}-smoke.json`),
-    `${JSON.stringify({ ...view, ...facts }, null, 2)}\n`,
+    `${JSON.stringify({ ...control.view, ...facts }, null, 2)}\n`,
     { mode: 0o600 },
   )
   const passed =
-    view.status === 'ready' &&
+    control.view.status === 'ready' &&
     facts.bridgeVerified === true &&
     facts.clawReady === true &&
     (crashSmoke || (facts.layout as { passed?: boolean }).passed === true) &&
@@ -199,10 +126,8 @@ else {
     if (exitAllowed) return
     event.preventDefault()
     cleanup ??= (async () => {
-      clearTimeout(recoveryTimer)
-      await startup?.catch(() => {})
       try {
-        await supervisor.stop()
+        await control.shutdown()
       } catch {
         process.exitCode = 1
       } finally {
@@ -238,11 +163,11 @@ else {
     )
     ipcMain.handle('corn:runtime:status', (event) => {
       assertTrustedSender(event, window)
-      return view
+      return control.view
     })
     await window.loadFile(paths.renderer)
     if (cleanup) return
-    await boot(false)
+    await control.start()
     if (process.env.CORN_DESKTOP_SMOKE === '1') {
       await untilStatus((s) => s === 'ready' || s === 'failed', 120_000)
       await runSmoke(window).catch((error: unknown) => {

@@ -1,4 +1,4 @@
-import { type ChildProcess, spawn } from 'node:child_process'
+import { type ChildProcess, type SpawnOptions, spawn } from 'node:child_process'
 import { existsSync } from 'node:fs'
 import { createRequire } from 'node:module'
 import { dirname, join } from 'node:path'
@@ -22,12 +22,25 @@ const require = createRequire(import.meta.url)
 const cliManifest = require.resolve('@deepseek-ai/dsh/package.json')
 const cliEntry = join(dirname(cliManifest), 'lib', 'bin.js')
 
+export type SpawnHost = (
+  command: string,
+  args: readonly string[],
+  options: SpawnOptions,
+) => ChildProcess
+
 export interface SupervisorOptions {
   readonly onFailure?: (message: string) => void
   /** `undefined` resolves the private Corn model configuration at each start; `null` boots keyless. */
   readonly model?: CornModelConfig | null
   /** Verified bundled profile used instead of DSH's online template on first start. */
   readonly profileTemplate?: string | undefined
+  /** Test seam; production spawns the bundled DSH CLI. */
+  readonly spawnHost?: SpawnHost
+  /** Test seam; production performs the launch-token exchange. */
+  readonly exchangeAuth?: (
+    launch: URL,
+    signal: AbortSignal,
+  ) => Promise<HostAuth>
 }
 
 export class DshHostSupervisor {
@@ -43,12 +56,19 @@ export class DshHostSupervisor {
   readonly onFailure: (message: string) => void
   readonly model: CornModelConfig | null | undefined
   readonly profileTemplate: string | undefined
+  readonly #spawnHost: SpawnHost
+  readonly #exchangeAuth: (
+    launch: URL,
+    signal: AbortSignal,
+  ) => Promise<HostAuth>
 
   constructor(home: string, options: SupervisorOptions = {}) {
     this.home = home
     this.onFailure = options.onFailure ?? (() => {})
     this.model = options.model
     this.profileTemplate = options.profileTemplate
+    this.#spawnHost = options.spawnHost ?? spawn
+    this.#exchangeAuth = options.exchangeAuth ?? HostAuth.exchange
   }
 
   /** Main-only process ownership diagnostics; never exposed over Renderer IPC. */
@@ -84,7 +104,7 @@ export class DshHostSupervisor {
       else if (!existsSync(join(profile, 'package.json')))
         args.push('--from-default-profile', 'web')
       args.push('--patch', patch, '--no-open', '--port', '0')
-      const child = spawn(process.execPath, args, {
+      const child = this.#spawnHost(process.execPath, args, {
         cwd: this.home,
         env: cornHostEnvironment(this.home, model),
         stdio: ['ignore', 'pipe', 'pipe'],
@@ -128,7 +148,7 @@ export class DshHostSupervisor {
           if (!this.#stopping) this.onFailure(message)
         })
       })
-      return await HostAuth.exchange(launch)
+      return await this.#exchangeAuth(launch, new AbortController().signal)
     } catch (error) {
       await this.#stop()
       throw error
