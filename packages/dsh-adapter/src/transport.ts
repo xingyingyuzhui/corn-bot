@@ -13,10 +13,6 @@ export interface HostAuthority {
   headers(): Record<string, string>
 }
 
-/**
- * Settings writes are limited to `replace` and path `mutate`: `update` merges
- * and would keep stale fields of a complete selection.
- */
 const RPC_ENDPOINTS = new Set([
   'session/list',
   'session/create',
@@ -26,6 +22,18 @@ const RPC_ENDPOINTS = new Set([
   'session/modelCatalog',
   'session/selectModel',
   '$events/result',
+])
+const STREAM_ENDPOINTS = new Set([
+  'session/follow',
+  'session/control',
+  '$events',
+])
+
+/**
+ * Model settings. Settings writes are limited to `replace` and path `mutate`:
+ * `update` merges and would keep stale fields of a complete selection.
+ */
+const MODEL_SETTINGS_ENDPOINTS = [
   'settings/describe',
   'settings/replace',
   'settings/mutate',
@@ -34,12 +42,8 @@ const RPC_ENDPOINTS = new Set([
   'credentials/unset',
   'llm/listProviders',
   'llm/listConfigurableProviders',
-])
-const STREAM_ENDPOINTS = new Set([
-  'session/follow',
-  'session/control',
-  '$events',
-])
+]
+for (const endpoint of MODEL_SETTINGS_ENDPOINTS) RPC_ENDPOINTS.add(endpoint)
 
 export class HostTransport {
   readonly authority: HostAuthority
