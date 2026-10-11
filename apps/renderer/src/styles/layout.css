@@ -1,0 +1,48 @@
+/*
+ * Sidebar is a fixed first column. Opening details appends a third column of
+ * ~37% of the total window width; the sidebar column never moves.
+ */
+.corn-shell {
+  --corn-details-width: calc(100vw * var(--corn-details-ratio));
+  position: relative;
+  display: grid;
+  grid-template-columns: var(--corn-sidebar-width) minmax(0, 1fr);
+  height: 100%;
+}
+
+.corn-shell[data-sidebar="collapsed"] {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.corn-shell[data-details="column"] {
+  grid-template-columns: var(--corn-sidebar-width) minmax(0, 1fr) var(
+      --corn-details-width
+    );
+}
+
+.corn-shell[data-sidebar="collapsed"][data-details="column"] {
+  grid-template-columns: minmax(0, 1fr) var(--corn-details-width);
+}
+
+.corn-shell[data-sidebar="collapsed"] .corn-roster {
+  display: none;
+}
+
+.corn-shell[data-details="overlay"] .corn-details {
+  position: absolute;
+  inset-block: 0;
+  inset-inline-end: 0;
+  inline-size: max(var(--corn-details-width), 320px);
+  box-shadow: var(--corn-shadow-overlay);
+  z-index: 2;
+}
+
+.corn-drag {
+  -webkit-app-region: drag;
+}
+
+.corn-drag button,
+.corn-drag a,
+.corn-drag input {
+  -webkit-app-region: no-drag;
+}

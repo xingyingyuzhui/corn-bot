@@ -79,6 +79,7 @@ for (let round = 1; round <= 3; round++) {
     // Installer and package-manager residue would mean the template was bypassed.
     assert.ok(!existsSync(join(profile, '.dsh-local-plugins')))
     assert.ok(!existsSync(join(profile, 'pnpm-lock.yaml')))
+    if (!crash) assert.equal(report.layout?.passed, true)
     if (crash) {
       assert.equal(report.rendererDuringRecovery, 'recovering')
       assert.equal(report.recovered, true)

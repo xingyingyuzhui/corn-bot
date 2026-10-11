@@ -11,7 +11,7 @@ const location = {
 
 test('development layout uses the repository and DSH online template', () => {
   const paths = resolveAppPaths({ ...location, isPackaged: false }, {})
-  assert.equal(paths.renderer, '/repo/apps/renderer/src/index.html')
+  assert.equal(paths.renderer, '/repo/apps/renderer/dist/index.html')
   assert.equal(paths.artifacts, '/repo/.artifacts')
   assert.equal(paths.profileTemplate, undefined)
 })

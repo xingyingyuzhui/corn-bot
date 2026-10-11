@@ -1,0 +1,182 @@
+.corn-roster {
+  display: flex;
+  flex-direction: column;
+  min-block-size: 0;
+  background: var(--corn-surface-sidebar);
+  border-inline-end: 1px solid var(--corn-divider);
+}
+
+.corn-roster__titlebar {
+  display: flex;
+  flex: none;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 7px;
+  block-size: var(--corn-titlebar-height);
+  padding-inline: var(--corn-gutter);
+}
+
+.corn-round-button {
+  display: grid;
+  place-items: center;
+  inline-size: var(--corn-control-size);
+  block-size: var(--corn-control-size);
+  border-radius: 50%;
+  background: var(--corn-surface-raised);
+  box-shadow:
+    0 0 0 1px var(--corn-border-control),
+    var(--corn-shadow-control);
+  color: var(--corn-text-primary);
+  transition: background-color var(--corn-duration) var(--corn-ease);
+}
+
+.corn-round-button:not([aria-disabled="true"]):hover {
+  background: var(--corn-surface-selected);
+}
+
+.corn-roster__scroll {
+  flex: 1;
+  min-block-size: 0;
+  overflow-y: auto;
+  padding-block-end: 8px;
+}
+
+.corn-roster__pinned {
+  display: flex;
+  justify-content: center;
+  padding-block: 12px 18px;
+}
+
+.corn-pinned {
+  display: grid;
+  justify-items: center;
+  gap: 4px;
+  inline-size: 82px;
+  block-size: 80px;
+  padding-block-start: 8px;
+  border-radius: var(--corn-radius-card);
+  transition: background-color var(--corn-duration) var(--corn-ease);
+}
+
+.corn-pinned:hover {
+  background: var(--corn-surface-hover);
+}
+
+.corn-pinned[aria-current="page"] {
+  background: var(--corn-surface-pinned);
+}
+
+.corn-pinned__avatar {
+  position: relative;
+  display: block;
+  line-height: 0;
+}
+
+.corn-pinned__badge {
+  position: absolute;
+  inset-block-end: -1px;
+  inset-inline-end: -3px;
+  display: grid;
+  place-items: center;
+  inline-size: 14px;
+  block-size: 14px;
+  border: 1.5px solid var(--corn-surface-pinned);
+  border-radius: 50%;
+  background: var(--corn-accent-star);
+  color: #fff;
+}
+
+.corn-pinned__name {
+  font-size: var(--corn-text-xs);
+  line-height: var(--corn-leading-xs);
+}
+
+.corn-roster__group + .corn-roster__group {
+  margin-block-start: 6px;
+}
+
+.corn-roster__group-label {
+  margin: 0;
+  padding: 2px var(--corn-gutter) 4px;
+  color: var(--corn-text-tertiary);
+  font-size: var(--corn-text-xs);
+  font-weight: 400;
+  line-height: var(--corn-leading-xs);
+}
+
+.corn-roster__list {
+  margin: 0;
+  padding: 0 6px;
+  list-style: none;
+}
+
+.corn-bot-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  inline-size: 100%;
+  block-size: 50px;
+  padding-inline: 10px 8px;
+  border-radius: var(--corn-radius-card);
+  text-align: start;
+  transition: background-color var(--corn-duration) var(--corn-ease);
+}
+
+.corn-bot-row:hover {
+  background: var(--corn-surface-hover);
+}
+
+.corn-bot-row[aria-current="page"] {
+  background: var(--corn-surface-selected);
+}
+
+.corn-bot-row__text {
+  display: grid;
+  min-inline-size: 0;
+}
+
+.corn-bot-row__name {
+  font-size: var(--corn-text-md);
+  font-weight: 500;
+  line-height: 20px;
+}
+
+.corn-bot-row__summary {
+  overflow: hidden;
+  color: var(--corn-text-secondary);
+  font-size: var(--corn-text-xs);
+  line-height: 17px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.corn-roster__footer {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 8px;
+  padding: 12px;
+}
+
+.corn-roster__account {
+  line-height: 0;
+  border-radius: 50%;
+}
+
+.corn-roster__account .corn-avatar {
+  background: var(--corn-fill-muted);
+  color: var(--corn-text-secondary);
+  font-weight: 500;
+}
+
+.corn-roster__connect {
+  flex: 1;
+  block-size: var(--corn-control-size);
+  border-radius: var(--corn-radius-pill);
+  background: var(--corn-surface-raised);
+  box-shadow:
+    0 0 0 1px var(--corn-border-control),
+    var(--corn-shadow-control);
+  font-size: var(--corn-text-md);
+  font-weight: 500;
+}

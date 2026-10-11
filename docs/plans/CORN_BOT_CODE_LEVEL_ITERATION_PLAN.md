@@ -401,7 +401,7 @@ export interface CornEvent {
 - 设计稿逻辑 viewport 约 1416×1056；原图可能含设备像素缩放，**必须通过可见分割线比例及截图元数据标定真实 CSS px/DPR**，不可把 PNG 宽度直接等同 CSS 尺寸。
 - **范围先分清**：这两张用户提供的截图是指定 UI 的场景金标；Kit 对 0.68.1 安装包静态复原的侧栏默认 280px（展开约束 240–400、折叠 88）、详情默认 320px（最小 280）、主聊天最小 424px，则用于 **`dmg-0681` 布局 profile 和 UX 边界测试**；官网演示布局另作为 `website-demo` 来源。不得把这些静态指标未经匹配直接用于覆盖用户截图场景。
 - 双栏左栏约为窗口总宽的 27%；三栏右侧详情约为**窗口总宽的 37%**（约等于**去掉左栏之后可用空间的 50%**）；三栏中间聊天因此约占 36%。以原图分割线为准，不能把右侧误记为“剩余空间的 36%”。
-- 在标定视口 **1416 CSS px** 下参考基准：左栏约 **380px**、中间聊天约 **510–520px**、右侧详情约 **516–526px**（允许标定阶段微调）；在原始 2048 像素截图下应按比例换算而非硬编码图片像素。
+- ~~在标定视口 1416 CSS px 下参考基准：左栏约 380px、中间聊天约 510–520px、右侧详情约 516–526px~~。**PR-02A 标定结果（2026-10-11）**：截图为 DPR 2，真实视口 **1024×764 CSS px**；左栏 **276px**、三栏时聊天 **372px**、详情 **376px**（总宽 36.7%）。详见 `design/design-spec.md`。
 - 正常宽屏建议 `grid-template-columns: var(--sidebar-width) minmax(0, 1fr) var(--details-width)`，`--sidebar-width: clamp(280px, 26.9vw, 380px)`、`--details-width: 36.7vw` 仅作初始变量；在 1200px 以下优先改为可关闭覆盖面板/独立详情视图，避免聊天区被压得不可用。最终阈值由视觉测试确认。
 - 背景纯白到浅灰、极低对比边界；浅灰色 Bot 气泡、近黑色用户气泡、整体不叠加过量玻璃模糊。阴影只用于输入胶囊及浮层。
 
@@ -820,7 +820,7 @@ Corn UI: create/select Bot
 | 文件 | 代码级改动 | 必须附带的测试 |
 |---|---|---|
 | `apps/renderer/src/styles/tokens.css` | 提供 `--corn-sidebar-width`、`--corn-details-width`、`--corn-chat-min-width`；将详情宽度目标定义为**窗口总宽约 37%** | 固定 viewport CSS 变量快照 |
-| `apps/renderer/src/styles/layout.css` | 开关详情通过 CSS Grid 追加/移除第 3 列，不改左列宽和滚动容器；中列 `minmax(0,1fr)` | 1416px 三栏布局各列宽断言 |
+| `apps/renderer/src/styles/layout.css` | 开关详情通过 CSS Grid 追加/移除第 3 列，不改左列宽和滚动容器；中列 `minmax(0,1fr)` | 1024×764 三栏布局各列宽断言（`layout-probe.ts`） |
 | `apps/renderer/src/app/CornShell.tsx` | `detailsOpen` 只控制第三列；保留 activeBot、draft、scroll state；窄窗口改 overlay/独立面板 | 开关 Details 后名册 x 坐标稳定、聊天重排 |
 | `apps/renderer/tests/visual/details-three-pane.spec.ts` | 从参考 PNG 人工记录分割线像素值和 DPR，校验右列 `rightPaneWidth / viewportWidth ≈ 0.37`，误差由 ADR 写明 | 定点基线截图、全截图差异报告 |
 | `design/design-spec.md` | 记录 total-width 与 remaining-width 两个比例的换算，禁止写模糊的“可用宽度 36%” | review checklist |

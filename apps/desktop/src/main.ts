@@ -16,6 +16,7 @@ import { redactHostDiagnostic } from './runtime/host-readiness.ts'
 import { HostRecovery } from './runtime/host-recovery.ts'
 import { resolveCornModelConfig } from './runtime/model-provider.ts'
 import { assertTrustedSender } from './security/ipc-allowlist.ts'
+import { probeLayout } from './smoke/layout-probe.ts'
 
 app.setName('Corn Bot')
 const paths = resolveAppPaths({
@@ -131,7 +132,9 @@ async function runSmoke(window: BrowserWindow): Promise<void> {
   if (crashSmoke) {
     const pid = supervisor.processId
     if (currentStatus() !== 'ready' || pid === undefined)
-      throw new Error('Crash smoke requires its own ready Host')
+      throw new Error(
+        `Crash smoke requires its own ready Host (status ${currentStatus()}, pid ${pid ?? 'none'}, last failure ${lastFailure ?? 'none'})`,
+      )
     process.kill(pid, 'SIGKILL')
     facts.recoveringObserved = await untilStatus((s) => s !== 'ready', 5_000)
     facts.rendererDuringRecovery = await window.webContents.executeJavaScript(
@@ -152,6 +155,20 @@ async function runSmoke(window: BrowserWindow): Promise<void> {
     rendererView.status === view.status
   await delay(1_000)
   await mkdir(paths.artifacts, { recursive: true, mode: 0o700 })
+  if (!crashSmoke) {
+    const { screenshots, ...layout } = await probeLayout(window)
+    facts.layout = layout
+    await writeFile(
+      join(paths.artifacts, 'm1-layout-two-pane.png'),
+      screenshots.twoPane,
+      { mode: 0o600 },
+    )
+    await writeFile(
+      join(paths.artifacts, 'm1-layout-three-pane.png'),
+      screenshots.threePane,
+      { mode: 0o600 },
+    )
+  }
   const name = crashSmoke ? 'm0-electron-crash' : 'm0-electron'
   await writeFile(
     join(paths.artifacts, `${name}.png`),
@@ -167,6 +184,7 @@ async function runSmoke(window: BrowserWindow): Promise<void> {
     view.status === 'ready' &&
     facts.bridgeVerified === true &&
     facts.clawReady === true &&
+    (crashSmoke || (facts.layout as { passed?: boolean }).passed === true) &&
     (!crashSmoke ||
       (facts.recoveringObserved === true &&
         facts.hostReplaced === true &&
@@ -189,7 +207,7 @@ else {
         process.exitCode = 1
       } finally {
         exitAllowed = true
-        app.quit()
+        app.exit(Number(process.exitCode ?? 0))
       }
     })()
   })
@@ -197,10 +215,15 @@ else {
 
   void app.whenReady().then(async () => {
     const window = new BrowserWindow({
-      width: 760,
-      height: 520,
-      title: 'Corn Bot · M0',
-      backgroundColor: '#fafafa',
+      width: 1024,
+      height: 764,
+      useContentSize: true,
+      minWidth: 720,
+      minHeight: 520,
+      title: 'Corn Bot',
+      titleBarStyle: 'hiddenInset',
+      trafficLightPosition: { x: 11, y: 12 },
+      backgroundColor: '#fcfcfc',
       webPreferences: {
         preload: paths.preload,
         nodeIntegration: false,
@@ -222,7 +245,13 @@ else {
     await boot(false)
     if (process.env.CORN_DESKTOP_SMOKE === '1') {
       await untilStatus((s) => s === 'ready' || s === 'failed', 120_000)
-      await runSmoke(window).catch(() => {
+      await runSmoke(window).catch((error: unknown) => {
+        console.error(
+          'Corn smoke failed:',
+          redactHostDiagnostic(
+            error instanceof Error ? error.message : String(error),
+          ),
+        )
         process.exitCode = 1
         app.quit()
       })
