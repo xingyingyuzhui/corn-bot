@@ -1,3 +1,7 @@
+import {
+  defaultAvatarVariantFor,
+  isCornAvatarVariantId,
+} from '@corn-bot/contracts/avatar'
 import { NAME_MAX, TAG_MAX } from '../model/limits.ts'
 import { initialOf, nameLength, sameName } from '../model/names.ts'
 import {
@@ -145,6 +149,8 @@ export class FixtureWorkspaceRepository implements WorkspaceRepository {
     const invalid = this.#validateName(name)
     if (invalid) return invalid
     if (!role) return fail('validation', '请填写职责', 'role')
+    const unknownAvatar = this.#validateVariant(draft.variantId)
+    if (unknownAvatar) return unknownAvatar
     const { roster } = this.#snapshot
     if (
       draft.groupId !== null &&
@@ -156,7 +162,11 @@ export class FixtureWorkspaceRepository implements WorkspaceRepository {
       id,
       name,
       summary: '示例 Bot，尚未创建真实 Claw Agent',
-      avatar: { initial: initialOf(name), hue: hueOf(name) },
+      avatar: {
+        initial: initialOf(name),
+        hue: hueOf(name),
+        variantId: draft.variantId ?? defaultAvatarVariantFor(id),
+      },
       role,
       workStyle: draft.workStyle.trim(),
       tagIds: [],
@@ -231,12 +241,20 @@ export class FixtureWorkspaceRepository implements WorkspaceRepository {
     if (invalid) return invalid
     const role = patch.role?.trim() ?? bot.role
     if (!role) return fail('validation', '请填写职责', 'role')
+    const unknownAvatar = this.#validateVariant(patch.variantId)
+    if (unknownAvatar) return unknownAvatar
     return ok(
       this.#updateBot(botId, {
         name,
         role,
         workStyle: patch.workStyle?.trim() ?? bot.workStyle,
-        avatar: { ...bot.avatar, initial: initialOf(name) },
+        avatar: {
+          ...bot.avatar,
+          initial: initialOf(name),
+          ...(patch.variantId === undefined
+            ? {}
+            : { variantId: patch.variantId }),
+        },
       }),
     )
   }
@@ -316,6 +334,12 @@ export class FixtureWorkspaceRepository implements WorkspaceRepository {
       (bot) => bot.id !== selfId && sameName(bot.name, name),
     )
     return clash ? fail('duplicate', '已经有同名的 Bot', 'name') : null
+  }
+
+  #validateVariant(variantId: string | undefined): CommandResult<never> | null {
+    return variantId === undefined || isCornAvatarVariantId(variantId)
+      ? null
+      : fail('validation', '找不到这个头像', 'variantId')
   }
 
   #conflict<T>(): CommandResult<T> {

@@ -11,6 +11,7 @@ import { Dialog } from '../../shared/Dialog.tsx'
 import { useNotice } from '../../shared/notice.tsx'
 import { TextField } from '../../shared/TextField.tsx'
 import { UNAVAILABLE } from '../../shared/unavailable.ts'
+import { AvatarPicker } from './AvatarPicker.tsx'
 import { nameLengthError } from './create-bot-form.ts'
 import { ConflictNotice, FormError, MissingBotDialog } from './EditorParts.tsx'
 import {
@@ -116,6 +117,11 @@ function ProfileForm({
   const fieldError = (field: ProfileField) =>
     errors[field] === undefined ? {} : { error: errors[field] }
 
+  const preview =
+    draft.variantId === null
+      ? bot.avatar
+      : { ...bot.avatar, variantId: draft.variantId }
+
   return (
     <Dialog
       busy={pending}
@@ -145,7 +151,7 @@ function ProfileForm({
     >
       {conflict ? <ConflictNotice onReload={reload} /> : null}
       <div className="corn-editor__avatar">
-        <Avatar spec={bot.avatar} size={48} />
+        <Avatar spec={preview} size={48} />
         <ActionButton
           className="corn-button corn-editor__soft-button"
           label="更换头像"
@@ -190,6 +196,12 @@ function ProfileForm({
           multiline
           placeholder="它应该怎样做事，例如：先列计划，再动手"
           {...fieldError('workStyle')}
+        />
+        <AvatarPicker
+          value={draft.variantId}
+          onChange={edit('variantId')}
+          emptyHint="当前是首字头像，可以选一个玉米角色"
+          error={errors.variantId}
         />
       </form>
       <FormError message={formError} />

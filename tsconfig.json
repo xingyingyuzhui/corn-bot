@@ -4,5 +4,5 @@
     "noEmit": true
   },
   "include": ["apps/**/*.ts", "packages/**/*.ts", "services/**/*.ts"],
-  "exclude": ["apps/renderer/**"]
+  "exclude": ["apps/renderer/**", "packages/ui/**"]
 }

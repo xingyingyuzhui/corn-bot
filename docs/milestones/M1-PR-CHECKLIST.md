@@ -12,10 +12,30 @@ M0 is accepted except signing and notarization ([ADR-0001](../adr/ADR-0001-dsh-t
 | 02B | `src/features/settings/*`, `bot-editor/*`, `voice/*` | Explicit button contracts. Actions waiting for M2/M7 are disabled with a clear reason. Voice states are visible only under the development fixture route |
 | 02B | `design/grok-kit/INTERACTION_COVERAGE.md`, `docs/milestones/M1-UI-KIT-COVERAGE.md` | All 83 kit checklist items recorded as covered / deferred / not-applicable / unknown |
 | 02C | `apps/renderer/tests/visual/*`, `apps/renderer/tests/fixtures/*` | Region-based screenshot comparisons against both reference PNGs at fixed macOS/DPR/font/viewport, plus measured layout assertions. Accepted visual-baseline deviation: the fixed status strip above the composer (review fix U1) is absent from the references and must stay visible; the diff masks or rebaselines that band instead of hiding the strip |
-| 02D | `packages/contracts/src/avatar.ts`, `packages/ui/src/avatar/*`, `packages/state/src/avatar-presentation.ts` | Corn-original avatar ([ADR-0003](../adr/ADR-0003-avatar-engine.md)); lifecycle, reduced-motion and unmount tests |
+| 02D-1 | `packages/contracts/src/avatar.ts`, `packages/ui/src/avatar/*`, renderer `shared/Avatar.tsx` and its usage sites, `design/corn-assets/*` | Import and lock the 16-role/9-shape Corn-original asset family; one static avatar contract across roster/header/details/editor/handoff, stable variants, uploaded-image preservation and old placeholder fallback ([asset integration plan](../plans/CORN_AVATAR_ASSET_INTEGRATION_PLAN.md)) |
+| 02D-1 | `apps/desktop/assets/app-icon-source.png`, `scripts/generate-app-icons.mjs` (writes the gitignored `.build/icons/Corn Bot.icns`), builder/package configuration | v3 flat corn icon with `/` eyes; reproducible iconset/ICNS, no external design-folder build dependency; inspect the new packaged App in Finder, Dock and App switcher |
+| 02D-2 | `packages/ui/src/avatar/*`, `packages/state/src/avatar-presentation.ts`, avatar fixtures and tests | Original 18-state motion ([ADR-0003](../adr/ADR-0003-avatar-engine.md)); shared scheduling, unique SVG IDs, StrictMode/lifecycle/reduced-motion, regional visuals and 20+ Bot load evidence. Real-event wiring remains M2/03A |
 | all | `packages/contracts`, `apps/desktop/src/ipc/*` | Narrow typed methods, sender validation, credential-free view models; no raw Host endpoint or filesystem proxy |
 
 M1 may use clearly labelled fixtures for visual states. Real creation/binding and persistent Bot/Conversation/Run transactions belong to M2. Fixtures must never report successful model calls, permissions or computer control.
+
+## PR-02D plan
+
+The source kit at `/Users/qin/DSH/Corn Bot/design-assets/corn-avatar-kit-v1` has been generated and independently checked (9 tests). PR-02D-1 migrated it into the repository (see the evidence below); no build step reads the kit folder. Main plan §15 and the [asset integration plan](../plans/CORN_AVATAR_ASSET_INTEGRATION_PLAN.md) record the selected files and SHA-256 values.
+
+- [x] Review/merge #7 first; then branch runtime R1–R3, U1 and 02D-1 from main in parallel. Require finding closure at milestone sign-off, not before avatar implementation begins; continue the 02C gates.
+- [x] Lock and migrate the original 16 variants, 9 shapes and 18 states into repository-owned code/assets; use `/` capsule eyes and the corrected v3 App icon.
+- [x] Store variantId explicitly; configure existing fixture variants, choose new Bot defaults by stable ID hash from the non-xiaohuang 15 variants and preserve initials/hue for old/unknown variants. Add the 16-choice picker; leave upload disabled until M2 with the corrected explanation.
+- [x] Adapt the current AvatarSpec and all Bot avatar usage sites to one component, preserving dimensions, user/account images and valid fallbacks.
+- [x] Normalize the locked source onto a transparent 1024 canvas with recorded inset parameters and generate iconset/ICNS. Source and derived hashes remain distinct.
+- [ ] Human check: inspect a fresh packaged `.app` in Finder, Dock and App switcher (icon size against neighbouring Apps, edge alpha, absence of a drop shadow).
+- [ ] Integrate React motion/static/uploaded renderers and shared scheduler; prove stable state updates, independent SVG IDs and lifecycle cleanup.
+- [ ] Include new package tests in root checks, then collect fixed-clock visual, reduced-motion, StrictMode and load evidence; re-run packaged smoke for the new build. (02D-1 already runs the contract and UI package tests in root `pnpm test`.)
+- [x] Record intentional avatar-region baseline changes and remaining/manual checks in design-spec and M1 evidence before sign-off.
+
+The five group avatars are retained as design assets; deferred group product features remain deferred. Real Run/Session/Gate-driven animations are accepted separately in M2/PR-03A.
+
+These planning changes belong in the first commit on the post-#7 02D-1 branch, not in #7. Runtime smoke entry points and U1 announcement deduplication are specified in asset integration plan §7.
 
 Not in M1: task threads, group detail tabs, dark theme, and switchable `dmg-0681`/`website-demo` profiles. M2 groundwork that does not touch the Renderer (SQLite schema and migrations, session event reducer, Run state machine) may proceed in parallel, but is wired into the UI only after PR-02C merges.
 
@@ -58,3 +78,17 @@ Not in M1: task threads, group detail tabs, dark theme, and switchable `dmg-0681
 | Real window | `CORN_DESKTOP_SMOKE=1`: eight strip scenarios pass (two-pane with the feed at the bottom and top, three-pane, other Bot, roster collapsed, 720×520 overlay, 720×520 closed, back on the first Bot) with no announcer mutations; sidebar 276, chat 372, details 376, ratio 0.3670, shift 0, draft kept across the Bot switch. The crash smoke shows `recovering` in the strip with the same geometry checks |
 | Browser | Vite dev server, `#fixture=ui-states&runtime=<state>` (dev only): the same geometry check passes at 1024×764 two-pane and three-pane, after switching Bot, with the roster collapsed, and at 720×520 closed and overlay. Editing the hash failed → recovering → failed → failed announces exactly twice. Approval results, delivery lines and handoff render next to the visible marker |
 | `main.ts` | Three lines inside the crash smoke self-check call `probeRecoveringNotice` and require it to pass |
+
+## PR-02D-1 evidence
+
+| Check | Result |
+| --- | --- |
+| Scope | `packages/contracts/src/avatar.ts` (18 states, 9 shapes, 16 variant ids, preference with `variantId`), a real `packages/ui` package (`artwork.ts`, `variants.ts`, `StaticAvatar`, `BotAvatar`), `shared/Avatar.tsx` as a thin adapter, a 16-role picker in the create and profile dialogs, and the macOS App icon pipeline. No motion controller, gallery or samples |
+| Provenance | [`ASSET_LOCK.json`](../../design/corn-assets/ASSET_LOCK.json) and [`PROVENANCE.md`](../../design/corn-assets/PROVENANCE.md). The 16 static and 5 group SVGs, `catalog.json` and the App icon source are byte-identical to the kit. `artwork.ts` and `variants.ts` are adaptations with their own hashes; a test proves that serialising the element tree reproduces all 21 SVGs byte for byte |
+| Identity | Fixture Bots store `variantId` equal to their role id. Created Bots get FNV-1a(id) mod 15 over the non-小黄 roles (`mock-1` → news, `mock-2` → word, `mock-3` → cad) and can change it. Unknown or missing ids, and the account avatar, render the initial + hue placeholder (unit tested) |
+| Static checks | `pnpm check` (Biome, typecheck for desktop, `packages/ui` and renderer, 167 tests) and `pnpm build` pass |
+| Browser checks | Vite dev server: every slot measured at its reference size (rows 32, rail 36, hidden 24, pinned 52, header 24, details 60, profile 48, handoff 14, account 30 as an initial). Three 小黄 instances have distinct SVG ids, and compact sizes have none. Create picker driven by trusted keyboard input (Tab into the group, arrow keys move and select, visible focus ring, Shift+Tab leaves), profile picker change propagates to the pinned card, header and details, and `#fixture=ui-states` renders |
+| Real window layout | Electron smoke with an isolated DSH home and no model env: `layout.passed`, sidebar 276, chat 372.2, details 375.8, ratio 0.3670, shift 0, draft kept |
+| App icon | `pnpm package:mac` runs `scripts/generate-app-icons.mjs`: verifies the source SHA (`4b783687…4d2942`), scales the 1254 px tile to 824 px on a transparent 1024 canvas (body bbox 100–924, Apple's grid) without a second mask, then builds the 16–512 pt @1x/@2x iconset and `Corn Bot.icns` with `sips` + `iconutil`. Output is reproducible (identical hashes across runs) and gitignored under `.build/icons`. The packaged `.app` has `Contents/Resources/icon.icns`, byte-identical to the generated file, and `CFBundleIconFile` = `icon.icns`. Unpackaged runs set the same icon on the Dock |
+| Packaged smoke | `pnpm package:mac && pnpm smoke:packaged` passes 3/3 rounds including automatic Host recovery; `~/.dsh` untouched |
+| Open | Finder / Dock / App switcher inspection by a human. The source tile keeps its generator alpha (247–253) and has no drop shadow; judge both by eye there |

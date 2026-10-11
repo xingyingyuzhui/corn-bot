@@ -1,0 +1,221 @@
+{
+  "schemaVersion": 1,
+  "version": "0.1.0",
+  "source": "corn-original",
+  "style": "flat-vector",
+  "eyeDirection": "top-right / bottom-left",
+  "variants": [
+    {
+      "id": "xiaohuang",
+      "name": "小黄",
+      "shape": "cob",
+      "body": "#FFD968",
+      "husk": "#8CAB68",
+      "eye": "#191B1C"
+    },
+    {
+      "id": "ops",
+      "name": "运维管家",
+      "shape": "round-cob",
+      "body": "#FFCB79",
+      "husk": "#739771",
+      "eye": "#191B1C"
+    },
+    {
+      "id": "backend",
+      "name": "后端工程师",
+      "shape": "tall-cob",
+      "body": "#F3CB61",
+      "husk": "#578D82",
+      "eye": "#191B1C"
+    },
+    {
+      "id": "frontend",
+      "name": "前端工程师",
+      "shape": "baby-cob",
+      "body": "#FFDFA0",
+      "husk": "#86A978",
+      "eye": "#191B1C"
+    },
+    {
+      "id": "architect",
+      "name": "架构师",
+      "shape": "husk-bud",
+      "body": "#ECC773",
+      "husk": "#668A82",
+      "eye": "#191B1C"
+    },
+    {
+      "id": "news",
+      "name": "资讯专员",
+      "shape": "husk-fan",
+      "body": "#FFDA76",
+      "husk": "#91AF70",
+      "eye": "#191B1C"
+    },
+    {
+      "id": "excel",
+      "name": "Excel专员",
+      "shape": "twin-kernel",
+      "body": "#EBD578",
+      "husk": "#669C6C",
+      "eye": "#191B1C"
+    },
+    {
+      "id": "cad",
+      "name": "CAD专员",
+      "shape": "kernel",
+      "body": "#F3C778",
+      "husk": "#659992",
+      "eye": "#191B1C"
+    },
+    {
+      "id": "word",
+      "name": "Word专员",
+      "shape": "tall-cob",
+      "body": "#FFE2A0",
+      "husk": "#809CB2",
+      "eye": "#191B1C"
+    },
+    {
+      "id": "pdf",
+      "name": "PDF专员",
+      "shape": "round-cob",
+      "body": "#FFD19A",
+      "husk": "#B28B80",
+      "eye": "#191B1C"
+    },
+    {
+      "id": "ppt",
+      "name": "PPT专员",
+      "shape": "popcorn",
+      "body": "#FFE6AD",
+      "husk": "#AFA075",
+      "eye": "#191B1C"
+    },
+    {
+      "id": "wechat",
+      "name": "公众号运营",
+      "shape": "husk-bud",
+      "body": "#F4DB8A",
+      "husk": "#79AA77",
+      "eye": "#191B1C"
+    },
+    {
+      "id": "video",
+      "name": "视频专员",
+      "shape": "popcorn",
+      "body": "#FFE8BB",
+      "husk": "#AA92AD",
+      "eye": "#191B1C"
+    },
+    {
+      "id": "audio",
+      "name": "音频专员",
+      "shape": "twin-kernel",
+      "body": "#F7D6A1",
+      "husk": "#8B96B2",
+      "eye": "#191B1C"
+    },
+    {
+      "id": "sales",
+      "name": "销售专员",
+      "shape": "baby-cob",
+      "body": "#FFD27B",
+      "husk": "#B5966B",
+      "eye": "#191B1C"
+    },
+    {
+      "id": "research",
+      "name": "研究专员",
+      "shape": "kernel",
+      "body": "#F2DC91",
+      "husk": "#7AA5A0",
+      "eye": "#191B1C"
+    }
+  ],
+  "shapes": [
+    "cob",
+    "baby-cob",
+    "round-cob",
+    "tall-cob",
+    "kernel",
+    "twin-kernel",
+    "husk-bud",
+    "husk-fan",
+    "popcorn"
+  ],
+  "states": [
+    "idle",
+    "sleeping",
+    "waking",
+    "listening",
+    "thinking",
+    "searching",
+    "working",
+    "dictating",
+    "writing",
+    "sending",
+    "receiving",
+    "uploading",
+    "alerting",
+    "happy",
+    "celebrate",
+    "confused",
+    "progress",
+    "powering-down"
+  ],
+  "groups": [
+    {
+      "id": "technical",
+      "name": "技术组",
+      "variants": [
+        "backend",
+        "frontend",
+        "architect"
+      ]
+    },
+    {
+      "id": "office",
+      "name": "办公组",
+      "variants": [
+        "excel",
+        "word",
+        "pdf"
+      ]
+    },
+    {
+      "id": "content",
+      "name": "内容组",
+      "variants": [
+        "wechat",
+        "video",
+        "audio"
+      ]
+    },
+    {
+      "id": "business",
+      "name": "业务组",
+      "variants": [
+        "sales",
+        "news",
+        "research"
+      ]
+    },
+    {
+      "id": "corn-team",
+      "name": "玉米小队",
+      "variants": [
+        "xiaohuang",
+        "ops",
+        "architect"
+      ]
+    }
+  ],
+  "staticAvatarCount": 16,
+  "shapeCount": 9,
+  "stateCount": 18,
+  "roleStateCount": 288,
+  "totalSVGCount": 337,
+  "scope": "Original design assets and sample motions. No DSH, Gate, real Bot or completion event is connected."
+}

@@ -6,6 +6,7 @@ import type { RuntimeStatus } from '../../../packages/contracts/src/runtime.ts'
 import { ClawRegistryClient } from '../../../packages/dsh-adapter/src/claw-registry-client.ts'
 import { HostTransport } from '../../../packages/dsh-adapter/src/transport.ts'
 import { resolveAppPaths } from './app-paths.ts'
+import { applyDevDockIcon } from './dock-icon.ts'
 import { redactHostDiagnostic } from './runtime/host-readiness.ts'
 import { createAppRuntime } from './runtime/startup-control.ts'
 import { assertTrustedSender } from './security/ipc-allowlist.ts'
@@ -155,6 +156,7 @@ else {
   app.on('window-all-closed', () => app.quit())
 
   void app.whenReady().then(async () => {
+    applyDevDockIcon(app)
     const window = new BrowserWindow({
       width: 1024,
       height: 764,

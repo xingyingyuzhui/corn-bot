@@ -1,0 +1,57 @@
+.corn-avatar-picker {
+  min-inline-size: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.corn-avatar-picker > legend {
+  padding: 0;
+  margin-block-end: 6px;
+}
+
+.corn-avatar-picker__grid {
+  display: grid;
+  grid-template-columns: repeat(8, 1fr);
+  gap: 4px;
+}
+
+.corn-avatar-picker__option {
+  position: relative;
+  display: grid;
+  place-items: center;
+  aspect-ratio: 1;
+  border-radius: var(--corn-radius-card);
+  cursor: pointer;
+  transition: background-color var(--corn-duration) var(--corn-ease);
+}
+
+.corn-avatar-picker__option:hover {
+  background: var(--corn-surface-hover);
+}
+
+.corn-avatar-picker__option:has(:checked) {
+  background: var(--corn-surface-selected);
+  box-shadow: inset 0 0 0 1.5px var(--corn-fill-strong);
+}
+
+.corn-avatar-picker__option:has(:focus-visible) {
+  outline: 2px solid var(--corn-focus-ring);
+  outline-offset: 1px;
+}
+
+.corn-avatar-picker__input {
+  position: absolute;
+  inset: 0;
+  margin: 0;
+  opacity: 0;
+  cursor: inherit;
+}
+
+.corn-avatar-picker__input:focus-visible {
+  outline: none;
+}
+
+.corn-avatar-picker:disabled .corn-avatar-picker__option {
+  cursor: default;
+}

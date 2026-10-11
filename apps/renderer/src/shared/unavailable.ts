@@ -6,7 +6,7 @@
 export const UNAVAILABLE = {
   dictation: '语音听写尚未接通',
   voiceMode: '实时语音对话尚未开发',
-  avatarUpload: '头像上传在 PR-02D 接通',
+  avatarUpload: '头像上传在 M2 接通',
   permissionEdit: '权限变更在 M2 接入 Claw Policy 后开放',
   darkTheme: '深色主题在 M1 之后提供',
   otherLanguages: '其他语言在 M1 之后提供',

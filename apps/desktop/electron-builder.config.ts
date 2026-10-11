@@ -10,6 +10,8 @@ export interface BuilderPaths {
   readonly output: string
   readonly electronDist: string
   readonly profileTemplate: string
+  /** Absolute path to the `.icns` from `scripts/generate-app-icons.mjs`. */
+  readonly icon: string
 }
 
 export const APP_ID = 'io.github.xingyingyuzhui.cornbot'
@@ -42,6 +44,7 @@ export function cornBuilderConfig(paths: BuilderPaths): Configuration {
     mac: {
       target: [{ target: 'dir', arch: ['arm64'] }],
       category: 'public.app-category.productivity',
+      icon: paths.icon,
       identity: null,
       hardenedRuntime: false,
     },

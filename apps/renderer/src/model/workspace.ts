@@ -3,10 +3,20 @@
  * fixtures; M2 fills them from Main through typed IPC.
  */
 
-export interface AvatarSpec {
+/** Initial on a hue disc: the account look and every Bot's fallback. */
+export interface PlaceholderAvatarSpec {
   readonly initial: string
-  /** Hue in degrees for Corn's placeholder avatar until PR-02D lands. */
+  /** Hue in degrees for the placeholder disc. */
   readonly hue: number
+}
+
+export interface AvatarSpec extends PlaceholderAvatarSpec {
+  /**
+   * Corn role look the user chose, persisted as is. Never inferred from the
+   * editable name; records without one, or with an unknown id, keep the
+   * placeholder.
+   */
+  readonly variantId?: string
 }
 
 export type TagId = string
@@ -56,7 +66,7 @@ export interface RosterView {
   readonly groups: readonly BotGroupView[]
   readonly bots: Readonly<Record<string, BotView>>
   readonly tags: Readonly<Record<TagId, TagView>>
-  readonly account: AvatarSpec
+  readonly account: PlaceholderAvatarSpec
 }
 
 /**

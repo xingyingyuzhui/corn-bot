@@ -1,3 +1,5 @@
+import type { CornAvatarVariantId } from '@corn-bot/contracts/avatar'
+import { initialOf } from '../model/names.ts'
 import type {
   BotView,
   ConnectorView,
@@ -11,8 +13,9 @@ import type {
  * data only: no Bot exists, no model was called and nothing was delivered.
  */
 
+/** Fixture ids are catalog role ids, so each Bot stores its own role look. */
 const bot = (
-  id: string,
+  id: CornAvatarVariantId,
   name: string,
   summary: string,
   hue: number,
@@ -22,7 +25,7 @@ const bot = (
   id,
   name,
   summary,
-  avatar: { initial: name.slice(0, 1), hue },
+  avatar: { initial: initialOf(name), hue, variantId: id },
   role,
   workStyle: '',
   tagIds,

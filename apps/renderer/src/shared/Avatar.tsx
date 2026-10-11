@@ -1,6 +1,5 @@
-import type { CSSProperties } from 'react'
-import type { AvatarSpec } from '../model/workspace.ts'
-import './avatar.css'
+import { BotAvatar, InitialAvatar } from '@corn-bot/ui/avatar'
+import type { AvatarSpec, PlaceholderAvatarSpec } from '../model/workspace.ts'
 
 interface AvatarProps {
   readonly spec: AvatarSpec
@@ -8,21 +7,17 @@ interface AvatarProps {
   readonly label?: string
 }
 
-/** Static placeholder until the Corn-original avatar engine (PR-02D, ADR-0003). */
+/** Bot avatar at a fixed slot size; every Bot usage site goes through here. */
 export function Avatar({ spec, size, label }: AvatarProps) {
-  const style = {
-    '--corn-avatar-size': `${size}px`,
-    '--corn-avatar-hue': String(spec.hue),
-  } as CSSProperties
-  if (label)
-    return (
-      <span className="corn-avatar" style={style} role="img" aria-label={label}>
-        {spec.initial}
-      </span>
-    )
-  return (
-    <span className="corn-avatar" style={style} aria-hidden="true">
-      {spec.initial}
-    </span>
-  )
+  return <BotAvatar avatar={spec} size={size} label={label} />
+}
+
+interface AccountAvatarProps {
+  readonly spec: PlaceholderAvatarSpec
+  readonly size: number
+}
+
+/** The user's own avatar keeps the initial look; it is never a Corn role. */
+export function AccountAvatar({ spec, size }: AccountAvatarProps) {
+  return <InitialAvatar initial={spec.initial} hue={spec.hue} size={size} />
 }
