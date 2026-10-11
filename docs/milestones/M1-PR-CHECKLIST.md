@@ -15,7 +15,7 @@ M0 is accepted except signing and notarization ([ADR-0001](../adr/ADR-0001-dsh-t
 | 02D-1 | `packages/contracts/src/avatar.ts`, `packages/ui/src/avatar/*`, renderer `shared/Avatar.tsx` and its usage sites, `design/corn-assets/*` | Import and lock the 16-role/9-shape Corn-original asset family; one static avatar contract across roster/header/details/editor/handoff, stable variants, uploaded-image preservation and old placeholder fallback ([asset integration plan](../plans/CORN_AVATAR_ASSET_INTEGRATION_PLAN.md)) |
 | 02D-1 | `apps/desktop/assets/app-icon-source.png`, `scripts/generate-app-icons.mjs` (writes the gitignored `.build/icons/Corn Bot.icns`), builder/package configuration | v3 flat corn icon with `/` eyes; reproducible iconset/ICNS, no external design-folder build dependency; inspect the new packaged App in Finder, Dock and App switcher |
 | 02D-2 | `packages/ui/src/avatar/*`, `packages/state/src/avatar-presentation.ts`, avatar fixtures and tests | Original 18-state motion ([ADR-0003](../adr/ADR-0003-avatar-engine.md)); shared scheduling, unique SVG IDs, StrictMode/lifecycle/reduced-motion, regional visuals and 20+ Bot load evidence. Real-event wiring remains M2/03A |
-| 02E-1 | `src/features/details/*`, `bot-editor/{bot-editor-controller,editor-specs,use-bot-editor}.ts`, `src/app/layout-state.ts` | Fixture only. Bot management pane navigation (概览 / 配置 / 资料库) and shared embeddable editors with a single write path; unsaved-config guard; per-Bot restore. Avatar integration and joint acceptance wait for 02D-1 |
+| 02E-1 | `src/features/details/*`, `bot-editor/{bot-editor-controller,editor-specs,use-bot-editor}.ts`, `src/app/layout-state.ts` | Fixture only. Bot management pane navigation (概览 / 配置 / 资料库) and shared embeddable editors with a single write path; unsaved-config guard; per-Bot restore. Rebased onto 02D-1: the shared profile fields carry the role-avatar picker |
 | all | `packages/contracts`, `apps/desktop/src/ipc/*` | Narrow typed methods, sender validation, credential-free view models; no raw Host endpoint or filesystem proxy |
 
 M1 may use clearly labelled fixtures for visual states. Real creation/binding and persistent Bot/Conversation/Run transactions belong to M2. Fixtures must never report successful model calls, permissions or computer control.
@@ -96,7 +96,7 @@ Not in M1: task threads, group detail tabs, dark theme, and switchable `dmg-0681
 
 ## PR-02E-1 evidence
 
-Fixture only. Avatar integration and the joint acceptance with 02D-1 come after PR #9 merges; this PR keeps the `shared/Avatar.tsx` placeholder.
+Fixture only. Rebased onto 02D-1 (#9): `ProfileFields` now includes the 16-role `AvatarPicker`, so the profile dialog and the 核心设定 subpage share avatar editing through the same controller; every pane slot renders through `shared/Avatar.tsx` → `BotAvatar`.
 
 | Check | Result |
 | --- | --- |
@@ -107,4 +107,5 @@ Fixture only. Avatar integration and the joint acceptance with 02D-1 come after 
 | Honest states | Identity documents, skills, artifacts, memory, routines and the Bot workspace show 尚未接通 (or loading / empty / error on `#fixture=ui-states`); permissions are read-only; global memory settings are not shown as a Bot setting. 概览 copies only the Corn Bot ID; the Claw Agent ID is labelled separately and empty until bound |
 | Static checks | `pnpm check` (Biome, typecheck, 171 tests including `details-navigation`, `management-panel`, `unsaved-config-guard`, `bot-editor-controller`) and `pnpm build` pass |
 | Browser checks | Vite dev server at 1024×764: arrow keys move tab focus and selection; opening a subpage focuses its heading and 返回配置 returns focus to the entry; a dirty 模型 draft asks before switching Bot (取消 stays, 保存 saves then switches); each Bot reopens on its last subpage. At 720×520 the pane is a 320 px overlay with no horizontal overflow and Escape closes it |
-| Not done | Electron layout smoke was not rerun for this PR; avatar integration and the 02D-1 joint acceptance; refresh actions for sections that have no data source yet; 02E-2 visual baselines |
+| Joint smoke with 02D-1 | After the rebase: `pnpm check` 250 pass; Electron layout smoke with an isolated DSH home and no model env: `layout.passed`, sidebar 276, chat 372.2, details 375.8, ratio 0.3670, shift 0, draft kept, all status-strip scenarios pass; the three-pane capture shows Corn role avatars in the roster, chat header, handoff line and the 概览 header |
+| Not done | Refresh actions for sections that have no data source yet; 02E-2 visual baselines |
