@@ -1,6 +1,6 @@
 # Corn design spec: `user-screenshots` profile
 
-The only visual target for M1 is the pair of reference screenshots in [`references/`](references/) ([ADR-0004](../docs/adr/ADR-0004-design-profiles.md)). This file records how they were measured and where each measurement lives in code. The tokens themselves are in `apps/renderer/src/styles/tokens.css`. If you change a value there, update the matching row here.
+The layout and visual language target for M1 is the pair of reference screenshots in [`references/`](references/) ([ADR-0004](../docs/adr/ADR-0004-design-profiles.md)). User-approved content changes are recorded below, separately from measured geometry. This file records how the references were measured and where each measurement lives in code. The tokens themselves are in `apps/renderer/src/styles/tokens.css`. If you change a value there, update the matching row here.
 
 ## Calibration
 

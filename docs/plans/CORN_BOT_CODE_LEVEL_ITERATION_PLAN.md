@@ -419,7 +419,7 @@ export interface CornEvent {
 | Bot Handoff | `HandoffNotice.tsx` | 图片中“已发消息给 [Bot A] 和 [Bot B]”中央事件行，带迷你头像；不能把它当 Bot 回复文本 |
 | Input Composer | `MessageComposer.tsx` | 底部圆角胶囊，左加号，提示“给 Bot 发消息”，右麦克风和语音；⌘Enter/Enter 行为统一 |
 | Bot Details | `BotDetailsPane.tsx` | 三栏时从右侧推入；顶部头像、名称、标签链接、`详情/资料库/电脑` Tab |
-| Computer Tab | `ComputerTab.tsx` | 空状态、权限状态、正在工作状态、画面预览及 Takeover 按钮 |
+| Bot 管理面板 | `BotDetailsPane.tsx` / `features/details/*` | §16：概览 / 配置 / 资料库；核心、模型、权限、技能进入配置子页；本机画面/Takeover 在 M3 独立操作视图 |
 | Bottom Bar | `BotRoster.tsx` | 左下账户小头像与“连接应用”；实际连接页随后接入 |
 | Create Bot | `CreateBotDialog.tsx` | 点击左上 `+` 进入创建流程；名称、头像、组别、职责、模型、策略；提交时显示真实 Claw 事务进度、失败恢复 |
 | Profile & Permissions | `BotProfileEditor.tsx`, `BotPermissionEditor.tsx` | 编辑身份/职责和权限并发出服务端修订；危险授权不得通过 UI 绕过 Gate 硬上限 |
@@ -587,7 +587,7 @@ Corn UI: create/select Bot
 
 **验收**：创建 2 个真实 Bot；分别发送与取消；重启 Corn 后从 SQLite 恢复 Bot/Conversation/Run/标签、选中会话和消息；建立稳定 `runId`；Claw Gate 与 Memory 生效；审计可追溯；不能读取另一 Bot 的私有记忆文件。
 
-### M3（P0）：本机 macOS Computer Use + Computer Panel
+### M3（P0）：本机 macOS Computer Use + 操作视图
 
 **前置检查（v1.1）**：M2 的 `task_runs`、`run_attempts` 和 `runId` 已真实落库；任何由 Agent 发起的 Computer Action 必须属于已有 Run，后台非对话动作先原子创建 Run，不能用任意临时字符串填充租约。
 
@@ -596,7 +596,7 @@ Corn UI: create/select Bot
 - `plugins/dsh-corn-tools/src/control-lease.ts`（实际插件目录按 M0 需要），`plugins/dsh-corn-bridge/src/routes/computer.ts`
 - `packages/contracts/src/computer.ts`
 - `apps/renderer/src/features/computer/{ComputerPreview,ComputerTakeover,ControlLeaseBanner}.tsx`
-- `apps/renderer/src/features/details/ComputerTab.tsx`
+- `apps/renderer/src/features/details/configuration/PermissionsSection.tsx`（本机操作入口，§16）；画面/暂停/接管在 `features/computer/*` 的独立视图，不恢复“电脑”主 Tab
 - `apps/desktop/src/security/ipc-allowlist.ts`
 - `tests/integration/mac-computer-smoke.test.ts`
 
@@ -732,7 +732,7 @@ Corn UI: create/select Bot
 | PR-02 | Corn UI Shell、Kit 双来源 profile、双栏/三栏 Mock + Avatar Motion 的 M1 完整组件；产出 83 项 UI/UX 覆盖矩阵及 avatar 附加测试 | 固定 viewport 分区截图 + Playwright 差异 + 847/848/849 内容宽/IME/语音/审批 state fixtures + Avatar lifecycle/shape/state 测试 |
 | PR-03 | Session Adapter + Registry 事务 **+ M2 SQLite 最小 Schema + Run ID** | 真实创建/发消息/断线恢复/部分成功 E2E、数据库迁移和 Kill/Restart |
 | PR-04 | CUA Provider 试验 + 安全门禁 | 真机权限/窗口/输入/独占锁证据 |
-| PR-05 | Computer Tab、预览、人工接管 | User takeover E2E |
+| PR-05 | 本机操作入口、独立预览、人工接管（§16） | User takeover E2E |
 | PR-06 | Run 高级恢复与跨进程对账（**不是第一次新建 Run Store**） | kill/relaunch/幂等测试 |
 | PR-07 | Messenger + Group | 实际两个 Bot 异步协作与权限降级 |
 | PR-08 | Routines + LaunchAgent | 登录状态下后台任务与重启恢复 |
@@ -851,7 +851,7 @@ Corn UI: create/select Bot
 | 模型 | `features/settings/GlobalModelSettings.tsx`, `BotModelSettings.tsx` | `catalog → globalDefault/botOverride → selectModel`；失效转 `needs_model` | 模型下架、重新选择、per-Bot 隔离 |
 | 灰色麦克风 | `features/voice/DictationButton.tsx` | M1 disabled 提示；M7 授权后启动/停止 STT 填草稿，不自动发消息 | 无授权拒绝、未实现禁用、STT 错误 |
 | 黑色声纹 | `features/voice/VoiceModeButton.tsx` | M1–M8 disabled + 明确后续迭代标识；独立语音对话阶段上线 | 明确禁用、不误触发发送 |
-| 右侧 `电脑` | `features/details/ComputerTab.tsx` | 查权限→请求画面→Takeover 独占；无授权不操作 | 授权撤销、并发控制 |
+| 本机操作入口 | `features/details/configuration/PermissionsSection.tsx` → `features/computer/*` | §16：配置→权限，或从活动 Run 打开操作视图；查授权→请求画面→Takeover 独占；沿用 M3 租约与 Gate | 授权撤销、并发控制 |
 | 左下连接应用 | `features/settings/AppConnectionsPage.tsx` | M1 只列真实连接状态；M7 接 DSH MCP/Skills 管理 | 断开、刷新、权限边界 |
 
 ### 11.4 修订执行指令（直接交给总 Coding Agent）
@@ -1118,6 +1118,8 @@ export interface AvatarPresentation {
 | 10 | PTC（`run_code`） | M0 结论限定为：**普通调用治理通过；PTC 外层拒绝通过，嵌套治理尚未验证。** PTC 保持禁用，M1 只使用已验证的普通工具调用链，不为此发布 Claw rc3。启用 PTC 前必须实测四项：嵌套调用逐次拒绝（`research`）、逐次审批（`developer`）、审批待决时取消、审计与观测 trace 关联到外层 `run_code` 的 `rootCallId`。候选 Claw 修改先在 Claw 仓库的隔离测试环境验证，通过后再发布并升级 Corn 的 `runtime.lock.json` | `docs/milestones/M0-EVIDENCE.md`、`scripts/smoke-governance.mjs --ptc` |
 | 11 | 签名与公证 | M0 只产出未签名的 arm64 `Corn Bot.app` 供本地验证；Developer ID 签名、hardened runtime 与公证推迟，分发前需新 ADR | `docs/adr/ADR-0005-packaging.md` |
 | 12 | 下一步头像与 App 图标 | 用户要求将已制作的 Corn 原创素材包和 v3 修正版图标纳入后续开发。PR-02D 分为静态/图标接入与动态组件接入，M2 接真实事件；锁定 16 角色、9 玉米轮廓、18 状态，默认眼睛方向为 `/`。群组素材先保留，不扩大 M1 群组功能。素材包独立验证不等于 App 验收通过 | §13 provisional 轮廓已更新；§15；[素材接入计划](CORN_AVATAR_ASSET_INTEGRATION_PLAN.md) |
+| 13 | 右侧 Bot 管理面板 | 用户要求将 Claw 管理能力纳入右侧 Corn 面板。主 Tab 改为概览 / 配置 / 资料库；配置含核心、模型、权限、技能，资料库含资料/记忆。复用现有编辑器，M1 fixture、M2 真实接线；移除电脑主 Tab，M3 本机操作改为按需打开的独立视图，治理/租约要求保留 | §4.2、§4.4、M1/M2/M3/M7；§16；[管理面板实施计划](CORN_BOT_MANAGEMENT_PANEL_PLAN.md) |
+| 14 | 模型配置修复 | 正式 App 接通 DSH 官方 settings/credentials/LLM 目录与模型管理；`model.env` / `CORN_MODEL_*` 只留为显式开发 smoke。无 Key 可启动配置界面，Host ready 与模型可用分开。全局设置在 runtime/U1 关闭后优先接通，不等待完整 M2 Bot/Run；这是决策 5 对真实 Renderer 接线时机的狭窄例外，仍须相关 UI/打包验收。全局 Provider/凭据/默认模型由 DSH 官方配置持有，Corn DB 仅存可重建投影与产品偏好。Bot 覆盖经 Claw，不能借 `session.selectModel` 副作用改全局默认 | §3、§4.4、M2 app_settings/模型表、§12.5；§17；[模型配置修复计划](CORN_MODEL_CONFIGURATION_FIX_PLAN.md) |
 | — | 模型凭据 | Corn 专用 DeepSeek API Key 在 PR-00D/E 完成后、M0-03 开始前由维护者本地配置，同时确认模型 ID。Key 不进入 Git、计划文件或聊天 | M0-03、`docs/runbooks/development.md` |
 
 **同步修正（非决策性）**：ADR 编号顺延，SQLite 已占 ADR-0002，头像引擎为 ADR-0003，设计 profile 为 ADR-0004；`packages/ui-kit` 更名为 `packages/ui`；`design/fixtures/*.ts` 移到 `apps/renderer/tests/fixtures/`，`design/` 只存文档；§12.2 checkout 改为 `0248419…`；§0 第 1 条更新为仓库已创建；§13 头注的变化文件数按 `git diff --stat` 更正为 45。
@@ -1140,3 +1142,23 @@ export interface AvatarPresentation {
 先完成 PR #7 的 review 与合并，之后从 main 分别进行 runtime R1–R3、U1 与 02D-1，允许并行；runtime 关闭证据作为阶段验收条件，而非 02D-1 开工前置。`main.ts` 重叠部分按 runtime PR → 02D-1 合并。PR-02C 门禁继续执行；U1 与头像的主动视觉变化更新区域基线，布局标定保持。M1 收尾需同时具备 review 修复关闭、02C 与完整 02D 证据。M2 底层并行规则仍按 §14。5 个群组头像先归档，群组功能维持原定后续阶段。
 
 开工补充：App 图标先规范化透明留白再出 ICNS，按新 `.app` 的实际效果验收；新 Bot 从非小黄 15 角色稳定哈希选默认值，显式存 variantId，旧/未知值回退首字与色相占位；02D-1 做 16 选 1，上传推迟 M2 并更新禁用原因。计划文档不进入 #7，合并后作为 02D-1 分支首个提交。U1 分支、四项 smoke 入口及状态播报去重见接入计划 §7。
+
+## 16. 右侧 Bot 管理面板增量（2026-10-11；02E-1 已合并，02E-2/03B 待执行）
+
+§15/决策 12 保留给并行头像 02D-1 分支的素材接入计划，合并文档时保持两个增量和已确认顺序。本节不表示管理面板或 Claw 配置已接通。
+
+右侧保留头像、名称、标签和既有布局，三个主 Tab 调整为 **概览 / 配置 / 资料库**。概览展示职责、工作区、状态和例行任务；配置以入口列表进入核心设定、模型、权限、技能子页；资料库分为资料与记忆。模型/权限从 `⋯` 迁入配置，现有编辑器抽出可嵌入内容，统一业务写路径。
+
+详细文件拆分、旧 Tab 迁移、草稿/异步响应隔离、Claw rc2 路由来源和验收见 [CORN_BOT_MANAGEMENT_PANEL_PLAN.md](CORN_BOT_MANAGEMENT_PANEL_PLAN.md)。M1 用显式 fixture/只读/未接通状态；M2 对接真实 Repository、绑定、核心/记忆读取及已验证配置写入；技能/资料/例行任务完整能力继续按 M6/M7。Memory 全局设置保留在 Settings，不伪装为 Bot 级配置。
+
+移除电脑主 Tab 不取消 M3 的真实本机操作。权限页和活动 Run 可打开独立操作视图，提供画面、暂停与接管，继续强制真实 Run、Gate 和设备级租约。
+
+执行拆成 02E-1 管理导航/现有编辑器、02E-2 集成/视觉门禁、03B 真实数据接线。02E-1 可与 runtime/U1/头像有序开发；M1 收尾仍要求 review finding 关闭、02C 及相关集成证据。02C 的右侧内容金标按本次用户要求主动更新，布局尺寸保持已标定规则。
+
+## 17. 模型配置修复增量（2026-10-11；runtime 修复与接口审计已完成，第三工作包起待执行）
+
+完整计划见 [CORN_MODEL_CONFIGURATION_FIX_PLAN.md](CORN_MODEL_CONFIGURATION_FIX_PLAN.md)。先关闭 runtime R1–R3/U1，再优先接通全局模型设置与凭据，不等待完整 M2 Bot/Run。已有环境变量方案仅保留为显式开发 smoke；正式 App 无 Key 时启动独立、经 Claw 验证的 Host，并显示配置入口。
+
+复用官方 settings/credentials/LLM 目录、schema、发现与存储；撤掉正式启动中的环境 Key 注入，避免它压过设置页值。全局默认模型写入口先核查，缺少公开能力时按 ADR-0001 做最小 Host seam，不能制造假 Session 或调私有方法。Bot 模型仍经 Claw 并验证实际 Session 生效，禁止 `session.selectModel` 的副作用串改全局默认。
+
+DSH 官方配置是 Provider/凭据/全局默认模型的唯一事实源，正文 `app_settings` 中的模型字段仅作可重建投影，Corn 独立产品偏好仍可持久化。配置写入的版本冲突、凭据只读来源与多步部分成功要显式处理。模型可用性与 Host ready 分开验收；不崩溃不等于完整配置接入已完成。
