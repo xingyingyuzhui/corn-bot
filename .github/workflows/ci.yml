@@ -37,6 +37,7 @@ jobs:
       - run: pnpm smoke:host
       - run: pnpm smoke:governance
       - run: pnpm smoke:governance-ptc
+      - run: pnpm smoke:review
       - run: CORN_DESKTOP_SMOKE=1 pnpm dev:desktop
       - run: CORN_DESKTOP_SMOKE=1 CORN_DESKTOP_CRASH_SMOKE=1 pnpm dev:desktop
       - run: pnpm package:mac
@@ -44,7 +45,9 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: m0-sanitized-reports
-          path: .artifacts/*.json
+          path: |
+            .artifacts/*.json
+            .artifacts/review/*.json
           include-hidden-files: true
           if-no-files-found: error
           retention-days: 7
