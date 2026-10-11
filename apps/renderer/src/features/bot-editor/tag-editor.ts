@@ -1,4 +1,4 @@
-import { normaliseName } from '../../model/names.ts'
+import { nameLength, normaliseName } from '../../model/names.ts'
 import type { TagId, TagView } from '../../model/workspace.ts'
 
 /** Tags whose label contains the query, selected ones first, then by label. */
@@ -55,7 +55,7 @@ export function checkNewTag(
     (tag) => normaliseName(tag.label) === normaliseName(label),
   )
   if (existing) return { kind: 'existing', tag: existing }
-  if ([...label].length > maxLength)
+  if (nameLength(label) > maxLength)
     return { kind: 'too-long', message: `标签最多 ${maxLength} 个字` }
   return { kind: 'ok', label }
 }

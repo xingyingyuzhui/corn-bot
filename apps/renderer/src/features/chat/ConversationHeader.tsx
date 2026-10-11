@@ -1,5 +1,6 @@
 import type { BotView } from '../../model/workspace.ts'
 import { Avatar } from '../../shared/Avatar.tsx'
+import { BotOriginBadge } from '../../shared/BotOriginBadge.tsx'
 
 interface ConversationHeaderProps {
   readonly bot: BotView
@@ -25,6 +26,7 @@ export function ConversationHeader({
       >
         <Avatar spec={bot.avatar} size={24} />
         <span>{bot.name}</span>
+        <BotOriginBadge origin={bot.origin} />
       </button>
     </h1>
   )

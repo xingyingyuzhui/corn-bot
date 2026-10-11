@@ -7,7 +7,11 @@ import {
   Square,
 } from 'lucide-react'
 import { type KeyboardEvent, useLayoutEffect, useRef } from 'react'
-import type { ComposerDraft } from '../../app/layout-state.ts'
+import {
+  type ComposerDraft,
+  hasPayload,
+  type SendAttempt,
+} from '../../model/draft.ts'
 import { ActionButton } from '../../shared/ActionButton.tsx'
 import { useNotice } from '../../shared/notice.tsx'
 import { UNAVAILABLE } from '../../shared/unavailable.ts'
@@ -18,10 +22,8 @@ import {
   COMPOSER_FIELD_ID,
   type ComposerGlyph,
   composerAction,
-  hasPayload,
   pastePlan,
   READ_ONLY_LABEL,
-  type SendAttempt,
   shouldSubmit,
   stageAttachments,
 } from './composer-model.ts'

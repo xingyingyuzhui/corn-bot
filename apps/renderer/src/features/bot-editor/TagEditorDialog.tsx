@@ -116,12 +116,13 @@ function TagEditor({
 
   return (
     <Dialog
+      busy={pending}
       title={TITLE}
       description={`为「${bot.name}」选择一个或多个标签。`}
       onClose={onClose}
       actions={
         <>
-          <Button variant="ghost" onClick={onClose}>
+          <Button variant="ghost" disabled={pending} onClick={onClose}>
             取消
           </Button>
           <Button

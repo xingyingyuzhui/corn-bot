@@ -1,8 +1,9 @@
 import {
+  type ComposerDraft,
   draftAfterSend,
+  EMPTY_DRAFT,
   type SendAttempt,
-} from '../features/chat/composer-model.ts'
-import type { AttachmentView } from '../model/workspace.ts'
+} from '../model/draft.ts'
 
 /**
  * Renderer-only shell state. It never holds DSH runtime state: selection,
@@ -30,14 +31,6 @@ export const LAYOUT = {
   detailsRatio: 0.367,
   chatMinWidth: 340,
 } as const
-
-/** Per-Bot composer contents; attachments are staged locally, never uploaded. */
-export interface ComposerDraft {
-  readonly text: string
-  readonly attachments: readonly AttachmentView[]
-}
-
-export const EMPTY_DRAFT: ComposerDraft = { text: '', attachments: [] }
 
 export type SettingsSection = 'general' | 'models'
 

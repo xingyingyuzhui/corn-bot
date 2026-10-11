@@ -1,4 +1,3 @@
-import type { ComposerDraft } from '../../app/layout-state.ts'
 import type { AttachmentView } from '../../model/workspace.ts'
 import type { VoicePhase } from '../voice/voice-model.ts'
 
@@ -40,10 +39,6 @@ export function shouldSubmit(
   const mac = context.mac ?? true
   const foreignModifier = mac ? event.ctrlKey : event.metaKey
   return !event.shiftKey && !event.altKey && !foreignModifier
-}
-
-export function hasPayload(draft: ComposerDraft): boolean {
-  return draft.text.trim().length > 0 || draft.attachments.length > 0
 }
 
 export type ComposerActionKind =
@@ -168,39 +163,6 @@ export function pastePlan(clip: {
     stageFiles: clip.fileCount > 0,
     insertText: clip.fileCount === 0 || clip.text.length > 0,
   }
-}
-
-export interface SendAttempt {
-  readonly clientId: string
-  readonly text: string
-  readonly attachmentIds: readonly string[]
-}
-
-const samePayload = (attempt: SendAttempt, draft: ComposerDraft) =>
-  attempt.text === draft.text &&
-  attempt.attachmentIds.length === draft.attachments.length &&
-  attempt.attachmentIds.every((id, i) => draft.attachments[i]?.id === id)
-
-/** Retrying an unchanged draft reuses its client id, so it never enqueues twice. */
-export function nextAttempt(
-  previous: SendAttempt | undefined,
-  draft: ComposerDraft,
-  makeId: () => string,
-): SendAttempt {
-  if (previous && samePayload(previous, draft)) return previous
-  return {
-    clientId: makeId(),
-    text: draft.text,
-    attachmentIds: draft.attachments.map((file) => file.id),
-  }
-}
-
-/** Clears the draft only if the user did not edit it while the send was in flight. */
-export function draftAfterSend(
-  current: ComposerDraft,
-  sent: SendAttempt,
-): ComposerDraft {
-  return samePayload(sent, current) ? { text: '', attachments: [] } : current
 }
 
 export function formatBytes(size: number): string {

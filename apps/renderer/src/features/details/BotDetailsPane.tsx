@@ -6,15 +6,16 @@ import {
   type Overlay,
 } from '../../app/layout-state.ts'
 import { useWorkspace } from '../../app/workspace-context.tsx'
+import { modelSummary } from '../../model/models.ts'
 import type { BotView } from '../../model/workspace.ts'
 import { ActionButton } from '../../shared/ActionButton.tsx'
 import { Avatar } from '../../shared/Avatar.tsx'
+import { BotOriginBadge } from '../../shared/BotOriginBadge.tsx'
 import { Menu, type MenuItem } from '../../shared/Menu.tsx'
-import { useNotice } from '../../shared/notice.tsx'
-import { modelSummary } from '../bot-editor/model-choice.ts'
 import { botBrief } from '../bot-editor/share-export.ts'
 import { BotTagChips } from './BotTagChips.tsx'
 import './details.css'
+import { useCopy } from '../../shared/use-copy.ts'
 
 const TAB_LABELS: Readonly<Record<DetailsTab, string>> = {
   details: '详情',
@@ -46,7 +47,7 @@ export function BotDetailsPane({
   onOpenOverlay,
 }: BotDetailsPaneProps) {
   const workspace = useWorkspace()
-  const notify = useNotice()
+  const copy = useCopy()
   const open = (kind: BotOverlayKind) => onOpenOverlay({ kind, botId: bot.id })
 
   const moreItems: readonly MenuItem[] = [
@@ -64,14 +65,8 @@ export function BotDetailsPane({
     },
   ]
 
-  const copyBrief = async () => {
-    try {
-      await navigator.clipboard.writeText(botBrief(bot, workspace.roster.tags))
-      notify('已复制')
-    } catch {
-      notify('复制失败：系统剪贴板不可用')
-    }
-  }
+  const copyBrief = () =>
+    copy(botBrief(bot, workspace.roster.tags), '复制失败：系统剪贴板不可用')
 
   const shareItems: readonly MenuItem[] = [
     {
@@ -141,7 +136,10 @@ export function BotDetailsPane({
 
       <div className="corn-details__profile">
         <Avatar spec={bot.avatar} size={60} />
-        <h2 className="corn-details__name">{bot.name}</h2>
+        <h2 className="corn-details__name">
+          {bot.name}
+          <BotOriginBadge origin={bot.origin} />
+        </h2>
         <BotTagChips
           bot={bot}
           tags={workspace.roster.tags}

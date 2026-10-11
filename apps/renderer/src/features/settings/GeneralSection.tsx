@@ -1,5 +1,6 @@
 import { useId, useState } from 'react'
 import { useNotice } from '../../shared/notice.tsx'
+import { UNAVAILABLE } from '../../shared/unavailable.ts'
 import { OptionGroup } from './OptionGroup.tsx'
 import { SettingsRow } from './SettingsRow.tsx'
 import { rowStatus } from './save-state.ts'
@@ -8,7 +9,6 @@ import {
   LANGUAGE_OPTIONS,
   M1_APPEARANCE,
   M1_LANGUAGE,
-  NOTIFICATIONS_UNAVAILABLE,
 } from './settings-options.ts'
 
 const IDLE = { status: 'idle' } as const
@@ -53,7 +53,7 @@ export function GeneralSection() {
         label="通知"
         labelId={notificationsId}
         description="Bot 完成任务或需要你确认时提醒你。"
-        status={rowStatus(IDLE, NOTIFICATIONS_UNAVAILABLE)}
+        status={rowStatus(IDLE, UNAVAILABLE.notifications)}
       >
         <button
           type="button"
@@ -62,9 +62,9 @@ export function GeneralSection() {
           aria-checked={false}
           aria-labelledby={notificationsId}
           aria-disabled
-          aria-description={NOTIFICATIONS_UNAVAILABLE}
-          title={`通知：${NOTIFICATIONS_UNAVAILABLE}`}
-          onClick={() => notify(NOTIFICATIONS_UNAVAILABLE)}
+          aria-description={UNAVAILABLE.notifications}
+          title={`通知：${UNAVAILABLE.notifications}`}
+          onClick={() => notify(UNAVAILABLE.notifications)}
         >
           <span className="corn-switch__thumb" aria-hidden />
         </button>

@@ -1,6 +1,6 @@
 import { Copy } from 'lucide-react'
 import type { AttachmentView, DeliveryState } from '../../model/workspace.ts'
-import { useNotice } from '../../shared/notice.tsx'
+import { useCopy } from '../../shared/use-copy.ts'
 import { AttachmentChips } from './AttachmentChips.tsx'
 import { DeliveryStatus } from './DeliveryStatus.tsx'
 
@@ -23,16 +23,9 @@ export function MessageBubble({
   delivery,
   failure,
 }: MessageBubbleProps) {
-  const notify = useNotice()
   const text = paragraphs.join('\n\n')
-  const copy = async () => {
-    try {
-      await navigator.clipboard.writeText(text)
-      notify('已复制')
-    } catch {
-      notify('复制失败，请手动选择文字')
-    }
-  }
+  const copyText = useCopy()
+  const copy = () => copyText(text, '复制失败，请手动选择文字')
   return (
     <div className="corn-message" data-author={author}>
       <div className="corn-bubble" data-author={author} data-selectable>

@@ -32,6 +32,11 @@
   line-height: var(--corn-leading-lg);
 }
 
+.corn-details__name .corn-origin-badge {
+  margin-inline-start: 6px;
+  vertical-align: 2px;
+}
+
 .corn-details__tags {
   color: var(--corn-text-tertiary);
   font-size: var(--corn-text-xs);

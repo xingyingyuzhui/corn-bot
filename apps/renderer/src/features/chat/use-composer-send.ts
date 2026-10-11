@@ -1,7 +1,11 @@
 import { useLayoutEffect, useRef, useState } from 'react'
-import type { ComposerDraft } from '../../app/layout-state.ts'
 import { useRepository } from '../../app/workspace-context.tsx'
-import { hasPayload, nextAttempt, type SendAttempt } from './composer-model.ts'
+import {
+  type ComposerDraft,
+  hasPayload,
+  nextAttempt,
+  type SendAttempt,
+} from '../../model/draft.ts'
 
 export interface ComposerSend {
   readonly submit: () => void

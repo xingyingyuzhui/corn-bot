@@ -14,6 +14,7 @@ import {
   validateCreateBot,
 } from './create-bot-form.ts'
 import './create-bot.css'
+import { nameLength } from '../../model/names.ts'
 
 export interface CreateBotDialogProps {
   readonly onClose: () => void
@@ -71,16 +72,15 @@ export function CreateBotDialog({ onClose, onCreated }: CreateBotDialogProps) {
     focusFirstInvalid(formRef.current)
   }
 
-  const nameLength = [...form.name.trim()].length
-
   return (
     <Dialog
+      busy={pending}
       title="新建 Bot"
       description="只会在本机创建示例 Bot，不会创建真实 Claw Agent；M2 接通后才能创建真实 Bot。"
       onClose={onClose}
       actions={
         <>
-          <Button variant="ghost" onClick={onClose}>
+          <Button variant="ghost" disabled={pending} onClick={onClose}>
             取消
           </Button>
           <Button
@@ -109,7 +109,7 @@ export function CreateBotDialog({ onClose, onCreated }: CreateBotDialogProps) {
           required
           placeholder="例如：数据分析师"
           autoFocus
-          hint={`${nameLength}/${NAME_MAX}`}
+          hint={`${nameLength(form.name)}/${NAME_MAX}`}
           {...(errors.name ? { error: errors.name } : {})}
           onChange={(name) => edit({ name })}
         />

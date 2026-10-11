@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useRepository, useWorkspace } from '../../app/workspace-context.tsx'
-import { effectiveModel } from '../../model/models.ts'
+import { effectiveModel, needsModelWarning } from '../../model/models.ts'
 import type { CommandError } from '../../model/repository.ts'
 import type { BotView, ModelSettings } from '../../model/workspace.ts'
 import { Button } from '../../shared/Button.tsx'
@@ -12,11 +12,7 @@ import {
   FormError,
   MissingBotDialog,
 } from './EditorParts.tsx'
-import {
-  canSaveChoice,
-  modelChoices,
-  needsModelWarning,
-} from './model-choice.ts'
+import { canSaveChoice, modelChoices } from './model-choice.ts'
 
 export interface BotModelDialogProps {
   readonly botId: string
@@ -116,6 +112,7 @@ function ModelPicker({
 
   return (
     <Dialog
+      busy={pending}
       title={`${bot.name} 的模型`}
       description={
         repository.label === 'fixture'
@@ -130,7 +127,7 @@ function ModelPicker({
               在设置中修改全局默认
             </Button>
           </span>
-          <Button variant="ghost" onClick={onClose}>
+          <Button variant="ghost" disabled={pending} onClick={onClose}>
             取消
           </Button>
           <Button

@@ -3,15 +3,13 @@ import { test } from 'node:test'
 import {
   ATTACHMENT_LIMIT_MESSAGE,
   composerAction,
-  draftAfterSend,
   formatBytes,
-  hasPayload,
-  nextAttempt,
   pastePlan,
   type SubmitKey,
   shouldSubmit,
   stageAttachments,
 } from '../src/features/chat/composer-model.ts'
+import { draftAfterSend, hasPayload, nextAttempt } from '../src/model/draft.ts'
 import type { AttachmentView } from '../src/model/workspace.ts'
 
 const key = (patch: Partial<SubmitKey> = {}): SubmitKey => ({

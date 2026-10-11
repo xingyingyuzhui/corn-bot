@@ -37,17 +37,6 @@
   background: var(--corn-surface-selected);
 }
 
-.corn-origin-badge {
-  flex: none;
-  padding: 0 5px;
-  border-radius: var(--corn-radius-pill);
-  background: var(--corn-fill-muted);
-  color: var(--corn-text-secondary);
-  font-size: 10px;
-  font-weight: 500;
-  line-height: 16px;
-}
-
 .corn-roster__scroll {
   flex: 1;
   min-block-size: 0;

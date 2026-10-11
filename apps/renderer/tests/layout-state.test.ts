@@ -5,7 +5,6 @@ import {
   clampSidebarWidth,
   detailsTabFor,
   draftFor,
-  EMPTY_DRAFT,
   initialLayout,
   LAYOUT,
   type LayoutAction,
@@ -17,6 +16,7 @@ import {
   sidebarCollapsed,
   sidebarSnapshot,
 } from '../src/app/layout-state.ts'
+import { EMPTY_DRAFT } from '../src/model/draft.ts'
 
 const run = (state: LayoutState, ...actions: LayoutAction[]) =>
   actions.reduce(layoutReducer, state)

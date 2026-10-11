@@ -4,12 +4,11 @@ import { ActionButton } from '../../shared/ActionButton.tsx'
 import { Dialog } from '../../shared/Dialog.tsx'
 import '../../shared/controls.css'
 import './connect-apps.css'
+import { UNAVAILABLE } from '../../shared/unavailable.ts'
 
 export interface ConnectAppsDialogProps {
   readonly onClose: () => void
 }
-
-const FALLBACK_REASON = '连接器授权尚未接通'
 
 function stateLabel(state: ConnectorView['state']): string {
   switch (state) {
@@ -46,7 +45,7 @@ export function ConnectAppsDialog({ onClose }: ConnectAppsDialogProps) {
                 </span>
                 {connector.state === 'disconnected' ? (
                   <span className="corn-connector__reason">
-                    {connector.unavailable ?? FALLBACK_REASON}
+                    {connector.unavailable ?? UNAVAILABLE.connectorAuth}
                   </span>
                 ) : null}
               </span>
@@ -60,7 +59,9 @@ export function ConnectAppsDialog({ onClose }: ConnectAppsDialogProps) {
                 <ActionButton
                   className="corn-button corn-connector__connect"
                   label={`连接 ${connector.name}`}
-                  unavailable={connector.unavailable ?? FALLBACK_REASON}
+                  unavailable={
+                    connector.unavailable ?? UNAVAILABLE.connectorAuth
+                  }
                 >
                   连接
                 </ActionButton>

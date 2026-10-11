@@ -3,8 +3,8 @@ import { useId, useState } from 'react'
 import { useRepository } from '../../app/workspace-context.tsx'
 import type { BotView } from '../../model/workspace.ts'
 import { Avatar } from '../../shared/Avatar.tsx'
+import { BotOriginBadge } from '../../shared/BotOriginBadge.tsx'
 import { useNotice } from '../../shared/notice.tsx'
-import { BotOriginBadge } from './BotOriginBadge.tsx'
 
 interface HiddenBotsSectionProps {
   readonly bots: readonly BotView[]

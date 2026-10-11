@@ -1,6 +1,7 @@
 import { useId, useState } from 'react'
 import { useRepository, useWorkspace } from '../../app/workspace-context.tsx'
 import { NAME_MAX } from '../../model/limits.ts'
+import { nameLength } from '../../model/names.ts'
 import type { CommandError } from '../../model/repository.ts'
 import type { BotView } from '../../model/workspace.ts'
 import { ActionButton } from '../../shared/ActionButton.tsx'
@@ -9,6 +10,7 @@ import { Button } from '../../shared/Button.tsx'
 import { Dialog } from '../../shared/Dialog.tsx'
 import { useNotice } from '../../shared/notice.tsx'
 import { TextField } from '../../shared/TextField.tsx'
+import { UNAVAILABLE } from '../../shared/unavailable.ts'
 import { ConflictNotice, FormError, MissingBotDialog } from './EditorParts.tsx'
 import {
   draftFromBot,
@@ -24,7 +26,6 @@ export interface BotProfileDialogProps {
 }
 
 const TITLE = '编辑资料'
-const AVATAR_UNAVAILABLE = '头像上传在 PR-02D 接通'
 
 export function BotProfileDialog({ botId, onClose }: BotProfileDialogProps) {
   const bot = useWorkspace().roster.bots[botId]
@@ -116,6 +117,7 @@ function ProfileForm({
 
   return (
     <Dialog
+      busy={pending}
       title={TITLE}
       description={
         repository.label === 'fixture'
@@ -125,7 +127,7 @@ function ProfileForm({
       onClose={onClose}
       actions={
         <>
-          <Button variant="ghost" onClick={onClose}>
+          <Button variant="ghost" disabled={pending} onClick={onClose}>
             取消
           </Button>
           <Button
@@ -146,7 +148,7 @@ function ProfileForm({
         <ActionButton
           className="corn-button corn-editor__soft-button"
           label="更换头像"
-          unavailable={AVATAR_UNAVAILABLE}
+          unavailable={UNAVAILABLE.avatarUpload}
         >
           更换头像
         </ActionButton>
@@ -164,10 +166,9 @@ function ProfileForm({
           name="name"
           value={draft.name}
           onChange={edit('name')}
-          maxLength={NAME_MAX}
           required
           autoFocus
-          hint={`最多 ${NAME_MAX} 个字`}
+          hint={`${nameLength(draft.name)}/${NAME_MAX}`}
           {...fieldError('name')}
         />
         <TextField

@@ -36,8 +36,9 @@ interface MenuProps {
 const ITEM = '[role="menuitem"]'
 
 /**
- * Popover menu (native `popover="auto"` + CSS anchor positioning): light
- * dismiss and Escape come from the platform; arrow keys loop, Home/End jump,
+ * Popover menu (native `popover="auto"` + CSS anchor positioning): the
+ * trigger toggles it through `popoverTarget`, light dismiss and Escape come
+ * from the platform; arrow keys loop, Home/End jump,
  * Tab closes, and focus returns to the trigger when the menu closes.
  */
 export function Menu({
@@ -51,17 +52,16 @@ export function Menu({
   const notify = useNotice()
   const triggerRef = useRef<HTMLButtonElement>(null)
   const menuRef = useRef<HTMLDivElement>(null)
-  const anchor = `--corn-menu-${useId().replace(/[^a-zA-Z0-9-]/gu, '')}`
+  const id = useId()
+  const menuId = `${id}-menu`
+  const anchor = `--corn-menu-${id.replace(/[^a-zA-Z0-9-]/gu, '')}`
 
   const focusItem = (index: number) => {
     const list = menuRef.current?.querySelectorAll<HTMLElement>(ITEM)
     if (!list?.length) return
     list[(index + list.length) % list.length]?.focus()
   }
-  const show = () => {
-    menuRef.current?.showPopover()
-    focusItem(0)
-  }
+  const show = () => menuRef.current?.showPopover()
   const hide = () => menuRef.current?.hidePopover()
 
   useImperativeHandle(ref, () => ({ open: show }))
@@ -96,12 +96,13 @@ export function Menu({
         aria-haspopup="menu"
         title={label}
         style={{ anchorName: anchor } as CSSProperties}
-        onClick={show}
+        popoverTarget={menuId}
       >
         {trigger}
       </button>
       <div
         ref={menuRef}
+        id={menuId}
         role="menu"
         aria-label={label}
         className="corn-menu"
@@ -110,10 +111,8 @@ export function Menu({
         style={{ positionAnchor: anchor } as CSSProperties}
         onKeyDown={onKeyDown}
         onToggle={(event) => {
-          if (
-            event.newState === 'closed' &&
-            menuRef.current?.contains(document.activeElement)
-          )
+          if (event.newState === 'open') focusItem(0)
+          else if (menuRef.current?.contains(document.activeElement))
             triggerRef.current?.focus()
         }}
       >

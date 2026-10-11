@@ -1,7 +1,6 @@
 import { useId, useReducer } from 'react'
 import { useRepository, useWorkspace } from '../../app/workspace-context.tsx'
-import { effectiveModel } from '../../model/models.ts'
-import { needsModelWarning } from '../bot-editor/model-choice.ts'
+import { effectiveModel, needsModelWarning } from '../../model/models.ts'
 import { SettingsRow } from './SettingsRow.tsx'
 import {
   displayedValue,

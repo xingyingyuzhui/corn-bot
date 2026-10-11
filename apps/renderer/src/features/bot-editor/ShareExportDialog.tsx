@@ -2,7 +2,7 @@ import { Fragment, useId, useState } from 'react'
 import { useWorkspace } from '../../app/workspace-context.tsx'
 import { Button } from '../../shared/Button.tsx'
 import { Dialog } from '../../shared/Dialog.tsx'
-import { useNotice } from '../../shared/notice.tsx'
+import { useCopy } from '../../shared/use-copy.ts'
 import { FormError, MissingBotDialog } from './EditorParts.tsx'
 import { buildRestrictedExport } from './share-export.ts'
 
@@ -15,7 +15,7 @@ const TITLE = '导出受限配置'
 
 export function ShareExportDialog({ botId, onClose }: ShareExportDialogProps) {
   const workspace = useWorkspace()
-  const notify = useNotice()
+  const copyText = useCopy()
   const [copyError, setCopyError] = useState<string | null>(null)
   const includedId = useId()
   const excludedId = useId()
@@ -24,13 +24,8 @@ export function ShareExportDialog({ botId, onClose }: ShareExportDialogProps) {
   const result = buildRestrictedExport(bot, workspace)
 
   const copy = async () => {
-    try {
-      await navigator.clipboard.writeText(result.json)
-      notify('已复制')
-      onClose()
-    } catch {
-      setCopyError('复制失败：系统剪贴板不可用，请稍后重试')
-    }
+    if (await copyText(result.json)) onClose()
+    else setCopyError('复制失败：系统剪贴板不可用，请稍后重试')
   }
 
   return (

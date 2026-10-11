@@ -9,7 +9,6 @@ interface TextFieldProps {
   readonly hint?: string
   readonly multiline?: boolean
   readonly required?: boolean
-  readonly maxLength?: number
   readonly placeholder?: string
   /** Initial focus when shown inside `Dialog` (rendered as `data-autofocus`). */
   readonly autoFocus?: boolean
@@ -25,7 +24,6 @@ export function TextField({
   hint,
   multiline = false,
   required = false,
-  maxLength,
   placeholder,
   autoFocus,
   name,
@@ -38,7 +36,6 @@ export function TextField({
     name,
     value,
     placeholder,
-    maxLength,
     required,
     'data-autofocus': autoFocus || undefined,
     className: 'corn-field__input',

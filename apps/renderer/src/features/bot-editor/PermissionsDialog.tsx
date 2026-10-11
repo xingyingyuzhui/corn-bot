@@ -3,6 +3,7 @@ import type { PermissionLevel } from '../../model/workspace.ts'
 import { ActionButton } from '../../shared/ActionButton.tsx'
 import { Button } from '../../shared/Button.tsx'
 import { Dialog } from '../../shared/Dialog.tsx'
+import { UNAVAILABLE } from '../../shared/unavailable.ts'
 import { MissingBotDialog } from './EditorParts.tsx'
 import {
   enforcedLevel,
@@ -16,7 +17,6 @@ export interface PermissionsDialogProps {
 }
 
 const TITLE = '权限'
-const EDIT_UNAVAILABLE = '权限变更在 M2 接入 Claw Policy 后开放'
 
 function Level({ level }: { readonly level: PermissionLevel }) {
   return (
@@ -44,7 +44,7 @@ export function PermissionsDialog({ botId, onClose }: PermissionsDialogProps) {
             <ActionButton
               className="corn-button corn-editor__soft-button"
               label="修改权限"
-              unavailable={EDIT_UNAVAILABLE}
+              unavailable={UNAVAILABLE.permissionEdit}
             >
               修改权限
             </ActionButton>

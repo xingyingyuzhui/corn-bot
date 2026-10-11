@@ -4,8 +4,6 @@ import {
   canSaveChoice,
   MODEL_UNAVAILABLE_REASON,
   modelChoices,
-  modelSummary,
-  needsModelWarning,
 } from '../src/features/bot-editor/model-choice.ts'
 import {
   enforcedLevel,
@@ -18,7 +16,11 @@ import {
   profilePatch,
 } from '../src/features/bot-editor/profile-form.ts'
 import { m1FixtureSnapshot } from '../src/fixtures/m1-workspace.ts'
-import { effectiveModel } from '../src/model/models.ts'
+import {
+  effectiveModel,
+  modelSummary,
+  needsModelWarning,
+} from '../src/model/models.ts'
 import type { BotView, ModelSettings } from '../src/model/workspace.ts'
 
 const snapshot = m1FixtureSnapshot()

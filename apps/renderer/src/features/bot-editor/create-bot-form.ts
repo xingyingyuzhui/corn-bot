@@ -1,3 +1,4 @@
+import { nameLength } from '../../model/names.ts'
 import type { CommandError } from '../../model/repository.ts'
 
 export interface CreateBotForm {
@@ -27,7 +28,7 @@ export function validateCreateBot(
   const errors: { -readonly [K in keyof CreateBotErrors]: string } = {}
   const name = form.name.trim()
   if (!name) errors.name = '请填写名称'
-  else if ([...name].length > nameMax) errors.name = `名称最多 ${nameMax} 个字`
+  else if (nameLength(name) > nameMax) errors.name = `名称最多 ${nameMax} 个字`
   if (!form.role.trim()) errors.role = '请填写职责'
   return Object.keys(errors).length ? errors : null
 }

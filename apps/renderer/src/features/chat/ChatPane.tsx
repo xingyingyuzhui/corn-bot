@@ -1,14 +1,10 @@
 import { PanelLeft } from 'lucide-react'
 import { useState } from 'react'
-import type {
-  ChatScroll,
-  ComposerDraft,
-  Overlay,
-} from '../../app/layout-state.ts'
+import type { ChatScroll, Overlay } from '../../app/layout-state.ts'
+import type { ComposerDraft, SendAttempt } from '../../model/draft.ts'
 import type { BotView, ConversationView } from '../../model/workspace.ts'
 import { ActionButton } from '../../shared/ActionButton.tsx'
 import { ConversationHeader } from './ConversationHeader.tsx'
-import type { SendAttempt } from './composer-model.ts'
 import { MessageComposer } from './MessageComposer.tsx'
 import { MessageFeed } from './MessageFeed.tsx'
 import './chat.css'

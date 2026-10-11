@@ -16,7 +16,7 @@ Paths are under `apps/renderer/` unless they start with `apps/desktop/` or `desi
 
 | # | Kit item | Status | Corn implementation | Evidence / remainder |
 | --- | --- | --- | --- | --- |
-| A1 | Design reproduction and demo data are labelled; screenshots say which app they come from | covered | Chat header "示例数据，未连接真实 Bot"; `BotOriginBadge` "示例" on created Bots | Browser; desktop smoke captures are `m1-layout-*.png` (Corn), references live in `design/references/` |
+| A1 | Design reproduction and demo data are labelled; screenshots say which app they come from | covered | Chat header "示例数据，未连接真实 Bot"; `shared/BotOriginBadge` "示例" on created Bots in the roster rows, pinned cards, hidden list, chat header and details name | Browser; desktop smoke captures are `m1-layout-*.png` (Corn), references live in `design/references/` |
 | A2 | Components and assets trace to source anchors; partial-coverage limits kept | covered | [SPEC_MAPPING](SPEC_MAPPING.md), [SOURCE_LOCK](SOURCE_LOCK.md), [RIGHTS_REVIEW](RIGHTS_REVIEW.md) | `scripts/verify-ui-kit-reference.mjs` byte-identity check reports no copied kit files |
 | A3 | View model and adapter independent of the host bridge; runs in a plain browser | covered | `model/repository.ts` (`WorkspaceRepository`), `fixtures/fixture-repository.ts`, `app/workspace-context.tsx` | Renderer runs on the Vite dev server with no preload; `fixture-repository` tests |
 | A4 | No real product account data; UI preferences in Corn's own namespace | covered | Fixture Bots and copy are Corn's own (`fixtures/m1-workspace.ts`) | M1 persists no UI preferences (no Web Storage use); the namespace is chosen when M2 persists them |

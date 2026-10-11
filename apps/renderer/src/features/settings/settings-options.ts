@@ -1,4 +1,5 @@
 import type { SettingsSection } from '../../app/layout-state.ts'
+import { UNAVAILABLE } from '../../shared/unavailable.ts'
 
 export interface SettingsOption<T extends string> {
   readonly value: T
@@ -10,26 +11,25 @@ export interface SettingsOption<T extends string> {
 export type Appearance = 'system' | 'light' | 'dark'
 export type Language = 'zh-CN' | 'zh-TW' | 'en'
 
-const DARK_LATER = '深色主题在 M1 之后提供'
-const LANGUAGE_LATER = '其他语言在 M1 之后提供'
-
 export const APPEARANCE_OPTIONS: readonly SettingsOption<Appearance>[] = [
-  { value: 'system', label: '系统', unavailable: DARK_LATER },
+  { value: 'system', label: '系统', unavailable: UNAVAILABLE.darkTheme },
   { value: 'light', label: '浅色' },
-  { value: 'dark', label: '深色', unavailable: DARK_LATER },
+  { value: 'dark', label: '深色', unavailable: UNAVAILABLE.darkTheme },
 ]
 
 export const LANGUAGE_OPTIONS: readonly SettingsOption<Language>[] = [
   { value: 'zh-CN', label: '简体中文' },
-  { value: 'zh-TW', label: '繁體中文', unavailable: LANGUAGE_LATER },
-  { value: 'en', label: 'English', unavailable: LANGUAGE_LATER },
+  {
+    value: 'zh-TW',
+    label: '繁體中文',
+    unavailable: UNAVAILABLE.otherLanguages,
+  },
+  { value: 'en', label: 'English', unavailable: UNAVAILABLE.otherLanguages },
 ]
 
 /** M1 ships the light theme and Simplified Chinese only. */
 export const M1_APPEARANCE: Appearance = 'light'
 export const M1_LANGUAGE: Language = 'zh-CN'
-
-export const NOTIFICATIONS_UNAVAILABLE = '通知在 M2 接入 Bot 运行状态后提供'
 
 export const SECTION_LABELS: Readonly<Record<SettingsSection, string>> = {
   general: '通用',

@@ -1,5 +1,5 @@
 import { NAME_MAX, TAG_MAX } from '../model/limits.ts'
-import { initialOf, sameName } from '../model/names.ts'
+import { initialOf, nameLength, sameName } from '../model/names.ts'
 import {
   type BotDraft,
   type BotProfilePatch,
@@ -244,7 +244,7 @@ export class FixtureWorkspaceRepository implements WorkspaceRepository {
   async createTag(label: string): Promise<CommandResult<TagId>> {
     const text = label.trim()
     if (!text) return fail('validation', '标签不能为空', 'label')
-    if ([...text].length > TAG_MAX)
+    if (nameLength(text) > TAG_MAX)
       return fail('validation', `标签最多 ${TAG_MAX} 个字`, 'label')
     const { roster } = this.#snapshot
     if (Object.values(roster.tags).some((tag) => sameName(tag.label, text)))
@@ -310,7 +310,7 @@ export class FixtureWorkspaceRepository implements WorkspaceRepository {
 
   #validateName(name: string, selfId?: string): CommandResult<never> | null {
     if (!name) return fail('validation', '请填写名称', 'name')
-    if ([...name].length > NAME_MAX)
+    if (nameLength(name) > NAME_MAX)
       return fail('validation', `名称最多 ${NAME_MAX} 个字`, 'name')
     const clash = Object.values(this.#snapshot.roster.bots).some(
       (bot) => bot.id !== selfId && sameName(bot.name, name),

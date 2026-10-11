@@ -13,6 +13,8 @@ interface DialogProps {
   readonly size?: 'sm' | 'md' | 'lg' | 'xl'
   /** Drops body padding for layouts that draw their own panes (settings). */
   readonly flush?: boolean
+  /** A write is in flight: Escape, the backdrop and × cannot close it. */
+  readonly busy?: boolean
 }
 
 /**
@@ -33,6 +35,7 @@ export function Dialog({
   actions,
   size = 'md',
   flush = false,
+  busy = false,
 }: DialogProps) {
   const ref = useRef<HTMLDialogElement>(null)
   const pressedBackdrop = useRef(false)
@@ -58,7 +61,7 @@ export function Dialog({
       aria-describedby={description ? descriptionId : undefined}
       onCancel={(event) => {
         event.preventDefault()
-        onClose()
+        if (!busy) onClose()
       }}
       onPointerDown={(event) => {
         pressedBackdrop.current = event.target === event.currentTarget
@@ -66,7 +69,8 @@ export function Dialog({
       onClick={(event) => {
         const fromBackdrop = pressedBackdrop.current
         pressedBackdrop.current = false
-        if (fromBackdrop && event.target === event.currentTarget) onClose()
+        if (fromBackdrop && !busy && event.target === event.currentTarget)
+          onClose()
       }}
     >
       <div className="corn-dialog__surface">
@@ -78,6 +82,7 @@ export function Dialog({
             type="button"
             className="corn-round-button corn-dialog__close"
             aria-label="关闭"
+            disabled={busy}
             onClick={onClose}
           >
             <X size={16} strokeWidth={2} aria-hidden />
