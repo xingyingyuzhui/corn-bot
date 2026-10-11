@@ -57,6 +57,9 @@ async function run<T>(window: BrowserWindow, script: string): Promise<T> {
 /** Drives the real shell at the reference size; diagnostic smoke only. */
 export async function probeLayout(window: BrowserWindow): Promise<LayoutProbe> {
   window.setContentSize(REFERENCE.width, REFERENCE.height)
+  // The real pointer may rest over the window; hover-only chrome must not leak
+  // into the evidence screenshots.
+  window.webContents.sendInputEvent({ type: 'mouseLeave', x: 0, y: 0 })
   await delay(300)
   await run(window, `document.querySelector('.corn-composer__field').focus()`)
   window.webContents.insertText(DRAFT)

@@ -1,0 +1,64 @@
+.corn-connectors {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.corn-connector {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  border-radius: var(--corn-radius-card);
+  background: var(--corn-surface-sidebar);
+}
+
+.corn-connector__text {
+  display: grid;
+  flex: 1;
+  min-inline-size: 0;
+}
+
+.corn-connector__name {
+  font-size: var(--corn-text-md);
+  font-weight: 500;
+  line-height: 20px;
+}
+
+.corn-connector__description,
+.corn-connector__reason {
+  color: var(--corn-text-secondary);
+  font-size: var(--corn-text-xs);
+  line-height: var(--corn-leading-xs);
+}
+
+.corn-connector__reason {
+  color: var(--corn-text-tertiary);
+}
+
+.corn-connector__state {
+  flex: none;
+  color: var(--corn-text-tertiary);
+  font-size: var(--corn-text-xs);
+}
+
+.corn-connector__state[data-state="connected"] {
+  color: var(--corn-text-success);
+}
+
+.corn-connector__connect {
+  flex: none;
+  background: var(--corn-fill-muted);
+}
+
+.corn-connector__connect[aria-disabled="true"] {
+  color: var(--corn-text-tertiary);
+}
+
+.corn-connectors__empty {
+  margin: 0;
+  color: var(--corn-text-secondary);
+  font-size: var(--corn-text-sm);
+}

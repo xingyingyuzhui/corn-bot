@@ -1,13 +1,15 @@
-/** User-facing reasons for controls that are visible but not connected yet. */
+/**
+ * User-facing reasons for controls that are visible but not connected yet.
+ * Every "not connected yet" reason comes from here; state-dependent reasons
+ * (such as an unavailable model) stay with the logic that decides them.
+ */
 export const UNAVAILABLE = {
-  search: '搜索尚未提供',
-  createBot: '创建 Bot 尚未提供',
-  connectApps: '连接应用尚未提供',
-  attach: '附件上传尚未接通',
   dictation: '语音听写尚未接通',
   voiceMode: '实时语音对话尚未开发',
-  send: '发送尚未接通真实 Bot',
-  share: '分享尚未提供',
-  tags: '标签编辑尚未提供',
-  account: '账户设置尚未提供',
+  avatarUpload: '头像上传在 PR-02D 接通',
+  permissionEdit: '权限变更在 M2 接入 Claw Policy 后开放',
+  darkTheme: '深色主题在 M1 之后提供',
+  otherLanguages: '其他语言在 M1 之后提供',
+  notifications: '通知在 M2 接入 Bot 运行状态后提供',
+  connectorAuth: '连接器授权尚未接通',
 } as const

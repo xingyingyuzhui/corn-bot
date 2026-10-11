@@ -1,6 +1,8 @@
 .corn-roster {
+  position: relative;
   display: flex;
   flex-direction: column;
+  min-inline-size: 0;
   min-block-size: 0;
   background: var(--corn-surface-sidebar);
   border-inline-end: 1px solid var(--corn-divider);
@@ -18,6 +20,7 @@
 
 .corn-round-button {
   display: grid;
+  flex: none;
   place-items: center;
   inline-size: var(--corn-control-size);
   block-size: var(--corn-control-size);
@@ -37,17 +40,93 @@
 .corn-roster__scroll {
   flex: 1;
   min-block-size: 0;
+  overflow-x: hidden;
   overflow-y: auto;
   padding-block-end: 8px;
 }
 
+/* Search: appears only while open, so the default view stays unchanged. */
+.corn-roster-search {
+  position: relative;
+  display: flex;
+  flex: none;
+  align-items: center;
+  margin: 2px var(--corn-gutter) 8px;
+}
+
+.corn-roster-search__icon {
+  position: absolute;
+  inset-inline-start: 10px;
+  color: var(--corn-text-tertiary);
+  pointer-events: none;
+}
+
+.corn-roster-search__input {
+  inline-size: 100%;
+  block-size: var(--corn-control-size);
+  padding-inline: 30px 32px;
+  border: 0;
+  border-radius: var(--corn-radius-pill);
+  background: var(--corn-surface-raised);
+  box-shadow:
+    0 0 0 1px var(--corn-border-control),
+    var(--corn-shadow-control);
+  font-size: var(--corn-text-sm);
+  appearance: none;
+}
+
+.corn-roster-search__input::-webkit-search-cancel-button {
+  display: none;
+}
+
+.corn-roster-search__input:focus-visible {
+  outline: 2px solid var(--corn-focus-ring);
+  outline-offset: 0;
+}
+
+.corn-roster-search__close {
+  position: absolute;
+  inset-inline-end: 5px;
+  display: grid;
+  place-items: center;
+  inline-size: 22px;
+  block-size: 22px;
+  border-radius: 50%;
+  color: var(--corn-text-secondary);
+}
+
+.corn-roster-search__close:hover {
+  background: var(--corn-surface-hover);
+}
+
+.corn-roster__status {
+  margin: 0;
+  padding: 2px var(--corn-gutter) 6px;
+  color: var(--corn-text-tertiary);
+  font-size: var(--corn-text-xs);
+  line-height: var(--corn-leading-xs);
+}
+
+.corn-roster__status[data-empty] {
+  padding-block: 24px;
+  text-align: center;
+}
+
+/* Pinned strip: the reference look is a single centred 82×80 card. */
 .corn-roster__pinned {
   display: flex;
+  flex-wrap: wrap;
   justify-content: center;
+  gap: 4px;
   padding-block: 12px 18px;
 }
 
+.corn-pinned-slot {
+  position: relative;
+}
+
 .corn-pinned {
+  position: relative;
   display: grid;
   justify-items: center;
   gap: 4px;
@@ -86,22 +165,88 @@
   color: #fff;
 }
 
-.corn-pinned__name {
-  font-size: var(--corn-text-xs);
-  line-height: var(--corn-leading-xs);
+.corn-pinned__unread {
+  position: absolute;
+  inset-block-start: 0;
+  inset-inline-end: -2px;
+  inline-size: 10px;
+  block-size: 10px;
+  border: 2px solid var(--corn-surface-sidebar);
+  border-radius: 50%;
+  background: var(--corn-accent-unread);
 }
 
+.corn-pinned__name {
+  max-inline-size: 76px;
+  overflow: hidden;
+  font-size: var(--corn-text-xs);
+  line-height: var(--corn-leading-xs);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.corn-pinned .corn-origin-badge {
+  position: absolute;
+  inset-block-start: 4px;
+  inset-inline-start: 4px;
+}
+
+.corn-pinned-slot__menu {
+  position: absolute;
+  inset-block-start: 3px;
+  inset-inline-end: 3px;
+}
+
+/* Groups */
 .corn-roster__group + .corn-roster__group {
   margin-block-start: 6px;
 }
 
+.corn-roster__group-heading {
+  margin: 0;
+  font: inherit;
+}
+
 .corn-roster__group-label {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  inline-size: 100%;
   margin: 0;
   padding: 2px var(--corn-gutter) 4px;
   color: var(--corn-text-tertiary);
   font-size: var(--corn-text-xs);
   font-weight: 400;
   line-height: var(--corn-leading-xs);
+  text-align: start;
+}
+
+.corn-roster__group-toggle:hover {
+  color: var(--corn-text-secondary);
+}
+
+.corn-roster__group-toggle:focus-visible {
+  outline-offset: -2px;
+  border-radius: 6px;
+}
+
+/* The chevron only shows on hover/focus, or when it carries state (folded). */
+.corn-roster__chevron {
+  opacity: 0;
+  transform: rotate(90deg);
+  transition:
+    opacity var(--corn-duration) var(--corn-ease),
+    transform var(--corn-duration) var(--corn-ease);
+}
+
+.corn-roster__group-toggle:hover .corn-roster__chevron,
+.corn-roster__group-toggle:focus-visible .corn-roster__chevron,
+.corn-roster__group-toggle[aria-expanded="false"] .corn-roster__chevron {
+  opacity: 1;
+}
+
+.corn-roster__group-toggle[aria-expanded="false"] .corn-roster__chevron {
+  transform: none;
 }
 
 .corn-roster__list {
@@ -110,15 +255,10 @@
   list-style: none;
 }
 
+/* Bot rows */
 .corn-bot-row {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  inline-size: 100%;
-  block-size: 50px;
-  padding-inline: 10px 8px;
+  position: relative;
   border-radius: var(--corn-radius-card);
-  text-align: start;
   transition: background-color var(--corn-duration) var(--corn-ease);
 }
 
@@ -126,19 +266,45 @@
   background: var(--corn-surface-hover);
 }
 
-.corn-bot-row[aria-current="page"] {
+.corn-bot-row[data-selected] {
   background: var(--corn-surface-selected);
+}
+
+.corn-bot-row__select {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  inline-size: 100%;
+  block-size: 50px;
+  padding-inline: 10px 8px;
+  border-radius: inherit;
+  text-align: start;
+}
+
+.corn-bot-row__select:focus-visible {
+  outline-offset: -2px;
 }
 
 .corn-bot-row__text {
   display: grid;
+  flex: 1;
+  min-inline-size: 0;
+}
+
+.corn-bot-row__title {
+  display: flex;
+  align-items: center;
+  gap: 6px;
   min-inline-size: 0;
 }
 
 .corn-bot-row__name {
+  overflow: hidden;
   font-size: var(--corn-text-md);
   font-weight: 500;
   line-height: 20px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .corn-bot-row__summary {
@@ -150,6 +316,91 @@
   white-space: nowrap;
 }
 
+.corn-bot-row__summary[data-activity="working"] {
+  color: var(--corn-text-success);
+}
+
+.corn-bot-row__summary[data-activity="offline"] {
+  color: var(--corn-text-tertiary);
+}
+
+.corn-bot-row__unread {
+  flex: none;
+  inline-size: 8px;
+  block-size: 8px;
+  border-radius: 50%;
+  background: var(--corn-accent-unread);
+}
+
+.corn-row-menu-trigger {
+  display: grid;
+  place-items: center;
+  inline-size: 24px;
+  block-size: 24px;
+  border-radius: 50%;
+  background: var(--corn-surface-raised);
+  box-shadow: 0 0 0 1px var(--corn-border-control);
+  color: var(--corn-text-secondary);
+  opacity: 0;
+  transition: opacity var(--corn-duration) var(--corn-ease);
+}
+
+.corn-bot-row > .corn-row-menu-trigger {
+  position: absolute;
+  inset-block-start: 13px;
+  inset-inline-end: 8px;
+}
+
+.corn-bot-row:hover > .corn-row-menu-trigger,
+.corn-bot-row:focus-within > .corn-row-menu-trigger,
+.corn-pinned-slot:hover > .corn-row-menu-trigger,
+.corn-pinned-slot:focus-within > .corn-row-menu-trigger {
+  opacity: 1;
+}
+
+.corn-bot-row:hover .corn-bot-row__unread,
+.corn-bot-row:focus-within .corn-bot-row__unread {
+  visibility: hidden;
+}
+
+/* Hidden section */
+.corn-roster__hidden {
+  margin-block-start: 10px;
+}
+
+.corn-hidden-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-block-size: 36px;
+  padding-inline: 10px 8px;
+}
+
+.corn-hidden-row__name {
+  flex: 1;
+  min-inline-size: 0;
+  overflow: hidden;
+  color: var(--corn-text-secondary);
+  font-size: var(--corn-text-sm);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.corn-hidden-row__restore {
+  flex: none;
+  padding: 2px 10px;
+  border-radius: var(--corn-radius-pill);
+  background: var(--corn-fill-muted);
+  font-size: var(--corn-text-xs);
+  font-weight: 500;
+  line-height: var(--corn-leading-xs);
+}
+
+.corn-hidden-row__restore:hover {
+  background: var(--corn-surface-pinned);
+}
+
+/* Footer */
 .corn-roster__footer {
   display: flex;
   flex: none;
@@ -159,6 +410,7 @@
 }
 
 .corn-roster__account {
+  flex: none;
   line-height: 0;
   border-radius: 50%;
 }
@@ -179,4 +431,104 @@
     var(--corn-shadow-control);
   font-size: var(--corn-text-md);
   font-weight: 500;
+  white-space: nowrap;
+}
+
+/* Rail (collapsed, kit 88px) */
+.corn-roster[data-mode="rail"] .corn-roster__footer {
+  flex-direction: column;
+}
+
+.corn-rail__actions {
+  display: flex;
+  flex: none;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  padding-block: 4px 10px;
+}
+
+.corn-rail {
+  display: grid;
+  justify-items: center;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.corn-rail__bot {
+  position: relative;
+  display: grid;
+  place-items: center;
+  inline-size: 56px;
+  block-size: 52px;
+  border-radius: var(--corn-radius-card);
+  line-height: 0;
+  transition: background-color var(--corn-duration) var(--corn-ease);
+}
+
+.corn-rail__bot:hover {
+  background: var(--corn-surface-hover);
+}
+
+.corn-rail__bot[aria-current="page"] {
+  background: var(--corn-surface-pinned);
+}
+
+.corn-rail__pin {
+  position: absolute;
+  inset-block-end: 6px;
+  inset-inline-end: 9px;
+  display: grid;
+  place-items: center;
+  inline-size: 12px;
+  block-size: 12px;
+  border: 1.5px solid var(--corn-surface-sidebar);
+  border-radius: 50%;
+  background: var(--corn-accent-star);
+  color: #fff;
+}
+
+.corn-rail__unread {
+  position: absolute;
+  inset-block-start: 6px;
+  inset-inline-end: 9px;
+  inline-size: 9px;
+  block-size: 9px;
+  border: 2px solid var(--corn-surface-sidebar);
+  border-radius: 50%;
+  background: var(--corn-accent-unread);
+}
+
+/* Resize separator on the inline-end edge, over the divider. */
+.corn-roster__resize {
+  position: absolute;
+  inset-block: 0;
+  inset-inline-end: calc(var(--corn-resize-hit) / -2);
+  z-index: 3;
+  inline-size: var(--corn-resize-hit);
+  cursor: col-resize;
+  touch-action: none;
+  -webkit-app-region: no-drag;
+}
+
+.corn-roster__resize::after {
+  content: "";
+  position: absolute;
+  inset-block: 0;
+  inset-inline-start: calc(50% - 1px);
+  inline-size: 2px;
+  background: transparent;
+  transition: background-color var(--corn-duration) var(--corn-ease);
+}
+
+.corn-roster__resize:hover::after,
+.corn-roster__resize:focus-visible::after,
+.corn-roster__resize[data-dragging]::after {
+  background: var(--corn-focus-ring);
+}
+
+.corn-roster__resize:focus-visible {
+  outline: none;
 }

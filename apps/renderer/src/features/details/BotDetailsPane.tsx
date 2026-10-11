@@ -1,10 +1,20 @@
-import { Share, X } from 'lucide-react'
+import { Ellipsis, Share, X } from 'lucide-react'
 import type { KeyboardEvent } from 'react'
-import { DETAILS_TABS, type DetailsTab } from '../../app/layout-state.ts'
+import {
+  DETAILS_TABS,
+  type DetailsTab,
+  type Overlay,
+} from '../../app/layout-state.ts'
+import { useWorkspace } from '../../app/workspace-context.tsx'
+import { modelSummary } from '../../model/models.ts'
 import type { BotView } from '../../model/workspace.ts'
 import { ActionButton } from '../../shared/ActionButton.tsx'
 import { Avatar } from '../../shared/Avatar.tsx'
-import { UNAVAILABLE } from '../../shared/unavailable.ts'
+import { BotOriginBadge } from '../../shared/BotOriginBadge.tsx'
+import { Menu, type MenuItem } from '../../shared/Menu.tsx'
+import { useCopy } from '../../shared/use-copy.ts'
+import { botBrief } from '../bot-editor/share-export.ts'
+import { BotTagChips } from './BotTagChips.tsx'
 import './details.css'
 
 const TAB_LABELS: Readonly<Record<DetailsTab, string>> = {
@@ -19,11 +29,14 @@ const EMPTY_STATES: Readonly<Record<DetailsTab, string>> = {
   computer: '电脑控制尚未接通。接通后，这里会显示 Bot 使用电脑的权限和画面。',
 }
 
+type BotOverlayKind = Extract<Overlay, { readonly botId: string }>['kind']
+
 interface BotDetailsPaneProps {
   readonly bot: BotView
   readonly tab: DetailsTab
   readonly onSelectTab: (tab: DetailsTab) => void
   readonly onClose: () => void
+  readonly onOpenOverlay: (overlay: Overlay) => void
 }
 
 export function BotDetailsPane({
@@ -31,7 +44,45 @@ export function BotDetailsPane({
   tab,
   onSelectTab,
   onClose,
+  onOpenOverlay,
 }: BotDetailsPaneProps) {
+  const workspace = useWorkspace()
+  const copy = useCopy()
+  const open = (kind: BotOverlayKind) => onOpenOverlay({ kind, botId: bot.id })
+
+  const moreItems: readonly MenuItem[] = [
+    { id: 'profile', label: '编辑资料…', onSelect: () => open('bot-profile') },
+    { id: 'tags', label: '编辑标签…', onSelect: () => open('bot-tags') },
+    {
+      id: 'model',
+      label: `模型：${modelSummary(bot, workspace.models)}`,
+      onSelect: () => open('bot-model'),
+    },
+    {
+      id: 'permissions',
+      label: '权限…',
+      onSelect: () => open('bot-permissions'),
+    },
+  ]
+
+  const copyBrief = () =>
+    copy(botBrief(bot, workspace.roster.tags), '复制失败：系统剪贴板不可用')
+
+  const shareItems: readonly MenuItem[] = [
+    {
+      id: 'brief',
+      label: '复制 Bot 简介',
+      onSelect: () => {
+        void copyBrief()
+      },
+    },
+    {
+      id: 'export',
+      label: '导出受限配置…',
+      onSelect: () => open('share-export'),
+    },
+  ]
+
   const moveFocus = (event: KeyboardEvent<HTMLDivElement>) => {
     const step =
       event.key === 'ArrowRight' ? 1 : event.key === 'ArrowLeft' ? -1 : 0
@@ -53,17 +104,27 @@ export function BotDetailsPane({
       className="corn-details"
       aria-label={`${bot.name} 的详情`}
       onKeyDown={(event) => {
-        if (event.key === 'Escape') onClose()
+        // Escape inside an open menu only dismisses the menu.
+        if (
+          event.key === 'Escape' &&
+          !(event.target as Element).closest('[role="menu"]')
+        )
+          onClose()
       }}
     >
       <header className="corn-details__titlebar corn-drag">
-        <ActionButton
-          className="corn-round-button"
+        <Menu
+          label="更多"
+          items={moreItems}
+          triggerClassName="corn-round-button"
+          trigger={<Ellipsis size={17} strokeWidth={2} aria-hidden />}
+        />
+        <Menu
           label="分享"
-          unavailable={UNAVAILABLE.share}
-        >
-          <Share size={16} strokeWidth={2} aria-hidden />
-        </ActionButton>
+          items={shareItems}
+          triggerClassName="corn-round-button"
+          trigger={<Share size={16} strokeWidth={2} aria-hidden />}
+        />
         <ActionButton
           className="corn-round-button"
           label="关闭详情"
@@ -75,14 +136,15 @@ export function BotDetailsPane({
 
       <div className="corn-details__profile">
         <Avatar spec={bot.avatar} size={60} />
-        <h2 className="corn-details__name">{bot.name}</h2>
-        <ActionButton
-          className="corn-details__tags"
-          label="添加标签"
-          unavailable={UNAVAILABLE.tags}
-        >
-          添加标签
-        </ActionButton>
+        <h2 className="corn-details__name">
+          {bot.name}
+          <BotOriginBadge origin={bot.origin} />
+        </h2>
+        <BotTagChips
+          bot={bot}
+          tags={workspace.roster.tags}
+          onEdit={() => open('bot-tags')}
+        />
       </div>
 
       <div

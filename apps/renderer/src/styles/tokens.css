@@ -17,6 +17,8 @@
   --corn-text-secondary: rgb(20 20 20 / 0.6);
   --corn-text-tertiary: rgb(20 20 20 / 0.42);
   --corn-text-inverse: #fcfcfc;
+  --corn-text-danger: #d93025;
+  --corn-text-success: #1e8e3e;
 
   --corn-bubble-bot: #eeeeee;
   --corn-bubble-user: #070707;
@@ -28,6 +30,8 @@
   --corn-shadow-control:
     0 1px 2px rgb(0 0 0 / 0.04), 0 2px 8px rgb(0 0 0 / 0.05);
   --corn-shadow-overlay: -8px 0 24px rgb(0 0 0 / 0.08);
+  --corn-shadow-dialog:
+    0 0 0 0.5px rgb(0 0 0 / 0.08), 0 16px 48px rgb(0 0 0 / 0.16);
   --corn-focus-ring: #1084fe;
   --corn-accent-star: #ff9800;
 
@@ -46,6 +50,7 @@
 
   --corn-radius-bubble: 18px;
   --corn-radius-card: 10px;
+  --corn-radius-dialog: 16px;
   --corn-radius-pill: 999px;
 
   --corn-sidebar-width: 276px;
@@ -61,4 +66,15 @@
 
   --corn-ease: cubic-bezier(0.16, 1, 0.3, 1);
   --corn-duration: 160ms;
+
+  --corn-surface-warning: #fff5e6;
+  --corn-text-warning: #8a4b00;
+  --corn-settings-nav-width: 198px;
+  --corn-radius-settings-card: 14px;
+  --corn-sidebar-duration: 200ms;
+  --corn-accent-unread: #1084fe;
+  --corn-resize-hit: 8px;
+  /* Kit settled card: padding 12, radius 16, on the bot bubble surface. */
+  --corn-radius-status-card: 16px;
+  --corn-font-mono: ui-monospace, "SF Mono", Menlo, monospace;
 }
