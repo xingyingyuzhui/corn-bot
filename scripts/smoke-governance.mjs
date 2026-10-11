@@ -434,8 +434,6 @@ try {
         evidence,
         scope: `Real Claw-bound Session Turn and public tools pipeline, fixed printf, actual Gate audit and Remote approval through the Corn HostTransport adapter. No LLM request or model tool transcript. Observed transports: ${[...new Set(evidence.map((row) => row.transport))].join(', ')}. Native evidence covers native composition only; no PTC validation is claimed without run_code evidence.`,
         pending: [
-          'M0-03-real-model-stream-and-final-message',
-          'model-produced-tool-call-transcript',
           'packaged-runtime-governance',
           ...(evidence.some((row) => row.transport === 'native-bash')
             ? ['PTC-governance-composition']
