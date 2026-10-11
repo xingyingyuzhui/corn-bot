@@ -128,6 +128,8 @@ export interface ModelSettingsSnapshot {
   readonly catalogFailures: number
   readonly defaultModel: ModelSelection | null
   readonly defaultRevision: number
+  /** Revision of the custom-provider settings; creating a provider echoes it. */
+  readonly customRevision: number
   readonly status: ModelStatusView
 }
 

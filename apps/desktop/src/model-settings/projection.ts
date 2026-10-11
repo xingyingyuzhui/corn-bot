@@ -334,6 +334,7 @@ export function snapshotOf(
     catalogFailures: facts.catalog.failures,
     defaultModel: facts.catalog.default,
     defaultRevision: namespaces.get(DEFAULT_MODEL_NS)?.revision ?? 0,
+    customRevision: namespaces.get(PI_AI_NS)?.revision ?? 0,
     status: modelStatusOf(facts, records, override !== null),
   }
 }

@@ -461,7 +461,7 @@ test('custom provider: schema-checked create, edit, then removal also clears its
       generation: before.generation,
       mode: 'create',
       providerId: 'corn-gw',
-      revision: provider(before, 'anthropic').revision,
+      revision: before.customRevision,
       fields,
       ...overrides,
     })
