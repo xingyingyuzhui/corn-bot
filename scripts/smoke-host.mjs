@@ -13,13 +13,12 @@ import { HostTransport } from '../packages/dsh-adapter/src/transport.ts'
 
 const home = process.env.CORN_DSH_HOME ?? defaultDevelopmentHome()
 let unexpectedExit = false
-const host = new DshHostSupervisor(
-  home,
-  () => {
+const host = new DshHostSupervisor(home, {
+  onFailure: () => {
     unexpectedExit = true
   },
-  null,
-)
+  model: null,
+})
 const checks = []
 const artifacts = new URL('../.artifacts/', import.meta.url)
 let mux
@@ -202,18 +201,16 @@ try {
     dshVersion: '0.2.0-rc.2',
     clawVersion: '0.3.0-rc.2',
     checks,
-    pending: ['packaged-app-runtime'],
+    pending: [],
     scope:
-      'Real isolated Host/Claw integration. No existing DSH credentials, model call or desktop input; model and governance paths are covered by smoke:model, smoke:model-lifecycle and smoke:governance.',
+      'Real isolated Host/Claw integration. No existing DSH credentials, model call or desktop input; model, governance and packaged paths are covered by smoke:model, smoke:model-lifecycle, smoke:governance and smoke:packaged.',
   }
   await writeFile(
     new URL('m0-host-smoke.json', artifacts),
     `${JSON.stringify(report, null, 2)}\n`,
     { mode: 0o600 },
   )
-  console.log(
-    `${checks.length} live checks passed. Model, Gate/Approval and app packaging remain pending.`,
-  )
+  console.log(`${checks.length} live checks passed.`)
 } finally {
   mux?.close()
   await host.stop()

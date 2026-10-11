@@ -5,7 +5,12 @@ import { join, sep } from 'node:path'
 export const name = 'dsh-corn-m0-probe'
 export const inject = ['connection', 'agents', 'tools']
 const PREFIX = 'corn-m0-governance-'
-const CASES = new Set(['gate-deny', 'remote-reject', 'remote-cancel'])
+const CASES = new Set([
+  'gate-deny',
+  'remote-reject',
+  'remote-cancel',
+  'ptc-developer',
+])
 const COMMAND = "printf 'corn-m0-probe\\n'"
 
 /** Test-only, bounded execution seam. Never register this in a product profile. */

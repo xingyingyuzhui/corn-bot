@@ -43,9 +43,9 @@ The local development distribution archive has a different outer checksum. Only 
 | Session binding | `registry/session/bind` accepts session/agent IDs, binding state, source, and optional `expectedRevision`; checks actual session cwd and preset | Real official Session creation/binding passed; nonexistent Session rejected |
 | Binding state | `provisioning`, `needs_model`, `ready`; independent of Corn Run states | Metadata persistence and recovery pending |
 | Identity and memory | Claw workspace cwd under isolated `DSH_HOME/DSclaw`; identity prompt section, memory tool and frozen prompt | Prompt injection, memory operations, and LLM review pending |
-| Policy enforcement | Requires policy, permissions, and Gate components; permissions intersect official, agent, and session constraints | Live native Gate deny, ask/reject through Corn transport and cancel/withdraw passed; PTC/model transcript pending |
+| Policy enforcement | Requires policy, permissions, and Gate components; permissions intersect official, agent, and session constraints | Live native Gate deny, ask/reject through Corn transport and cancel/withdraw passed; model-generated bash deny/reject passed; `run_code` is classified `other` and denied under every preset, so PTC outer denial passed and nested governance is not verified; PTC stays disabled (plan §14 #10) |
 | Computer use | Unrecognized tool names classify as `other`; Gate rejects that class | Native CUA adapter and permission mapping pending; do not advertise computer control as verified |
-| Cancellation and execution recovery | Requires official runtime event and turn semantics | Native Turn cancellation preserves queue; snapshot reconnect, forced crash indication and manual restart passed; real model streaming/recovery pending |
+| Cancellation and execution recovery | Requires official runtime event and turn semantics | Native Turn cancellation preserves queue; snapshot reconnect, forced crash, automatic Host recovery, and real model cancel and log recovery (completed and mid-stream) passed |
 
 Creation can return HTTP 200 with `presetError`. Corn must require a successful explicit preset readiness check before creating a session with the agent's `canonicalRoot` and `dshPreset`. A failed preset registration must not fall back to another preset.
 
@@ -81,4 +81,4 @@ The tested flat workspace component files were compared byte-for-byte with all f
 
 **Live M0 acceptance is pending.** Record concrete results for independent boot and shutdown, endpoint authentication, preset provisioning, real streaming chat, cancellation, deny/ask/reject, isolated workspace placement, and reconnect/restart behavior before declaring M0 complete.
 
-Corn's subsequent developer runtime evidence is recorded in [M0 evidence](milestones/M0-EVIDENCE.md). It establishes 16 Host integration checks, native governance/approval/queue checks and isolated baseline cold starts, while real model, PTC governance and packaged app checks remain outstanding. Upstream test results above are separate evidence.
+Corn's subsequent developer runtime evidence is recorded in [M0 evidence](milestones/M0-EVIDENCE.md). It establishes 16 Host integration checks, native governance/approval/queue checks and isolated baseline cold starts, together with real model lifecycle, PTC outer denial (nested PTC governance not verified) and the unsigned packaged app. Signing and notarization remain deferred. Upstream test results above are separate evidence.

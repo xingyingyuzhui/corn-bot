@@ -1,34 +1,179 @@
 import { mkdir, writeFile } from 'node:fs/promises'
-import { join, resolve } from 'node:path'
+import { join } from 'node:path'
+import { setTimeout as delay } from 'node:timers/promises'
 import { app, BrowserWindow, ipcMain } from 'electron'
 import {
   DSH_VERSION,
+  type RuntimeStatus,
   type RuntimeView,
 } from '../../../packages/contracts/src/runtime.ts'
+import { ClawRegistryClient } from '../../../packages/dsh-adapter/src/claw-registry-client.ts'
+import { HostTransport } from '../../../packages/dsh-adapter/src/transport.ts'
+import { resolveAppPaths } from './app-paths.ts'
 import { DshHostSupervisor } from './runtime/dsh-host-supervisor.ts'
-import { defaultDevelopmentHome } from './runtime/profile-bootstrap.ts'
+import type { HostAuth } from './runtime/host-auth.ts'
+import { redactHostDiagnostic } from './runtime/host-readiness.ts'
+import { HostRecovery } from './runtime/host-recovery.ts'
+import { resolveCornModelConfig } from './runtime/model-provider.ts'
 import { assertTrustedSender } from './security/ipc-allowlist.ts'
 
 app.setName('Corn Bot')
+const paths = resolveAppPaths({
+  isPackaged: app.isPackaged,
+  appPath: app.getAppPath(),
+  userData: app.getPath('userData'),
+  resourcesPath: process.resourcesPath,
+})
+const MESSAGES: Record<RuntimeStatus, string> = {
+  stopped: 'Corn 独立运行时已停止。',
+  starting: '正在启动 Corn 独立运行时…',
+  ready: 'Corn 独立运行时已连接。',
+  recovering: '独立运行时意外退出，正在自动恢复…',
+  failed: '独立运行时多次启动失败，已停止自动恢复。',
+}
 let view: RuntimeView = {
   status: 'starting',
   dshVersion: DSH_VERSION,
-  message: '正在启动 Corn 独立运行时…',
+  message: MESSAGES.starting,
 }
-const supervisor = new DshHostSupervisor(
-  process.env.CORN_DSH_HOME ?? defaultDevelopmentHome(),
-  () => {
-    view = {
-      status: 'failed',
-      dshVersion: DSH_VERSION,
-      message: '独立运行时连接已断开。',
-    }
-  },
-)
-const currentStatus = (): RuntimeView['status'] => view.status
+const setStatus = (status: RuntimeStatus) => {
+  view = { status, dshVersion: DSH_VERSION, message: MESSAGES[status] }
+}
+const currentStatus = (): RuntimeStatus => view.status
+
+const recovery = new HostRecovery()
+let auth: HostAuth | undefined
+/** Main-only, redacted; surfaced in smoke reports, never over Renderer IPC. */
+let lastFailure: string | undefined
 let startup: Promise<void> | undefined
+let booting = false
+let recoveryTimer: ReturnType<typeof setTimeout> | undefined
 let exitAllowed = false
 let cleanup: Promise<void> | undefined
+
+const supervisor = new DshHostSupervisor(paths.home, {
+  model: resolveCornModelConfig({
+    ...process.env,
+    CORN_MODEL_ENV_FILE: paths.modelEnvFile,
+  }),
+  profileTemplate: paths.profileTemplate,
+  onFailure: () => scheduleRecovery(),
+})
+
+/** One boot or restart at a time; failures feed the bounded recovery budget. */
+function boot(stopFirst: boolean): Promise<void> {
+  booting = true
+  startup = (async () => {
+    try {
+      if (stopFirst) await supervisor.stop()
+      if (cleanup) return
+      auth = await supervisor.start()
+      setStatus('ready')
+    } catch (error) {
+      auth = undefined
+      lastFailure = redactHostDiagnostic(String(error)).slice(-2_000)
+      booting = false
+      scheduleRecovery()
+    } finally {
+      booting = false
+    }
+  })()
+  return startup
+}
+
+function scheduleRecovery(): void {
+  if (cleanup || booting || recoveryTimer) return
+  auth = undefined
+  const wait = recovery.nextDelay()
+  if (wait === null) {
+    setStatus('failed')
+    return
+  }
+  setStatus('recovering')
+  recoveryTimer = setTimeout(() => {
+    recoveryTimer = undefined
+    void boot(true)
+  }, wait)
+}
+
+async function untilStatus(
+  accept: (status: RuntimeStatus) => boolean,
+  timeoutMs: number,
+): Promise<boolean> {
+  const deadline = Date.now() + timeoutMs
+  while (!accept(currentStatus()) && Date.now() < deadline) await delay(50)
+  return accept(currentStatus())
+}
+
+async function clawReady(): Promise<boolean> {
+  if (!auth) return false
+  try {
+    await new ClawRegistryClient(new HostTransport(auth)).revision()
+    return true
+  } catch {
+    return false
+  }
+}
+
+/** Diagnostic self-check for development and packaged smoke runs; exits the app. */
+async function runSmoke(window: BrowserWindow): Promise<void> {
+  const crashSmoke = process.env.CORN_DESKTOP_CRASH_SMOKE === '1'
+  const facts: Record<string, unknown> = {
+    packaged: app.isPackaged,
+    bundledProfile: paths.profileTemplate !== undefined,
+    electron: process.versions.electron,
+    node: process.versions.node,
+    independentRuntime: true,
+  }
+  facts.initialStatus = currentStatus()
+  facts.lastFailure = lastFailure ?? null
+  facts.clawReady = await clawReady()
+  if (crashSmoke) {
+    const pid = supervisor.processId
+    if (currentStatus() !== 'ready' || pid === undefined)
+      throw new Error('Crash smoke requires its own ready Host')
+    process.kill(pid, 'SIGKILL')
+    facts.recoveringObserved = await untilStatus((s) => s !== 'ready', 5_000)
+    facts.rendererDuringRecovery = await window.webContents.executeJavaScript(
+      'window.corn.runtimeStatus().then((view) => view.status)',
+    )
+    facts.recovered = await untilStatus((s) => s === 'ready', 60_000)
+    facts.hostReplaced =
+      supervisor.processId !== undefined && supervisor.processId !== pid
+    facts.clawReadyAfterRecovery = await clawReady()
+  }
+  const rendererView: unknown = await window.webContents.executeJavaScript(
+    'window.corn.runtimeStatus()',
+  )
+  facts.bridgeVerified =
+    typeof rendererView === 'object' &&
+    rendererView !== null &&
+    'status' in rendererView &&
+    rendererView.status === view.status
+  await delay(1_000)
+  await mkdir(paths.artifacts, { recursive: true, mode: 0o700 })
+  const name = crashSmoke ? 'm0-electron-crash' : 'm0-electron'
+  await writeFile(
+    join(paths.artifacts, `${name}.png`),
+    (await window.webContents.capturePage()).toPNG(),
+    { mode: 0o600 },
+  )
+  await writeFile(
+    join(paths.artifacts, `${name}-smoke.json`),
+    `${JSON.stringify({ ...view, ...facts }, null, 2)}\n`,
+    { mode: 0o600 },
+  )
+  const passed =
+    view.status === 'ready' &&
+    facts.bridgeVerified === true &&
+    facts.clawReady === true &&
+    (!crashSmoke ||
+      (facts.recoveringObserved === true &&
+        facts.hostReplaced === true &&
+        facts.clawReadyAfterRecovery === true))
+  process.exitCode = passed ? 0 : 1
+  app.quit()
+}
 
 if (!app.requestSingleInstanceLock()) app.quit()
 else {
@@ -36,6 +181,7 @@ else {
     if (exitAllowed) return
     event.preventDefault()
     cleanup ??= (async () => {
+      clearTimeout(recoveryTimer)
       await startup?.catch(() => {})
       try {
         await supervisor.stop()
@@ -50,14 +196,13 @@ else {
   app.on('window-all-closed', () => app.quit())
 
   void app.whenReady().then(async () => {
-    const root = resolve(app.getAppPath(), '../..')
     const window = new BrowserWindow({
       width: 760,
       height: 520,
       title: 'Corn Bot · M0',
       backgroundColor: '#fafafa',
       webPreferences: {
-        preload: join(app.getAppPath(), 'dist/apps/desktop/src/preload.cjs'),
+        preload: paths.preload,
         nodeIntegration: false,
         contextIsolation: true,
         sandbox: true,
@@ -72,72 +217,15 @@ else {
       assertTrustedSender(event, window)
       return view
     })
-    await window.loadFile(join(root, 'apps/renderer/src/index.html'))
+    await window.loadFile(paths.renderer)
     if (cleanup) return
-    startup = (async () => {
-      try {
-        await supervisor.start()
-        view = {
-          status: 'ready',
-          dshVersion: DSH_VERSION,
-          message: 'Corn 独立运行时已连接，等待全新的模型配置。',
-        }
-      } catch {
-        view = {
-          status: 'failed',
-          dshVersion: DSH_VERSION,
-          message: '独立运行时启动失败，请运行 pnpm smoke:host 检查。',
-        }
-      }
-      if (process.env.CORN_DESKTOP_SMOKE === '1') {
-        const crashSmoke = process.env.CORN_DESKTOP_CRASH_SMOKE === '1'
-        if (crashSmoke) {
-          const pid = supervisor.processId
-          if (view.status !== 'ready' || pid === undefined)
-            throw new Error('Crash smoke requires its own ready Host')
-          process.kill(pid, 'SIGKILL')
-          const deadline = Date.now() + 5_000
-          while (currentStatus() === 'ready' && Date.now() < deadline)
-            await new Promise((resolve) => setTimeout(resolve, 50))
-          if (currentStatus() !== 'failed')
-            throw new Error('Host crash did not update Main status')
-        }
-        const artifacts = join(root, '.artifacts')
-        await mkdir(artifacts, { recursive: true, mode: 0o700 })
-        const rendererView: unknown =
-          await window.webContents.executeJavaScript(
-            'window.corn.runtimeStatus()',
-          )
-        const bridgeVerified =
-          typeof rendererView === 'object' &&
-          rendererView !== null &&
-          'status' in rendererView &&
-          rendererView.status === view.status
-        if (!bridgeVerified)
-          throw new Error('Sandboxed renderer IPC smoke failed')
-        await new Promise((resolve) => setTimeout(resolve, 1_000))
-        await writeFile(
-          join(
-            artifacts,
-            crashSmoke ? 'm0-electron-crash.png' : 'm0-electron.png',
-          ),
-          (await window.webContents.capturePage()).toPNG(),
-          { mode: 0o600 },
-        )
-        await writeFile(
-          join(
-            artifacts,
-            crashSmoke
-              ? 'm0-electron-crash-smoke.json'
-              : 'm0-electron-smoke.json',
-          ),
-          `${JSON.stringify({ ...view, electron: process.versions.electron, node: process.versions.node, independentRuntime: true, bridgeVerified }, null, 2)}\n`,
-          { mode: 0o600 },
-        )
-        process.exitCode =
-          view.status === (crashSmoke ? 'failed' : 'ready') ? 0 : 1
+    await boot(false)
+    if (process.env.CORN_DESKTOP_SMOKE === '1') {
+      await untilStatus((s) => s === 'ready' || s === 'failed', 120_000)
+      await runSmoke(window).catch(() => {
+        process.exitCode = 1
         app.quit()
-      }
-    })()
+      })
+    }
   })
 }

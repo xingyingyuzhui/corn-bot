@@ -1114,6 +1114,8 @@ export interface AvatarPresentation {
 | 7 | Kit 自写代码 | 只参考行为，全部用 TypeScript 重写；不移植 Kit 任何文件（包括维护者自写的 `src/composer.js`、`examples/*`） | §12.2、`design/grok-kit/RIGHTS_REVIEW.md` |
 | 8 | Kit 仓库可见性 | 转为私有。CI 无法 checkout，`pnpm verify:ui-kit` 在 CI 中输出明确的 `skipped` 诊断；本地需要时用 `--strict` | `design/grok-kit/SOURCE_LOCK.md` |
 | 9 | 分支 | PR-00D/E 在叠加于 `feat/m0-runtime-spike` 的新分支上进行，PR #1 保持草稿 | — |
+| 10 | PTC（`run_code`） | M0 结论限定为：**普通调用治理通过；PTC 外层拒绝通过，嵌套治理尚未验证。** PTC 保持禁用，M1 只使用已验证的普通工具调用链，不为此发布 Claw rc3。启用 PTC 前必须实测四项：嵌套调用逐次拒绝（`research`）、逐次审批（`developer`）、审批待决时取消、审计与观测 trace 关联到外层 `run_code` 的 `rootCallId`。候选 Claw 修改先在 Claw 仓库的隔离测试环境验证，通过后再发布并升级 Corn 的 `runtime.lock.json` | `docs/milestones/M0-EVIDENCE.md`、`scripts/smoke-governance.mjs --ptc` |
+| 11 | 签名与公证 | M0 只产出未签名的 arm64 `Corn Bot.app` 供本地验证；Developer ID 签名、hardened runtime 与公证推迟，分发前需新 ADR | `docs/adr/ADR-0005-packaging.md` |
 | — | 模型凭据 | Corn 专用 DeepSeek API Key 在 PR-00D/E 完成后、M0-03 开始前由维护者本地配置，同时确认模型 ID。Key 不进入 Git、计划文件或聊天 | M0-03、`docs/runbooks/development.md` |
 
 **同步修正（非决策性）**：ADR 编号顺延，SQLite 已占 ADR-0002，头像引擎为 ADR-0003，设计 profile 为 ADR-0004；`packages/ui-kit` 更名为 `packages/ui`；`design/fixtures/*.ts` 移到 `apps/renderer/tests/fixtures/`，`design/` 只存文档；§12.2 checkout 改为 `0248419…`；§0 第 1 条更新为仓库已创建；§13 头注的变化文件数按 `git diff --stat` 更正为 45。

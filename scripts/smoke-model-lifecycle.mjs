@@ -28,10 +28,12 @@ const TURN_TIMEOUT = 150_000
 let unexpectedExit = false
 const host = new DshHostSupervisor(
   process.env.CORN_DSH_HOME ?? defaultDevelopmentHome(),
-  () => {
-    unexpectedExit = true
+  {
+    onFailure: () => {
+      unexpectedExit = true
+    },
+    model,
   },
-  model,
 )
 const checks = []
 const check = (name, facts = {}) => {

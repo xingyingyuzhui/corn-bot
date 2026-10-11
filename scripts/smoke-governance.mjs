@@ -25,8 +25,13 @@ import { ClawRegistryClient } from '../packages/dsh-adapter/src/claw-registry-cl
 import { SessionClient } from '../packages/dsh-adapter/src/session-client.ts'
 import { HostTransport } from '../packages/dsh-adapter/src/transport.ts'
 
-// Run: node scripts/smoke-governance.mjs. No setup or active profile mutation.
+// Run: node scripts/smoke-governance.mjs [--ptc]. No setup or active profile mutation.
 // Only read the Corn-owned installed packages; never copy model configuration.
+// --ptc presents the official run_code tool (tools.mode both) in the disposable Host.
+const ptc = process.argv.includes('--ptc')
+const CASES = ptc
+  ? ['gate-deny', 'ptc-developer']
+  : ['gate-deny', 'remote-reject', 'remote-cancel']
 const source = assertIsolatedHome(
   process.env.CORN_DSH_HOME || defaultDevelopmentHome(),
 )
@@ -51,6 +56,7 @@ let child
 let mux
 let exited
 let auth
+let transport
 const globalDeadline = AbortSignal.timeout(120_000)
 const check = (name, facts = {}) => {
   checks.push({ name, passed: true, ...facts })
@@ -106,6 +112,71 @@ async function snapshotFor(sessionId) {
     stop()
   }
 }
+/**
+ * Claw classifies run_code as an unlisted transport and denies it under every
+ * preset, so the nested bash call must never be dispatched or executed.
+ */
+async function assertPtcDenied(sessionId, callId, probe) {
+  assert.equal(probe.transport, 'run_code')
+  const outer = probe.toolResults.find((row) => row.name === 'run_code')
+  assert.ok(outer, 'Official run_code pipeline must return a result')
+  assert.equal(outer.isError, true)
+  assert.equal(outer.rootCallId, callId)
+  assert.equal(
+    probe.toolResults.some((row) => row.name === 'bash'),
+    false,
+    'Nested bash must not reach the tool pipeline',
+  )
+  const audit = await post('/api/dsh-claw/gate/audit', { limit: 200 })
+  assert.ok(
+    audit.items.some(
+      (row) =>
+        row.sessionId === sessionId &&
+        row.tool === 'run_code' &&
+        row.kind === 'deny',
+    ),
+  )
+  const observe = await post('/api/dsh-claw/observability/query', {
+    limit: 500,
+  })
+  assert.ok(
+    observe.items.some(
+      (row) =>
+        row.sessionId === sessionId &&
+        row.traceId === probe.traceId &&
+        row.code === 'GATE_POLICY_DENIED',
+    ),
+    'Official Gate trace must match the run_code root call',
+  )
+  const snapshot = await snapshotFor(sessionId)
+  const page = await transport.rpc('session/page', {
+    request: {
+      address: { kind: 'session', sessionId },
+      throughSeq: snapshot.cursor,
+      maxMessages: 100,
+    },
+  })
+  const records = page.records.map((row) => row.event || row)
+  assert.equal(
+    records.some((row) => row.type.startsWith('tool/ptc-dispatch')),
+    false,
+    'A denied run_code must not dispatch nested calls',
+  )
+  assert.equal(
+    records.some((row) => row.type === 'approval/asked'),
+    false,
+  )
+  return {
+    case: probe.case,
+    sessionId,
+    callId,
+    transport: probe.transport,
+    traceId: probe.traceId,
+    bashExecutions: 0,
+    nestedDispatches: 0,
+    deniedTool: 'run_code',
+  }
+}
 try {
   await writeFile(
     join(home, '.corn-bot-home.json'),
@@ -148,7 +219,7 @@ try {
   ).href
   await writeFile(
     patch,
-    `- id: workspace-controller\n  config:\n    documentsDirectory: ${JSON.stringify(join(home, 'documents'))}\n- insert:\n    - id: dsh-corn-m0-probe\n      name: ${JSON.stringify(fixture)}\n      config:\n        enabled: true\n        testHome: ${JSON.stringify(home)}\n`,
+    `- id: workspace-controller\n  config:\n    documentsDirectory: ${JSON.stringify(join(home, 'documents'))}\n${ptc ? '- id: tools\n  config:\n    mode: both\n' : ''}- insert:\n    - id: dsh-corn-m0-probe\n      name: ${JSON.stringify(fixture)}\n      config:\n        enabled: true\n        testHome: ${JSON.stringify(home)}\n`,
   )
   const env = cornHostEnvironment(home, null)
   child = spawn(
@@ -206,7 +277,7 @@ try {
   })
   auth = await HostAuth.exchange(launch)
   check('disposable-keyless-rc2-host-authenticated')
-  const transport = new HostTransport(auth)
+  transport = new HostTransport(auth)
   const registry = new ClawRegistryClient(transport)
   const sessions = new SessionClient(transport)
   mux = await transport.connect()
@@ -236,10 +307,10 @@ try {
     '$events ready',
   )
   const evidence = []
-  for (const testCase of ['gate-deny', 'remote-reject', 'remote-cancel']) {
+  for (const testCase of CASES) {
     // Claw diagnostics deduplicate the same rejection code for eight seconds.
-    // Keep both actual ASK traces observable without changing its rate limiter.
-    if (testCase === 'remote-cancel')
+    // Keep repeated DENY/ASK traces observable without changing its rate limiter.
+    if (testCase === 'remote-cancel' || testCase === 'ptc-developer')
       await delay(8100, undefined, { signal: globalDeadline })
     const agent = await registry.create(
       `Corn M0 ${testCase} ${randomUUID().slice(0, 8)}`,
@@ -272,7 +343,7 @@ try {
     })
     let remoteEventId
     let queuedRequestId
-    if (testCase !== 'gate-deny') {
+    if (testCase.startsWith('remote-')) {
       const question = await eventually(
         async () => {
           if (streamError) throw streamError
@@ -317,6 +388,12 @@ try {
     const probe = result.probe
     assert.equal(probe.status, 'done')
     assert.equal(probe.bashExecutions, 0)
+    if (ptc) {
+      evidence.push(await assertPtcDenied(sessionId, armed.callId, probe))
+      check(testCase, { transport: probe.transport, bashExecutions: 0 })
+      continue
+    }
+    assert.equal(probe.transport, 'native-bash')
     const bash = probe.toolResults.find((row) => row.name === 'bash')
     assert.ok(bash, 'Actual official bash pipeline must return a result')
     assert.equal(bash.isError, true)
@@ -416,7 +493,7 @@ try {
     check(testCase, { transport: probe.transport, bashExecutions: 0 })
   }
   const artifact = new URL(
-    '../.artifacts/m0-governance-smoke.json',
+    `../.artifacts/m0-governance${ptc ? '-ptc' : ''}-smoke.json`,
     import.meta.url,
   )
   await mkdir(dirname(fileURLToPath(artifact)), {
@@ -432,13 +509,10 @@ try {
         clawVersion: '0.3.0-rc.2',
         checks,
         evidence,
-        scope: `Real Claw-bound Session Turn and public tools pipeline, fixed printf, actual Gate audit and Remote approval through the Corn HostTransport adapter. No LLM request or model tool transcript. Observed transports: ${[...new Set(evidence.map((row) => row.transport))].join(', ')}. Native evidence covers native composition only; no PTC validation is claimed without run_code evidence.`,
-        pending: [
-          'packaged-runtime-governance',
-          ...(evidence.some((row) => row.transport === 'native-bash')
-            ? ['PTC-governance-composition']
-            : []),
-        ],
+        scope: ptc
+          ? 'Real Claw-bound Session Turn with the official run_code tool presented (tools.mode both). The fixture executes run_code whose program calls bash; Claw denies run_code itself under research and developer, so no nested call is dispatched or executed. Nested-call gating of an allowed run_code is not claimed.'
+          : 'Real Claw-bound Session Turn and public tools pipeline, fixed printf, actual Gate audit and Remote approval through the Corn HostTransport adapter. No LLM request or model tool transcript. Native bash composition only; PTC is covered by --ptc.',
+        pending: ptc ? ['nested-call-gating-of-an-allowed-run_code'] : [],
       },
       null,
       2,
