@@ -76,6 +76,11 @@
   resize: vertical;
 }
 
+.corn-field__input:disabled {
+  color: var(--corn-text-secondary);
+  cursor: default;
+}
+
 .corn-field__input:focus-visible {
   outline: 2px solid var(--corn-focus-ring);
   outline-offset: 0;

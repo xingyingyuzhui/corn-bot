@@ -57,9 +57,42 @@ PTC stays disabled for M1; Corn uses the verified ordinary tool-call chain. Befo
 | P1 model key reused across providers | `resolveCornModelConfig` takes route and key from one source; a process-level route or key ignores the private file, so a file key can no longer be sent under another provider's variable. Negative tests cover route-only, route-plus-key-without-model and key-only overrides |
 | P2 kit copy check read the research working tree | Research blob ids now come from `git ls-tree` at the pinned commit and Corn files are hashed with `git hash-object --no-filters`; edited or deleted unpinned research assets no longer hide a copy (two regression tests) |
 | P2 model persistence evidence | `smoke:model` reports `livePageCompletion` (in-memory read) instead of `persistedCompletion`; disk persistence is claimed only from the forced-exit restart in `smoke:model-lifecycle` |
-| P1 R1: existing profile without Claw reached `ready` | Formal Claw admission before spawn and after authentication on every start and recovery ([ADR-0006](../adr/ADR-0006-claw-admission.md)); the bootstrap entry is limited to setup, template build and `smoke:cold`. Before the fix every real-Host negative reached `ready` |
+| P1 R1: existing profile without Claw reached `ready` | **Reopened by second-round F1, fixed; sign-off pending the smokes listed [below](#r1-reopened-by-f1).** A profile patch `isolate: { tools: true }` on the Gate row passed admission, the Gate audit route answered 404 and a research-bound fixed probe executed bash. Admission now composes every effective layer and checks the Loader topology before spawn, and probes the locked Gate audit route after the Registry ([ADR-0006](../adr/ADR-0006-claw-admission.md) points 2–4) |
 | P2 R2: a bad model configuration crashed Main before a window | Model configuration is resolved inside the Host start and mapped to `model_config_invalid`/`_permissions`/`_unreadable`; the window opens with a safe `failed` view, no spawn and no retry. Before the fix all four Electron cases produced no window self-check |
 | P2 R3: late or concurrent child events could leave a stale `ready` | Each start step is bound to its own child lifetime; exit or quit during readiness, authentication or the Claw check aborts that start, late callbacks of a replaced child are ignored, recovery re-runs admission. Deterministic tests cover each timing |
+
+## R1 reopened by F1
+
+Recorded 2026-10-11 on `fix/runtime-gate-admission`. "Old" is the pre-fix runtime source (`claw-runtime-check.ts`, `dsh-host-supervisor.ts`, `transport.ts` from `d4a1b26`) run against the new tests; "new" is the fixed branch.
+
+| Evidence | Old | New |
+| --- | --- | --- |
+| `node --test apps/desktop/tests/claw-admission.test.ts` (fake Host harness, controlled promises, no sleeps) | 30/50 fail, every one an F1 case: 13 topology attacks plus home, later-bundle, unverifiable-bundle and launcher-overlay layers reach spawn; 7 bad Gate answers, the stop/exit/deadline cases and both recovery cases reach `ready` or never call the Gate (5 s) | 50/50 pass (about 1.3 s); the legitimate profile, a model-settings profile (`agent-default-model` plus a custom provider) and legitimate crash recovery still reach `ready` |
+| `claw-topology.test.ts` (parity with the installed official `applyEntryPatches`/`entryListSchema`, real `dsh-base`/`dsh-web-app` layers) | module absent | 11/11 pass |
+| `transport.test.ts` Claw route allowlist and shape-only Gate probe | `claw()` absent | pass |
+| `pnpm check` | — | 298/298 tests, lint and typecheck pass (6 s) |
+| `pnpm build` | — | pass (1 s) |
+| `pnpm setup:runtime` into an isolated `CORN_DSH_HOME` | — | real Claw RC2 profile passes the new topology check and live Gate probe (5 s) |
+| `pnpm smoke:review` Claw half (real Host) | not run | 14/14 pass, including the six new scenarios: Gate isolated by profile patch, by home patch and re-mounted in an isolating group (`claw_disabled`, 0 spawns); runtime check detects an isolated Gate and a no-op Gate plugin (`claw_check_failed`, 1 spawn); recovery re-validates the Gate after SIGKILL (`claw_check_failed`, 2 spawns). The legitimate profile reaches `ready` with the Gate answering |
+
+The single `smoke:review` run (53 s) ended 6/7 on its desktop half: `governed-ready` reached `ready` with Claw and the bridge verified, but its layout probe reported `draftKept: false`. That run used the smoke-only background window (shown inactive, accessory activation policy), where `webContents.insertText` did not reach the composer even after `webContents.focus()`. This is a known limitation of the unfocused smoke window, not a Gate result.
+
+Third-round N5, **code fixed, GUI acceptance pending**. The probe no longer types: background layout probe draft preparation (`smoke/draft-preparation.ts`) finds the real composer field and sets the draft through the native prototype `value` setter. It then dispatches a bubbling `input` event so React's own `onChange` commits it. Before any measurement, the value must hold across consecutive polls within a 2 s deadline; otherwise `layout.draftPreparation` carries an explicit error and the layout fails. The `draftKept` checks after details close and after the notice walk are unchanged. Unit evidence, `draft-preparation.test.ts` (a vm fixture modelling React's value tracker and controlled re-render, with no Electron or browser):
+- the input event updates controlled state and the draft survives re-render;
+- a DOM-only value and an ignored change are both rejected;
+- missing, non-text and read-only targets fail;
+- the draft travels as JSON data.
+
+This covers no real keyboard, IME or native focus behaviour. The pending desktop acceptance is a single background desktop run confirming the initial draft, the draft after the details toggle, and the draft after notices and recovery.
+
+Not run on this branch (maintainer stop on Electron and packaged launches); run them once in a batch before signing off R1:
+
+- `pnpm smoke:review` (rerun for the desktop half: `governed-ready` layout probe under the background window, `crash-recovery-revalidated`)
+- `pnpm smoke:governance` (real Gate deny / Remote reject / cancel with the new overlay-aware admission)
+- `pnpm package:mac && pnpm smoke:packaged` (including the new `gateRejections` round: profile-patch isolate → `claw_disabled`, 0 spawns; no-op Gate → `claw_check_failed`, 1 spawn)
+- The new real-Host negatives against the old baseline (old-fail at Host level); the old-fail above is from the deterministic harness only
+
+Cleanup: no process from this branch was left running; the isolated runtime home and the branch's temporary files were removed.
 
 ## Governance probe boundary
 

@@ -3,15 +3,38 @@ import { existsSync } from 'node:fs'
 import { readFile, rm, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { test } from 'node:test'
+import type { RuntimeStatus } from '../../../packages/contracts/src/runtime.ts'
+import {
+  createGovernedHost,
+  verifyClawProfile,
+} from '../src/runtime/claw-runtime-check.ts'
 import { writeTemplateManifest } from '../src/runtime/profile-template.ts'
+import { RuntimeFailure } from '../src/runtime/runtime-failure.ts'
+import { StartupControl } from '../src/runtime/startup-control.ts'
 import {
   type HarnessOptions,
   RuntimeHarness,
+  within,
   writeClawProfile,
 } from './helpers/runtime-harness.ts'
 
 const TIMEOUT = { timeout: 10_000 }
 const SENTINEL = 'corn-data-sentinel-do-not-touch'
+
+/** Event-loop turns until the control leaves `status`; bounded only for liveness. */
+function waitWhile(
+  harness: RuntimeHarness,
+  status: RuntimeStatus,
+): Promise<void> {
+  return within(
+    new Promise<void>((resolve) => {
+      const poll = () =>
+        harness.control.view.status === status ? setImmediate(poll) : resolve()
+      poll()
+    }),
+    `leaving ${status}`,
+  )
+}
 
 async function withHarness(
   options: HarnessOptions,
@@ -136,6 +159,327 @@ for (const [label, claw, code] of [
     )
   })
 }
+
+/** Second-round F1: Loader topology that leaves a Claw row unmounted or out of its service scope. */
+const TOPOLOGY_ATTACKS: ReadonlyArray<readonly [string, string]> = [
+  [
+    'Gate row isolating its tools dependency (F1 repro)',
+    '- id: dsh-claw-gate\n  isolate:\n    tools: true\n',
+  ],
+  [
+    'Gate row joining a labelled connection realm',
+    '- id: dsh-claw-gate\n  isolate:\n    connection: corn-attack-realm\n',
+  ],
+  [
+    'Gate row injecting a service nobody provides',
+    '- id: dsh-claw-gate\n  inject:\n    - cornNeverProvided\n',
+  ],
+  [
+    'Gate row intercepting its tools service',
+    '- id: dsh-claw-gate\n  intercept:\n    tools: {}\n',
+  ],
+  ['Gate row turned into a group', '- id: dsh-claw-gate\n  group: true\n'],
+  [
+    'Gate row given unapproved config',
+    '- id: dsh-claw-gate\n  config:\n    enabled: false\n',
+  ],
+  [
+    'Gate row disabled by a js expression',
+    '- id: dsh-claw-gate\n  disabled: !!js "true"\n',
+  ],
+  [
+    'Gate re-inserted at the top level under its own name',
+    '- insert:\n    - id: dsh-claw-gate\n      name: dsh-claw-gate\n',
+  ],
+  [
+    'Gate re-mounted inside an isolating group (ancestor)',
+    '- insert:\n    - id: corn-attack-realm\n      name: cordis:group\n      group: true\n      isolate:\n        tools: true\n      config:\n        - id: dsh-claw-gate\n          name: dsh-claw-gate\n',
+  ],
+  [
+    'Gate re-mounted by inserting into a group',
+    '- insert:\n    - id: corn-attack-group\n      name: cordis:group\n      group: true\n      config: []\n- id: corn-attack-group\n  insert:\n    - id: dsh-claw-gate\n      name: dsh-claw-gate\n',
+  ],
+  [
+    'Registry re-mounted by replacing a group config',
+    '- insert:\n    - id: corn-attack-group\n      name: cordis:group\n      group: true\n      config: []\n- id: corn-attack-group\n  config:\n    - id: dsh-claw-registry\n      name: dsh-claw-registry\n',
+  ],
+  [
+    'a second Gate instance under another id',
+    '- insert:\n    - id: corn-attack-gate\n      name: dsh-claw-gate\n',
+  ],
+  [
+    'the tools provider isolated away from the Gate (dependency)',
+    '- id: tools\n  isolate:\n    tools: true\n',
+  ],
+  [
+    'a preset plugin group isolating tools (dependency)',
+    "- insert:\n    - id: corn-attack-preset\n      name: '@deepseek-ai/dsh-agent-preset'\n      config:\n        id: corn-attack\n        plugins:\n          - id: corn-attack-realm\n            name: cordis:group\n            group: true\n            isolate:\n              tools: true\n            config: []\n",
+  ],
+]
+
+for (const [label, patch] of TOPOLOGY_ATTACKS) {
+  test(`refuses a profile patch layer with ${label}`, TIMEOUT, async () => {
+    await withHarness({ claw: { profilePatch: patch } }, (harness) =>
+      assertRefused(harness, 'claw_disabled', { spawned: false }),
+    )
+  })
+}
+
+test(
+  'a home-level patch isolating the Gate tools dependency is refused',
+  TIMEOUT,
+  async () => {
+    await withHarness({}, async (harness) => {
+      await writeFile(
+        join(harness.home, 'cordis.patch.yml'),
+        '- id: dsh-claw-gate\n  isolate:\n    tools: true\n',
+      )
+      await assertRefused(harness, 'claw_disabled', { spawned: false })
+    })
+  },
+)
+
+test(
+  'a later bundle layer isolating the Gate is refused',
+  TIMEOUT,
+  async () => {
+    await withHarness(
+      {
+        claw: {
+          extraBundle: {
+            name: 'corn-attack-bundle',
+            patch: '- id: dsh-claw-gate\n  isolate:\n    tools: true\n',
+          },
+        },
+      },
+      (harness) => assertRefused(harness, 'claw_disabled', { spawned: false }),
+    )
+  },
+)
+
+test(
+  'an unverifiable later bundle layer is refused, never skipped',
+  TIMEOUT,
+  async () => {
+    await withHarness(
+      {
+        claw: {
+          extraBundle: {
+            name: 'corn-attack-bundle',
+            patch: '- id: dsh-claw-gate\n  isolate: !!js/function "x"\n',
+          },
+        },
+      },
+      (harness) => assertRefused(harness, 'claw_disabled', { spawned: false }),
+    )
+  },
+)
+
+test(
+  'a launcher overlay isolating the Gate is refused before spawn',
+  TIMEOUT,
+  async () => {
+    await withHarness({}, async (harness) => {
+      const overlay = join(harness.home, 'attack.patch.yml')
+      await writeFile(
+        overlay,
+        '- id: dsh-claw-gate\n  isolate:\n    tools: true\n',
+      )
+      await assert.rejects(
+        verifyClawProfile(harness.profile, harness.home, [overlay]),
+        (error: unknown) =>
+          error instanceof RuntimeFailure && error.code === 'claw_disabled',
+      )
+      await writeFile(overlay, '[]\n')
+      await verifyClawProfile(harness.profile, harness.home, [overlay])
+    })
+  },
+)
+
+test(
+  'a profile with official model settings saved still passes admission',
+  TIMEOUT,
+  async () => {
+    // Rows written by the official settings services (`agent-default-model`, `llm-pi-ai`).
+    const profilePatch = [
+      '- id: agent-default-model',
+      '  config:',
+      '    provider: deepseek-official',
+      '    model: deepseek-v4-pro',
+      '    reasoningEffort: max',
+      '- id: llm-pi-ai',
+      '  config:',
+      '    providers:',
+      '      corn-audit-gateway:',
+      '        displayName: Corn audit gateway',
+      '        api: openai-completions',
+      "        baseURL: 'http://127.0.0.1:9/v1'",
+      '        apiKeyEnv: CORN_AUDIT_FAKE_API_KEY',
+      '        models:',
+      '          - id: corn-audit-model',
+      '',
+    ].join('\n')
+    await withHarness({ claw: { profilePatch } }, async (harness) => {
+      await harness.control.start()
+      assert.equal(harness.control.view.status, 'ready')
+      assert.equal(harness.control.view.errorCode, undefined)
+    })
+  },
+)
+
+for (const [mode, label] of [
+  ['missing', 'answers 404 (Gate not mounted)'],
+  ['error', 'answers an error status'],
+  ['not-json', 'answers a non-JSON body'],
+  ['not-ok', 'answers a failed envelope'],
+  ['no-items', 'answers without items'],
+  ['items-not-array', 'answers items that are not a list'],
+  ['over-limit', 'answers more items than requested'],
+] as const) {
+  test(
+    `Registry ok but the Gate audit route ${label}: never ready`,
+    TIMEOUT,
+    async () => {
+      await withHarness({}, async (harness) => {
+        harness.host.gate = mode
+        await assertRefused(harness, 'claw_check_failed', { spawned: true })
+        assert.ok(harness.host.registryCalls >= 1)
+        assert.ok(harness.host.gateCalls >= 1)
+        assert.ok(harness.children.every((child) => child.kills.length > 0))
+      })
+    },
+  )
+}
+
+test(
+  'the Gate probe asks for at most one audit row, after the Registry',
+  TIMEOUT,
+  async () => {
+    await withHarness({}, async (harness) => {
+      await harness.control.start()
+      assert.equal(harness.control.view.status, 'ready')
+      assert.equal(harness.host.registryCalls, 1)
+      assert.equal(harness.host.gateCalls, 1)
+      assert.deepEqual(harness.host.gateBodies, [{ limit: 1 }])
+    })
+  },
+)
+
+test(
+  'a hanging Gate check is cancelled by stop without a late ready',
+  TIMEOUT,
+  async () => {
+    await withHarness({}, async (harness) => {
+      harness.host.gate = 'hang'
+      const started = harness.control.start()
+      await harness.host.gateArrived()
+      assert.equal(harness.control.view.status, 'starting')
+      await within(harness.control.shutdown(), 'shutdown')
+      await within(started, 'start')
+      harness.host.releaseGate()
+      assert.equal(harness.control.view.status, 'stopped')
+      assert.equal(harness.control.auth, undefined)
+      assert.equal(existsSync(join(harness.home, 'corn-host.lock')), false)
+      assert.ok(
+        harness.children.every(
+          (child) => child.exitCode !== null || child.signalCode !== null,
+        ),
+      )
+    })
+  },
+)
+
+test(
+  'a child exit during the Gate check never commits ready; recovery re-checks the Gate',
+  TIMEOUT,
+  async () => {
+    await withHarness({}, async (harness) => {
+      harness.host.gate = 'hang'
+      const started = harness.control.start()
+      await harness.host.gateArrived()
+      const child = harness.children[0]
+      assert.ok(child)
+      child.exit(1)
+      await within(started, 'start')
+      harness.host.releaseGate()
+      assert.equal(harness.control.view.status, 'recovering')
+      assert.equal(harness.control.auth, undefined)
+      assert.equal(existsSync(join(harness.home, 'corn-host.lock')), false)
+      harness.host.gate = 'missing'
+      harness.runRecovery()
+      await harness.nextChild()
+      await harness.nextChild()
+      await harness.host.gateArrived()
+      await waitWhile(harness, 'recovering')
+      assert.equal(harness.control.view.status, 'failed')
+      assert.equal(harness.control.view.errorCode, 'claw_check_failed')
+      assert.equal(harness.host.gateCalls, 2)
+    })
+  },
+)
+
+test(
+  'a Gate check that never answers fails terminally at its deadline',
+  TIMEOUT,
+  async () => {
+    await withHarness({}, async (harness) => {
+      harness.host.gate = 'hang'
+      const { schedule, ...seams } = harness.seams()
+      const host = createGovernedHost(harness.home, {
+        ...seams,
+        model: null,
+        clawCheckTimeoutMs: 50,
+      })
+      const control = new StartupControl({ host, schedule })
+      try {
+        await within(control.start(), 'start')
+        assert.equal(control.view.status, 'failed')
+        assert.equal(control.view.errorCode, 'claw_check_failed')
+        assert.equal(harness.schedules.length, 0)
+        assert.equal(existsSync(join(harness.home, 'corn-host.lock')), false)
+        assert.ok(harness.children.every((child) => child.kills.length > 0))
+      } finally {
+        await control.shutdown()
+      }
+    })
+  },
+)
+
+test(
+  'recovery re-validates the Gate: a Gate gone after a crash blocks ready',
+  TIMEOUT,
+  async () => {
+    await withHarness({}, async (harness) => {
+      await harness.control.start()
+      assert.equal(harness.control.view.status, 'ready')
+      harness.host.gate = 'missing'
+      harness.children[0]?.exit(null, 'SIGKILL')
+      assert.equal(harness.control.view.status, 'recovering')
+      harness.runRecovery()
+      await waitWhile(harness, 'recovering')
+      assert.equal(harness.control.view.status, 'failed')
+      assert.equal(harness.control.view.errorCode, 'claw_check_failed')
+      assert.equal(harness.host.gateCalls, 2)
+      assert.equal(existsSync(join(harness.home, 'corn-host.lock')), false)
+    })
+  },
+)
+
+test(
+  'crash recovery of a legitimate profile re-checks the Gate and returns to ready',
+  TIMEOUT,
+  async () => {
+    await withHarness({}, async (harness) => {
+      await harness.control.start()
+      harness.children[0]?.exit(null, 'SIGKILL')
+      harness.runRecovery()
+      await waitWhile(harness, 'recovering')
+      assert.equal(harness.control.view.status, 'ready')
+      assert.equal(harness.children.length, 2)
+      assert.equal(harness.host.gateCalls, 2)
+    })
+  },
+)
 
 test(
   'a home-level patch disabling the suite row is refused',

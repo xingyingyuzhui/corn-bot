@@ -1,8 +1,9 @@
 import assert from 'node:assert/strict'
 import { createServer } from 'node:http'
 import { test } from 'node:test'
+import { ClawGateClient } from '../src/claw-gate-client.ts'
 import { SessionClient } from '../src/session-client.ts'
-import { HostTransport } from '../src/transport.ts'
+import { type ClawRoute, HostTransport } from '../src/transport.ts'
 
 test('RPC allowlist, Cookie and correlation envelope are enforced', async () => {
   let mismatch = false
@@ -57,6 +58,49 @@ test('RPC allowlist, Cookie and correlation envelope are enforced', async () => 
     )
     mismatch = true
     await assert.rejects(client.list(), /correlation/u)
+  } finally {
+    await new Promise<void>((resolve, reject) =>
+      server.close((error) => (error ? reject(error) : resolve())),
+    )
+  }
+})
+
+test('Claw routes are an exact allowlist; the Gate probe never surfaces audit rows', async () => {
+  const paths: string[] = []
+  let items: unknown = [{ tool: 'bash', reason: 'private-audit-row' }]
+  const server = createServer((request, response) => {
+    paths.push(request.url ?? '')
+    response.setHeader('Content-Type', 'application/json')
+    response.end(JSON.stringify({ ok: true, items }))
+  })
+  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve))
+  try {
+    const address = server.address()
+    assert.ok(address && typeof address !== 'string')
+    const origin = `http://127.0.0.1:${address.port}`
+    const transport = new HostTransport({
+      origin,
+      headers: () => ({}),
+      url: (path) => new URL(path, origin),
+    })
+    for (const route of [
+      'gate/audit-export',
+      'gate/audit/../audit-export',
+      'policy/set',
+    ])
+      await assert.rejects(
+        transport.claw(route as ClawRoute, {}),
+        /not allowed/u,
+      )
+    assert.deepEqual(paths, [])
+    const gate = new ClawGateClient(transport)
+    assert.equal(await gate.verifyMounted(), undefined)
+    items = [{}, {}]
+    await assert.rejects(gate.verifyMounted(), /Invalid Claw Gate/u)
+    assert.deepEqual(paths, [
+      '/api/dsh-claw/gate/audit',
+      '/api/dsh-claw/gate/audit',
+    ])
   } finally {
     await new Promise<void>((resolve, reject) =>
       server.close((error) => (error ? reject(error) : resolve())),

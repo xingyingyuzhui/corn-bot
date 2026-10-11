@@ -21,7 +21,11 @@ import {
   writeIsolationPatch,
 } from './profile-bootstrap.ts'
 import { materializeProfile } from './profile-template.ts'
-import { HostStoppedError, RuntimeFailure } from './runtime-failure.ts'
+import {
+  HostStoppedError,
+  HostStopTimeoutError,
+  RuntimeFailure,
+} from './runtime-failure.ts'
 
 const require = createRequire(import.meta.url)
 /** DSH's own first bundle resolution anchor (`INSTALL_ANCHOR` in its CLI). */
@@ -30,7 +34,31 @@ export const DSH_INSTALL_ANCHOR = require.resolve(
 )
 const cliEntry = join(dirname(DSH_INSTALL_ANCHOR), 'lib', 'bin.js')
 const READINESS_TIMEOUT_MS = 45_000
-const STOP_GRACE_MS = 8_000
+const STOP_TIMEOUTS: StopTimeouts = { graceMs: 8_000, killMs: 5_000 }
+
+export interface StopTimeouts {
+  /** SIGTERM → SIGKILL. */
+  readonly graceMs: number
+  /** SIGKILL → confirmed exit, then exit → stdio close. */
+  readonly killMs: number
+}
+
+async function settlesWithin(
+  promise: Promise<void>,
+  ms: number,
+): Promise<boolean> {
+  let timer: ReturnType<typeof setTimeout> | undefined
+  try {
+    return await Promise.race([
+      promise.then(() => true),
+      new Promise<false>((resolve) => {
+        timer = setTimeout(resolve, ms, false)
+      }),
+    ])
+  } finally {
+    clearTimeout(timer)
+  }
+}
 
 export type SpawnHost = (
   command: string,
@@ -48,7 +76,12 @@ export interface AdmissionContext {
 
 /** What a Host must satisfy before and after authentication to count as started. */
 export interface HostAdmission {
-  beforeSpawn(home: string, profile: string): Promise<void>
+  /** `overlays` are the `--patch` files this start passes, in argv order. */
+  beforeSpawn(
+    home: string,
+    profile: string,
+    overlays: readonly string[],
+  ): Promise<void>
   afterAuth(context: AdmissionContext): Promise<void>
 }
 
@@ -69,6 +102,8 @@ export interface SupervisorOptions {
     launch: URL,
     signal: AbortSignal,
   ) => Promise<HostAuth>
+  /** Test seam; production uses `STOP_TIMEOUTS`. */
+  readonly stopTimeouts?: StopTimeouts
 }
 
 async function seedProfile(template: string, profile: string): Promise<void> {
@@ -88,22 +123,39 @@ class ChildLife {
   readonly child: ChildProcess
   /** Aborted when the child exits or errors, or when a stop is requested. */
   readonly controller = new AbortController()
+  /** The process is gone (`exit`, `close` or a failed spawn); its pipes may still be open. */
   readonly exited: Promise<void>
+  /** The process is gone and its stdio pipes are closed. */
+  readonly closed: Promise<void>
+  exitConfirmed = false
   /** Set only at the startup commit point; later exits are crashes. */
   committed = false
   stopping = false
+  killed = false
   reported = false
   readonly skippedBundles = new Set<string>()
   stderrPending = ''
 
   constructor(child: ChildProcess) {
     this.child = child
+    let exited!: () => void
     this.exited = new Promise((resolve) => {
-      child.once('close', () => resolve())
+      exited = () => {
+        this.exitConfirmed = true
+        resolve()
+      }
+    })
+    this.closed = new Promise((resolve) => {
+      const closed = () => {
+        exited()
+        resolve()
+      }
+      child.once('close', closed)
       child.on('error', () => {
-        if (child.pid === undefined) resolve()
+        if (child.pid === undefined) closed()
       })
     })
+    child.once('exit', exited)
   }
 
   get signal(): AbortSignal {
@@ -126,6 +178,7 @@ export class DshHostSupervisor {
   readonly modelEnvFile: string | undefined
   readonly profileTemplate: string | undefined
   readonly #admission: HostAdmission
+  readonly #stopTimeouts: StopTimeouts
   readonly #spawnHost: SpawnHost
   readonly #exchangeAuth: (
     launch: URL,
@@ -139,6 +192,7 @@ export class DshHostSupervisor {
     this.model = options.model
     this.modelEnvFile = options.modelEnvFile
     this.profileTemplate = options.profileTemplate
+    this.#stopTimeouts = options.stopTimeouts ?? STOP_TIMEOUTS
     this.#spawnHost = options.spawnHost ?? spawn
     this.#exchangeAuth = options.exchangeAuth ?? HostAuth.exchange
   }
@@ -160,8 +214,12 @@ export class DshHostSupervisor {
   }
 
   start(): Promise<HostAuth> {
-    if (this.#startFlight || this.#life || this.#stopFlight)
+    if (this.#startFlight || this.#stopFlight)
       return Promise.reject(new Error('Host is already started or stopping'))
+    const life = this.#life
+    if (life?.stopping)
+      return Promise.reject(new HostStopTimeoutError(life.child.pid))
+    if (life) return Promise.reject(new Error('Host is already started'))
     this.#startFlight = this.#start().finally(() => {
       this.#startFlight = undefined
     })
@@ -205,7 +263,7 @@ export class DshHostSupervisor {
       else if (!existsSync(join(profile, 'package.json')))
         args.push('--from-default-profile', 'web')
       args.push('--patch', patch, '--no-open', '--port', '0')
-      await this.#admission.beforeSpawn(this.home, profile)
+      await this.#admission.beforeSpawn(this.home, profile, [patch])
       this.#throwIfStopRequested()
       const life = this.#spawn(args, model)
       const launch = await this.#readiness(life)
@@ -371,33 +429,45 @@ export class DshHostSupervisor {
     return this.#stopFlight
   }
 
+  /**
+   * An unconfirmed child keeps `#life` and the home lock, so a later stop can
+   * retry and no start can replace it.
+   */
   async #stop(): Promise<void> {
     const life = this.#life
+    if (life) {
+      life.stopping = true
+      life.controller.abort(new HostStoppedError())
+      await this.#terminate(life)
+    }
     try {
-      if (life) {
-        life.stopping = true
-        life.controller.abort(new HostStoppedError())
-        const { child } = life
-        if (child.exitCode === null && child.signalCode === null) {
-          child.kill('SIGTERM')
-          let timer: ReturnType<typeof setTimeout> | undefined
-          const exited = await Promise.race([
-            life.exited.then(() => true),
-            new Promise<false>((resolve) => {
-              timer = setTimeout(() => resolve(false), STOP_GRACE_MS)
-            }),
-          ])
-          clearTimeout(timer)
-          if (!exited) {
-            child.kill('SIGKILL')
-            await life.exited
-          }
-        }
-      }
       await this.#release?.()
     } finally {
       this.#release = undefined
       this.#life = undefined
     }
+  }
+
+  /** TERM → grace → KILL → bounded wait for exit; a confirmed exit gets a bounded wait for its pipes. */
+  async #terminate(life: ChildLife): Promise<void> {
+    const { child } = life
+    const { graceMs, killMs } = this.#stopTimeouts
+    if (!life.exitConfirmed) {
+      if (!life.killed) {
+        child.kill('SIGTERM')
+        if (await settlesWithin(life.exited, graceMs)) return this.#drain(life)
+      }
+      life.killed = true
+      child.kill('SIGKILL')
+      if (!(await settlesWithin(life.exited, killMs)))
+        throw new HostStopTimeoutError(child.pid)
+    }
+    await this.#drain(life)
+  }
+
+  async #drain(life: ChildLife): Promise<void> {
+    if (await settlesWithin(life.closed, this.#stopTimeouts.killMs)) return
+    life.child.stdout?.destroy()
+    life.child.stderr?.destroy()
   }
 }
