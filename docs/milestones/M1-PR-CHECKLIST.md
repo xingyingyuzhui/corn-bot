@@ -12,10 +12,29 @@ M0 is accepted except signing and notarization ([ADR-0001](../adr/ADR-0001-dsh-t
 | 02B | `src/features/settings/*`, `bot-editor/*`, `voice/*` | Explicit button contracts. Actions waiting for M2/M7 are disabled with a clear reason. Voice states are visible only under the development fixture route |
 | 02B | `design/grok-kit/INTERACTION_COVERAGE.md`, `docs/milestones/M1-UI-KIT-COVERAGE.md` | All 83 kit checklist items recorded as covered / deferred / not-applicable / unknown |
 | 02C | `apps/renderer/tests/visual/*`, `apps/renderer/tests/fixtures/*` | Region-based screenshot comparisons against both reference PNGs at fixed macOS/DPR/font/viewport, plus measured layout assertions. Accepted visual-baseline deviation: the fixed status strip above the composer (review fix U1) is absent from the references and must stay visible; the diff masks or rebaselines that band instead of hiding the strip |
-| 02D | `packages/contracts/src/avatar.ts`, `packages/ui/src/avatar/*`, `packages/state/src/avatar-presentation.ts` | Corn-original avatar ([ADR-0003](../adr/ADR-0003-avatar-engine.md)); lifecycle, reduced-motion and unmount tests |
+| 02D-1 | `packages/contracts/src/avatar.ts`, `packages/ui/src/avatar/*`, renderer `shared/Avatar.tsx` and its usage sites, `design/corn-assets/*` | Import and lock the 16-role/9-shape Corn-original asset family; one static avatar contract across roster/header/details/editor/handoff, stable variants, uploaded-image preservation and old placeholder fallback ([asset integration plan](../plans/CORN_AVATAR_ASSET_INTEGRATION_PLAN.md)) |
+| 02D-1 | `apps/desktop/assets/app-icon-source.png`, `app-icon.icns`, `scripts/generate-app-icons.mjs`, builder/package configuration | v3 flat corn icon with `/` eyes; reproducible iconset/ICNS, no external design-folder build dependency; inspect the new packaged App in Finder, Dock and App switcher |
+| 02D-2 | `packages/ui/src/avatar/*`, `packages/state/src/avatar-presentation.ts`, avatar fixtures and tests | Original 18-state motion ([ADR-0003](../adr/ADR-0003-avatar-engine.md)); shared scheduling, unique SVG IDs, StrictMode/lifecycle/reduced-motion, regional visuals and 20+ Bot load evidence. Real-event wiring remains M2/03A |
 | all | `packages/contracts`, `apps/desktop/src/ipc/*` | Narrow typed methods, sender validation, credential-free view models; no raw Host endpoint or filesystem proxy |
 
 M1 may use clearly labelled fixtures for visual states. Real creation/binding and persistent Bot/Conversation/Run transactions belong to M2. Fixtures must never report successful model calls, permissions or computer control.
+
+## PR-02D next-step plan (not yet integrated)
+
+The source kit at `/Users/qin/DSH/Corn Bot/design-assets/corn-avatar-kit-v1` has been generated and independently checked (9 tests). The App still uses the initials/hue placeholder at `apps/renderer/src/shared/Avatar.tsx`; package tests do not establish React, Electron or packaged-App acceptance. Main plan §15 and the [asset integration plan](../plans/CORN_AVATAR_ASSET_INTEGRATION_PLAN.md) record the selected files and SHA-256 values.
+
+- [ ] Review/merge #7 first; then branch runtime R1–R3, U1 and 02D-1 from main in parallel. Require finding closure at milestone sign-off, not before avatar implementation begins; continue the 02C gates.
+- [ ] Lock and migrate the original 16 variants, 9 shapes and 18 states into repository-owned code/assets; use `/` capsule eyes and the corrected v3 App icon.
+- [ ] Store variantId explicitly; configure existing fixture variants, choose new Bot defaults by stable ID hash from the non-xiaohuang 15 variants and preserve initials/hue for old/unknown variants. Add the 16-choice picker; leave upload disabled until M2 with the corrected explanation.
+- [ ] Adapt the current AvatarSpec and all Bot avatar usage sites to one component, preserving dimensions, user/account images and valid fallbacks.
+- [ ] Normalize the locked source onto a transparent 1024 canvas with recorded inset parameters, generate iconset/ICNS, then inspect a fresh `.app` in Finder/Dock/App switcher. Source and derived hashes remain distinct.
+- [ ] Integrate React motion/static/uploaded renderers and shared scheduler; prove stable state updates, independent SVG IDs and lifecycle cleanup.
+- [ ] Include new package tests in root checks, then collect fixed-clock visual, reduced-motion, StrictMode and load evidence; re-run packaged smoke for the new build.
+- [ ] Record intentional avatar-region baseline changes and remaining/manual checks in design-spec and M1 evidence before sign-off.
+
+The five group avatars are retained as design assets; deferred group product features remain deferred. Real Run/Session/Gate-driven animations are accepted separately in M2/PR-03A.
+
+These planning changes belong in the first commit on the post-#7 02D-1 branch, not in #7. Runtime smoke entry points and U1 announcement deduplication are specified in asset integration plan §7.
 
 Not in M1: task threads, group detail tabs, dark theme, and switchable `dmg-0681`/`website-demo` profiles. M2 groundwork that does not touch the Renderer (SQLite schema and migrations, session event reducer, Run state machine) may proceed in parallel, but is wired into the UI only after PR-02C merges.
 

@@ -1,6 +1,6 @@
 # Corn Bot — 本地 macOS 持久 Bot 工作平台：代码级迭代实施计划
 
-> 版本：计划 v1.3 · 2026-10-11（基于 Kit 动态头像更新，新增 Avatar Motion 子系统与代码级验收）；仓库同步版附 §14 维护者决策，§14 与正文冲突时以 §14 为准  
+> 版本：计划 v1.3 · 2026-10-11（基于 Kit 动态头像更新，新增 Avatar Motion 子系统与代码级验收）；仓库同步版附 §14 维护者决策及 §15 Corn 原创素材接入增量，§14 与正文冲突时以 §14 为准
 > 交付对象：执行开发的 Coding Agent / 工程团队  
 > 目标：独立 `Corn Bot.app`，高保真借鉴 Grok Bot 的白色双栏/三栏桌面 UI，运行于用户当前 macOS 桌面，复用 DeepSeek Harness（DSH）的 Agent 引擎及既有 DSH Claw Suite 的治理能力。  
 > **性质：待执行的开发计划，不表示已实现、已集成或已测试通过。**
@@ -977,8 +977,8 @@ M0 交付证据：锁定 SHA 的 GitHub 差异记录、Kit `npm ci && npm run bu
 
 ```ts
 export type CornAvatarShape =
-  | 'blob' | 'wedge' | 'gem' | 'cloud' | 'pebble' | 'squircle'
-  | 'hex' | 'heart' | 'star6' // v1 自主实现的轮廓子集；后续按权利与视觉验收扩展
+  | 'cob' | 'baby-cob' | 'round-cob' | 'tall-cob' | 'kernel'
+  | 'twin-kernel' | 'husk-bud' | 'husk-fan' | 'popcorn' // §15 锁定的 Corn 原创轮廓；待 PR-02D 接入契约
 
 export type AvatarVisualState =
   | 'idle' | 'sleeping' | 'waking' | 'listening' | 'thinking'
@@ -988,6 +988,7 @@ export type AvatarVisualState =
 
 export interface AvatarPreference {
   kind: 'uploaded' | 'generated' | 'default'
+  variantId?: string       // §15：Corn 角色目录校验；未知/旧记录回退首字与色相占位
   assetId?: string          // 仅用户有权使用的图片
   color?: string            // Corn 自有语义配色
   motion?: { shape: CornAvatarShape; seed: number; enabled: boolean }
@@ -1013,7 +1014,7 @@ export interface AvatarPresentation {
 
 - `AvatarVisualState` 是 Corn 精简业务展示枚举，不是全部官网 35 状态。`CornAvatarShape` 初期 9 个可自行实现的轮廓，不可因为 Kit 有 25 个就强行复制原几何数据。研发验收应分成 **研究参考 35/25 可访问** 与 **Corn v1 已获权且实际实现的 shape/state 子集**，分别报告覆盖，不得将二者混为一谈。
 - `CornBot.avatar` 将 `motion` 加在现有 `uploaded|generated|default` 偏好中，不能给 `uploaded` 强套变形。自定义人物头像展示原图，只在可获权情况下加外部状态环/提示；仍支持列表和标题两个尺寸。
-- 持久化只保存用户的 avatar 偏好：`shape`, `seed`, `enabled`, `color`, `assetId`。实时业务 `AvatarRuntimeSignals` 和当前 `visual` 由事件投影/恢复计算；不要每次眨眼或动画帧写 SQLite。
+- 持久化只保存用户的 avatar 偏好：`variantId`, `shape`, `seed`, `enabled`, `color`, `assetId`。实时业务 `AvatarRuntimeSignals` 和当前 `visual` 由事件投影/恢复计算；不要每次眨眼或动画帧写 SQLite。
 
 ### 13.4 UI Kit 模块：按文件拆分，禁止巨型 Avatar.tsx（M1 / PR-02D）
 
@@ -1087,7 +1088,7 @@ export interface AvatarPresentation {
 | PR | 时机 | 必须实现的文件/成果 | 阻断条件 |
 |---|---|---|---|
 | **PR-00E** Avatar 来源/许可/契约 ADR | M0，PR-00D 后 | `SOURCE_LOCK` 更新、`AVATAR_SOURCE_MATRIX.md`、`AVATAR_BEHAVIOR_MAPPING.md`、`ADR-0003-avatar-engine.md`、`RIGHTS_REVIEW`、Kit SHA 校验 | 原组件/提取素材无许可却进入 Corn 构建依赖；混淆官网与 DMG 状态 |
-| **PR-02D** 纯 UI Avatar Motion | M1，PR-02A 后，可与 02B 有序衔接 | `contracts/avatar.ts`、`ui/src/avatar/*`、fixtures、avatar unit/visual/lifecycle tests；列表、标题、详情接统一组件 | 只做 CSS 摇摆却冒充官网几何动效；离屏耗 CPU；手动减少动效无效 |
+| **PR-02D** Corn 原创头像与 App 图标 | M1，PR-02A 后，可与 02B/02C 有序衔接 | §15 素材锁定；02D-1 静态头像、统一组件、macOS 图标生成/打包；02D-2 动画、fixtures、unit/visual/lifecycle/load tests；列表、标题、详情等使用点统一 | 把独立素材包测试当 App 接入通过；图标未进入新 `.app`；离屏耗 CPU；减少动效无效 |
 | **PR-03A** DSH 状态接线 | M2，PR-03 内独立提交 | `state/src/avatar-{presentation,state-reducer}.ts`、Session/Run/Gate 映射、回归事件测试 | 把 enqueue 当完成；Bot 之间状态串线；断线误报成功 |
 | **PR-09A** Avatar 发布检查 | M8，PR-09 前 | `scripts/audit-ui-assets.mjs` 补充排除提取代码、版权审计记录、`.app` asar 清单 | 未经明确许可打包原官网组件/DMG 生成脚本/原路径/第三方音频或字体 |
 
@@ -1116,6 +1117,26 @@ export interface AvatarPresentation {
 | 9 | 分支 | PR-00D/E 在叠加于 `feat/m0-runtime-spike` 的新分支上进行，PR #1 保持草稿 | — |
 | 10 | PTC（`run_code`） | M0 结论限定为：**普通调用治理通过；PTC 外层拒绝通过，嵌套治理尚未验证。** PTC 保持禁用，M1 只使用已验证的普通工具调用链，不为此发布 Claw rc3。启用 PTC 前必须实测四项：嵌套调用逐次拒绝（`research`）、逐次审批（`developer`）、审批待决时取消、审计与观测 trace 关联到外层 `run_code` 的 `rootCallId`。候选 Claw 修改先在 Claw 仓库的隔离测试环境验证，通过后再发布并升级 Corn 的 `runtime.lock.json` | `docs/milestones/M0-EVIDENCE.md`、`scripts/smoke-governance.mjs --ptc` |
 | 11 | 签名与公证 | M0 只产出未签名的 arm64 `Corn Bot.app` 供本地验证；Developer ID 签名、hardened runtime 与公证推迟，分发前需新 ADR | `docs/adr/ADR-0005-packaging.md` |
+| 12 | 下一步头像与 App 图标 | 用户要求将已制作的 Corn 原创素材包和 v3 修正版图标纳入后续开发。PR-02D 分为静态/图标接入与动态组件接入，M2 接真实事件；锁定 16 角色、9 玉米轮廓、18 状态，默认眼睛方向为 `/`。群组素材先保留，不扩大 M1 群组功能。素材包独立验证不等于 App 验收通过 | §13 provisional 轮廓已更新；§15；[素材接入计划](CORN_AVATAR_ASSET_INTEGRATION_PLAN.md) |
 | — | 模型凭据 | Corn 专用 DeepSeek API Key 在 PR-00D/E 完成后、M0-03 开始前由维护者本地配置，同时确认模型 ID。Key 不进入 Git、计划文件或聊天 | M0-03、`docs/runbooks/development.md` |
 
 **同步修正（非决策性）**：ADR 编号顺延，SQLite 已占 ADR-0002，头像引擎为 ADR-0003，设计 profile 为 ADR-0004；`packages/ui-kit` 更名为 `packages/ui`；`design/fixtures/*.ts` 移到 `apps/renderer/tests/fixtures/`，`design/` 只存文档；§12.2 checkout 改为 `0248419…`；§0 第 1 条更新为仓库已创建；§13 头注的变化文件数按 `git diff --stat` 更正为 45。
+
+---
+
+## 15. Corn 原创素材与 App 图标接入增量（2026-10-11）
+
+**输入已生成，App 接入待执行。** 下一步使用 `/Users/qin/DSH/Corn Bot/design-assets/corn-avatar-kit-v1`：16 个角色、9 种原创玉米轮廓、18 种状态、288 个角色状态静态采样和 5 个群组。正式候选图标为包内 `assets/app-icon.png`，对应 `corn-bot-app-icon-v3-eyes-fixed.png`；平面玉米风格、黑色胶囊眼睛向 `/` 倾斜。较早写实版本及眼睛角度错误版本不进入发布。
+
+完整文件拆分、源 SHA-256、当前占位组件的迁移、图标产物及验收见 **[CORN_AVATAR_ASSET_INTEGRATION_PLAN.md](CORN_AVATAR_ASSET_INTEGRATION_PLAN.md)**。接入后源代码和资产保存在 Corn 仓库，构建不依赖上述外部绝对路径。
+
+| 阶段 | 下一步交付 | 验收边界 |
+| --- | --- | --- |
+| PR-02D-1 | 迁入并锁定原创资产，建立 `packages/ui` 与统一 `BotAvatar`，替换现有 `apps/renderer/src/shared/Avatar.tsx` 占位；覆盖列表、收藏卡、标题、详情、编辑、折叠栏和交接通知；生成 iconset/ICNS 并配置 macOS 打包 | 同一 Bot 配色/轮廓一致，上传图保持原貌；各使用尺寸及布局回归；新 `.app` 的 Finder/Dock/App 切换器图标检查 |
+| PR-02D-2 | 基于原创几何接 React 动画、统一调度、静态回退、18 状态 fixtures；稳定 seed、独立 SVG ID、StrictMode/卸载/离屏/减少动态清理 | App 级 unit/visual/lifecycle/load 证据；素材包原有 9 项测试只作迁移起点 |
+| PR-03A / M2 | 真实 Session/Run/Gate 到 AvatarPresentation 的按 Bot/Run 投影、优先级、短态 TTL、重连对账 | accepted 不当完成，审批不被普通工作态覆盖，断线不报成功，多 Bot 不串线 |
+| PR-09A / M8 | 最终来源与构建清单复查，分发图标检查 | 不包含 Kit 提取资源；不将演示画廊打进 App；签名/公证按发布 ADR 单独验证 |
+
+先完成 PR #7 的 review 与合并，之后从 main 分别进行 runtime R1–R3、U1 与 02D-1，允许并行；runtime 关闭证据作为阶段验收条件，而非 02D-1 开工前置。`main.ts` 重叠部分按 runtime PR → 02D-1 合并。PR-02C 门禁继续执行；U1 与头像的主动视觉变化更新区域基线，布局标定保持。M1 收尾需同时具备 review 修复关闭、02C 与完整 02D 证据。M2 底层并行规则仍按 §14。5 个群组头像先归档，群组功能维持原定后续阶段。
+
+开工补充：App 图标先规范化透明留白再出 ICNS，按新 `.app` 的实际效果验收；新 Bot 从非小黄 15 角色稳定哈希选默认值，显式存 variantId，旧/未知值回退首字与色相占位；02D-1 做 16 选 1，上传推迟 M2 并更新禁用原因。计划文档不进入 #7，合并后作为 02D-1 分支首个提交。U1 分支、四项 smoke 入口及状态播报去重见接入计划 §7。
