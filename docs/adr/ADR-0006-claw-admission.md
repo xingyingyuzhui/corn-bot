@@ -1,6 +1,6 @@
 # ADR-0006: Formal Claw admission on every App Host start
 
-- Status: **Accepted (2026-10-11)** — closes review finding R1 (existing profile without Claw reached `ready`)
+- Status: **Accepted (2026-10-11)**; R1 **reopened** by the second-round review F1 (a Loader `isolate` on the Gate row left the Gate unmounted while the formal entry still reported `ready`). Fix in progress on `fix/runtime-gate-admission`; R1 is not closed until the new negatives pass
 - Milestone: M0 review fixes
 - DSH: `0.2.0-rc.2`, tag `dsh-v0.2.0-rc.2`, commit `639ed015397290b3745d163aafe02ffee4aa3f84` (the contract commit in `runtime.lock.json`)
 - Claw Suite: `0.3.0-rc.2`

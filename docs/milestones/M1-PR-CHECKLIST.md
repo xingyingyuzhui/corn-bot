@@ -1,6 +1,6 @@
 # M1 product UI slice
 
-M0 is accepted except signing and notarization ([ADR-0001](../adr/ADR-0001-dsh-transport.md), [M0 evidence](M0-EVIDENCE.md)). Review findings R1–R3 are closed with evidence; every App start passes the formal Claw admission ([ADR-0006](../adr/ADR-0006-claw-admission.md)). This is the file-level review checklist for M1. Scope follows plan §14 maintainer decisions; kit references follow [SPEC_MAPPING](../../design/grok-kit/SPEC_MAPPING.md).
+M0 is accepted except signing and notarization ([ADR-0001](../adr/ADR-0001-dsh-transport.md), [M0 evidence](M0-EVIDENCE.md)). Review findings R2–R3 are closed with evidence; R1 is **reopened** by second-round finding F1 (Gate unmounted by a Loader `isolate` still reached `ready`) and is not signed off until the Gate admission fix lands with new negatives ([ADR-0006](../adr/ADR-0006-claw-admission.md)). This is the file-level review checklist for M1. Scope follows plan §14 maintainer decisions; kit references follow [SPEC_MAPPING](../../design/grok-kit/SPEC_MAPPING.md).
 
 | PR | Files | Reviewable behaviour |
 | --- | --- | --- |
