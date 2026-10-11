@@ -2,15 +2,16 @@
 
 ## Status and evidence scope
 
-**Gate passed: RC2 has a public, persistent write path for the global default model.** It is the generic `settings` Remote addressed to the `agent-default-model` namespace. A live write, Host restart and read-back in a Corn-owned home proves it. No Corn Host Bridge command and no upstream patch is required for the global default. Section 4 records the reasoning, limits and the Main-side command Work Package 3 implements.
+**Gate passed: RC2 has a public, persistent write path for the global default model.** It is the generic `settings` Remote addressed to the `agent-default-model` namespace. A live write, Host restart and read-back in an audit-owned Corn lab proves it (re-recorded with the owned-lab harness, §10). No Corn Host Bridge command and no upstream patch is required for the global default. Section 4 records the reasoning, limits and the Main-side command Work Package 3 implements.
 
 This package audits interfaces only. It does not wire Corn UI, IPC or adapters, does not remove the development `model.env` path, and does not claim that a configured provider can serve a model request.
 
 - DSH `0.2.0-rc.2`, tag `dsh-v0.2.0-rc.2`, commit `639ed015397290b3745d163aafe02ffee4aa3f84` (cited below as `path@639ed015`). Source was read only through `git show` / `git grep` on that commit in a local clone of the official repository, never from a working tree or master.
 - Wire parameter names and cancellation come from the published generated descriptors `lib/typert.host.js` of `@deepseek-ai/dsh-api-settings-controller@0.2.0-rc.2` and `@deepseek-ai/dsh-llm@0.2.0-rc.2`, not from hand-written types.
 - Claw `0.3.0-rc.2` was read from the locked release asset (`sha256 99ea3c20…08cb`, matches `runtime.lock.json`), package `dsh-claw-registry-0.3.0-rc.2.tgz`.
-- Live evidence: `scripts/audit/model-config-api-audit.mjs` against a fresh home created by `CORN_DSH_HOME=~/.corn-bot-dev/wt-model-audit/dsh pnpm setup:runtime`, and `scripts/audit/packaged-model-config-probe.mjs` against the packaged `release/mac-arm64/Corn Bot.app` (read-only, its own temp home). The full redacted record is written to `.artifacts/model-config-api-audit.json` (not committed).
-- Safety: no user DSH home, DSH application, existing configuration or credential was read. `model.env` was not read; `setup:runtime` boots keyless (`model: null`). Only the fake values `sk-corn-audit-FAKE-0000`, `…-FAKE-ENV-0000`, `…-FAKE-DOTENV-0000` and `…-FAKE-DISCOVERY-0000` were used. No provider endpoint was contacted: discovery used the pi-ai catalog and a loopback stub. The script scans every wire response, all Host stdout/stderr, the evidence record and the whole home tree for each fake value and asserts zero hits; it observed none. Every write was reverted, and all Hosts, the stub and the temp homes were removed.
+- Live evidence: `node scripts/audit/model-config-api-audit.mjs` (no arguments) and `node scripts/audit/packaged-model-config-probe.mjs "<worktree>/release/mac-arm64/Corn Bot.app"` (read-only). Each creates and destroys its own lab (§10). The redacted records are written to `.artifacts/model-config-api-audit.json` and `.artifacts/packaged-model-config-probe.json` (not committed). The first audit run used an externally supplied `CORN_DSH_HOME`; the re-review (F3/F4) rejected that harness. The evidence below was re-recorded on 2026-10-11 with the owned-lab harness on branch `fix/model-audit-isolation`. All conclusions held.
+- Safety: no user DSH home, DSH application, existing Corn home, configuration or credential was read. `model.env` was not read. The Host environment is Corn's allowlist plus fake `CORN_AUDIT_*` refs only, and any other key-shaped value is rejected. Only the fake values `sk-corn-auditc-FAKE-0000`, `…-FAKE-ENV-0000`, `…-FAKE-DOTENV-0000` and `…-FAKE-DISCOVERY-0000` were used. No provider endpoint was contacted: discovery used the pi-ai catalog and a loopback stub. The script scans every wire response, all Host stdout/stderr and the whole lab home tree for each fake value and asserts zero hits. The report writer also refuses to persist one. No hits were observed.
+- Two different guarantees. **Restore to lab initial values**: every write is reverted through the public Remotes and asserted (global default `user: {}`, fake credential unset, custom provider withdrawn). This is capability `lab-restored`. **Destroy the lab**: afterwards all Hosts are stopped, the stub is closed, the lock is released and the lab directory is removed. This is the report's `cleanup`. Neither applies to any home the audit did not create, because it refuses to use one.
 
 ## 1. Composition: which official services Corn assembles
 
@@ -61,7 +62,7 @@ Error vocabulary (`api/settings-controller/src/types.ts@639ed015`, `llm/llm/src/
 
 Revision semantics (`settings/settings/src/index.ts@639ed015` L302–340, L377–423): one counter per namespace per Host process. It starts at 0 and increments when the entry's `[fiber uid, schema, config]` changes. `expectedRevision: undefined` writes unconditionally. The comparison runs inside the config editor's file lock, so a stale writer gets `settings/conflict`. **Revisions reset to 0 on Host restart** (observed: 1 before restart, 0 after). A revision read from a previous Host generation can therefore match by accident. Corn must discard revisions on every Host generation change and re-read.
 
-Cancellation: only `discoverModels` and `openSettingsDocument` declare a cancellation parameter. Live: aborting the HTTP request of a `discoverModels` call against a hanging loopback endpoint made the Host close its upstream request (`client: AbortError`, `upstreamRequestClosed: true`). Settings and credential writes have no cancellation. Once sent they run to completion, so a timed-out write has an unknown outcome and must be resolved by re-reading.
+Cancellation: only `discoverModels` and `openSettingsDocument` declare a cancellation parameter. Live, asserted (capability `discovery-cancellation`, §10): the `discoverModels` request reached the hanging loopback endpoint (4 ms) and only then was its HTTP request aborted. The client ended with `AbortError`, and the Host closed its upstream request unanswered 2 ms after the abort (`hangRequests: 1`). Each step has a bound, and any other outcome fails the audit. This proves cancellation of discovery HTTP only. Settings and credential writes have no cancellation. Once sent they run to completion, so a timed-out write has an unknown outcome and must be resolved by re-reading.
 
 ## 3. Credentials (`credentials-local`)
 
@@ -95,7 +96,7 @@ Why this is public and supported, not a private shortcut:
 - The `auto: false` projection (`index.ts` L60) only registers the page presentation policy. `SettingsForms.describe` turns it into `autoGenerate: false` on the descriptor and still lists the namespace (`settings/settings/src/index.ts@639ed015` L266–277, L312, L326). Writes check only that the entry is configurable and the path is volatile (L377–389). The live descriptor confirmed `autoGenerate: false`, fields `provider, model, reasoningEffort`.
 - The write path is the official `ConfigEditor.edit` (`boot/config-editor/src/index.ts@639ed015` L87–153). It is the same storage that `AgentDefaultModelConfig.saveSelection` (`index.ts` L82–94) and therefore `session.selectModel` use: an atomic `0600` write of `profiles/corn-dev/cordis.patch.yml` followed by Loader reconciliation. The Remote returns only after both, so the caller awaits save completion.
 
-Live end-to-end evidence (dev home, keyless):
+Live end-to-end evidence (audit-owned lab, keyless; capabilities `global-default-write` and `global-default-restart-persistence`):
 
 | Step | Request | Observed |
 | --- | --- | --- |
@@ -156,7 +157,8 @@ Bridge or upstream: neither is needed for this gate. Had the namespace been abse
 | Credential request validation errors | verified | §2 |
 | `llm.listProviders`, `listConfigurableProviders`, configurable-but-inactive entries | verified | §5 |
 | Hand-declared provider via settings → routable → removed | verified | §5 |
-| `llm.discoverModels` from catalog (no network), unknown namespace, loopback endpoint, cancellation | verified | §5, §2 |
+| `llm.discoverModels` from catalog (no network), unknown namespace, loopback endpoint | verified | §5 |
+| `llm.discoverModels` HTTP cancellation reaches upstream (asserted, bounded) | verified (owned-lab harness, branch `fix/model-audit-isolation`) | §2, §10 |
 | `session.modelCatalog` keyless | verified | §5 |
 | **Global default public write + restart persistence** | **verified** | §4 |
 | Global default catalog validation by DSH | unavailable (Corn validates) | §4 |
@@ -172,6 +174,9 @@ Bridge or upstream: neither is needed for this gate. Had the namespace been abse
 | Outcome of a settings/credential write whose HTTP request is aborted | pending (descriptor: not cancellable; re-read required) | §2 |
 | DeepSeek account login / `initializeDefaultModel` | pending (out of scope) | §4 |
 | `settings.openSettingsDocument` | not exercised (opens a native editor; not for Corn) | §2 |
+| Audit refuses an external home before any read/write/spawn | verified (regression + live old-fail/new-pass) | §10 |
+| Audit cleanup on success and failure (Hosts, stub, lock, lab removed; bounded) | verified (regressions + live runs) | §10 |
+| Cleanup of an audit killed with SIGKILL | unavailable (no handler can run; the lab stays in the OS temp dir) | §10 |
 
 ## 9. Inputs to Work Package 3
 
@@ -191,3 +196,49 @@ Risks:
 5. DSH does not validate the default model against the catalog; Main must.
 6. The default-model write path is generic settings, not an official UI flow. Re-audit on every DSH upgrade.
 7. `session.selectModel` mutates the global default asynchronously. Corn must not call it from global-settings code. Work Package 4 must resolve Bot overrides before using it.
+
+## 10. Audit harness guarantees (re-review F3/F4)
+
+Status: verified on branch `fix/model-audit-isolation`; awaiting independent review before merge. Until that merges, `main`'s audit script still has the F3/F4 defects and its runs are not acceptable evidence.
+
+### Lab lifecycle (`scripts/lib/model-audit-fixtures.mjs`)
+
+- **No external home.** `CORN_DSH_HOME`, any positional path or any flag makes both scripts exit `2` from the argv/env strings alone. No file is read or written, no Host is spawned and no report is touched. The packaged probe accepts exactly one `.app` path.
+- **Owned lab.** `mkdtemp` in the OS temp dir. `home/` gets an owner marker `{ owner: 'corn-bot', purpose: 'model-config-audit', labId }` and passes Corn's `claimCornHome`, and the Corn process lock is held for the whole run. The lab path is fixed at creation. Removal re-checks that the marker still carries this `labId` and refuses otherwise.
+- **Profile source.** The profile comes only from a template that `assertCredentialFreeTemplate` accepts: top level limited to `package.json`, `cordis.yml`, `cordis.patch.yml`, `node_modules` and the manifest, no `.env*` / `.credentials*` entry anywhere, and `verifyTemplate` hash/version check. The API audit builds that template inside the lab with `buildProfileTemplate` (locked DSH plus the SHA-checked Claw release, the same flow as `package:mac`). The packaged probe uses the app's bundled template read-only. Existing homes are never copied.
+- **Versions** are read from the installed packages: DSH from the resolved `@deepseek-ai/dsh/package.json` (or the app's bundled copy), Claw from `profiles/corn-dev/node_modules/dsh-claw-suite` and all 9 components. They are compared with the contract and `runtime.lock.json`. A mismatch fails the run and destroys the lab.
+- **Host process.** Each Host is spawned in its own process group. A spawn `error`, an `exit` before readiness or a 45 s readiness deadline rejects the start. Stop sends SIGTERM with an 8 s grace, then SIGKILL with a 5 s bound, then reaps any survivor in the group. A survivor is a cleanup failure, never an endless wait. SIGINT/SIGTERM to the audit destroys the lab and exits 130.
+- **Cleanup order** on success and failure: stop every Host, close tracked stubs (all connections dropped, 5 s bound), release the lock, verify the marker, remove the lab. Any failed step makes `cleanup.ok: false` and a non-zero exit, and nothing claims the cleanup succeeded.
+
+### Report semantics (`scripts/lib/model-audit-report.mjs`)
+
+- At start the report is replaced by `{ status: 'running' }`. A failed, crashed or interrupted run can therefore never leave an older `passed` report behind.
+- `passed` (exit 0) requires every required capability recorded as `pass` with no `false` fact, no failed capability, no error and `cleanup.ok`. Anything else is `failed` with exit 1, and the safe failure reason is recorded. A report containing a fake key is not written. A failure record without evidence is written instead.
+- API audit required capabilities: `runtime-versions`, `discovery-cancellation`, `global-default-write`, `global-default-restart-persistence`, `lab-restored` and `fake-key-leak-scan`. Packaged probe: `runtime-versions`, `packaged-read`, and `app-unmodified` (path/mode/size/mtime fingerprint of the whole bundle, equal before and after).
+
+### Cancellation assertion (`scripts/lib/model-audit-cancellation.mjs`)
+
+The abort fires only after the request has arrived at the hanging stub; there is no fixed delay. A pass then requires all of the following, each with a bound: the client ends with `AbortError` (5 s), and the upstream request closes unanswered (5 s). The failure reasons are `upstream-never-reached`, `call-settled-before-abort`, `client-not-settled`, `client-not-aborted`, `upstream-not-closed` and `upstream-completed`. Each one throws, and the run fails with that reason recorded.
+
+### Old-fail / new-pass
+
+| Check | Baseline `a72994c` | This branch |
+| --- | --- | --- |
+| External fake Corn home (`.env`, `.credentials.yaml`, patch sentinels, broken profile) via `CORN_DSH_HOME` | exit 1 after 217 ms. A Host was spawned, `documents/` was created and the existing **`.env` was deleted** | exit 2 after 164 ms. Path, mode, mtime and bytes identical. No new entry and the previous report untouched |
+| Same via a positional path / `--home` flag; packaged probe with an env home or a non-`.app` argument | old packaged probe read the bundle path first (exit 1) | exit 2, home unchanged |
+| Cancellation that never reaches upstream, is not propagated, answers early, or never settles | swallowed by `catch(() => false)`, so the audit could still exit 0 | each fails the probe within its bound (1–2 s per case in tests) and the run exits 1 |
+| Regression suites `scripts/tests/model-audit-{isolation,cancellation}.test.mjs` (23 tests) | fail (commit `e6362a8`: missing harness; CLI cases spawn a Host / exit 1) | 23/23 pass inside root `pnpm check` (273 tests, 9 s) |
+
+### Live runs (2026-10-11, keyless, fake keys only)
+
+| Command | Wall time | Result | Cleanup |
+| --- | --- | --- | --- |
+| `node scripts/audit/model-config-api-audit.mjs` | 11 s (internal 10.4 s, including the template build) | `passed`. All 6 capabilities pass. DSH `0.2.0-rc.2` (commit `639ed015`), Claw `0.3.0-rc.2` × 9 components. Global default write and restart persistence asserted. Cancellation reached upstream after 4 ms, closed 2 ms after the abort. Leaks 0 | 7 Hosts spawned (6 booted, 1 exited before readiness as expected), all halted by the audit, 1 stub closed, lock released, lab removed. No template build dir and no DSH process left |
+| `pnpm package:mac`, then `node scripts/audit/packaged-model-config-probe.mjs "$PWD/release/mac-arm64/Corn Bot.app"` | 22 s, then 2 s (internal 1.7 s) | `passed`. Bundled DSH `0.2.0-rc.2` / Claw `0.3.0-rc.2`. `writable: true`, 19 namespaces, default `deepseek-official/deepseek-flash`, `DEEPSEEK_API_KEY` `configured: false`, 43 configurable providers in 3 namespaces. App fingerprint unchanged | 1 Host spawned and stopped, lock released, lab removed. No Corn Bot process left |
+
+### Not covered
+
+- An audit killed with SIGKILL (or a machine crash) cannot clean up. Its lab stays under the OS temp dir with its marker. The next run does not reuse it.
+- `buildProfileTemplate` builds in its own `corn-profile-template-*` temp home and removes it in `finally`. Its Hosts are stopped by the product `DshHostSupervisor`, which waits for `close` after SIGKILL without a bound. That is product code outside this package.
+- The cancellation evidence covers discovery HTTP only. Settings and credential write timeouts stay unknown outcomes that require a read-back (§2).
+- The `session.selectModel` side-effect step (§7) remains an observation with a 10 s poll, not a required capability.
