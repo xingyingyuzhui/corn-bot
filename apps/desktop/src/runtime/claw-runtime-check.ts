@@ -2,10 +2,17 @@ import { existsSync } from 'node:fs'
 import { readFile } from 'node:fs/promises'
 import { createRequire } from 'node:module'
 import { join } from 'node:path'
-import { parseDocument } from 'yaml'
 import { CLAW_VERSION } from '../../../../packages/contracts/src/runtime.ts'
+import { ClawGateClient } from '../../../../packages/dsh-adapter/src/claw-gate-client.ts'
 import { ClawRegistryClient } from '../../../../packages/dsh-adapter/src/claw-registry-client.ts'
 import { HostTransport } from '../../../../packages/dsh-adapter/src/transport.ts'
+import {
+  composeEntries,
+  type Entry,
+  isEntry,
+  parsePatchLayer,
+  verifyClawTopology,
+} from './claw-topology.ts'
 import {
   type AdmissionContext,
   DSH_INSTALL_ANCHOR,
@@ -31,14 +38,21 @@ export const CLAW_ROWS = [
 /** `dsh-claw-core` is a library dependency with no Host row. */
 export const CLAW_COMPONENTS = [...CLAW_ROWS.slice(1), 'dsh-claw-core']
 const CLAW_ROW_IDS: ReadonlySet<string> = new Set(CLAW_ROWS)
+/** Union of the `inject` exports of the locked 0.3.0-rc.2 Claw row plugins. */
+const CLAW_SERVICES: ReadonlySet<string> = new Set([
+  'tools',
+  'connection',
+  'skills',
+  'agents',
+  'subagents',
+  'systemPrompt',
+  'workspaceRegistry',
+  'agentPresets',
+  'settings',
+  'sessionController',
+])
 const PATCH_FILE = 'cordis.patch.yml'
-const REGISTRY_CHECK_TIMEOUT_MS = 10_000
-
-type Entry = Readonly<Record<string, unknown>>
-
-function isEntry(value: unknown): value is Entry {
-  return typeof value === 'object' && value !== null && !Array.isArray(value)
-}
+const CLAW_CHECK_TIMEOUT_MS = 10_000
 
 async function readManifest(directory: string): Promise<Entry | undefined> {
   try {
@@ -69,13 +83,31 @@ function resolvePackageDir(
   return undefined
 }
 
-/** A patch layer Corn cannot fully read (custom tags, syntax errors) is treated as possibly disabling Claw. */
-async function readPatchLayer(path: string): Promise<readonly unknown[]> {
+/** Mirrors DSH `bundlePatchFiles`: one file or an ordered list of files. */
+function bundlePatchFiles(bundle: Entry): readonly string[] | undefined {
+  const declared =
+    typeof bundle.patch === 'string' ? [bundle.patch] : bundle.patch
+  return Array.isArray(declared) &&
+    declared.every((file): file is string => typeof file === 'string')
+    ? declared
+    : undefined
+}
+
+/**
+ * A patch layer Corn cannot fully read (unknown tags, syntax errors) is
+ * treated as possibly disabling Claw. A missing optional layer (profile or
+ * home) is no layer; a missing named layer (bundle file, overlay) is refused.
+ */
+async function readPatchLayer(
+  path: string,
+  { optional }: { readonly optional: boolean },
+): Promise<readonly unknown[]> {
   let text: string
   try {
     text = await readFile(path, 'utf8')
   } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return []
+    if (optional && (error as NodeJS.ErrnoException).code === 'ENOENT')
+      return []
     throw new RuntimeFailure(
       'claw_disabled',
       'A profile patch layer cannot be read',
@@ -84,18 +116,7 @@ async function readPatchLayer(path: string): Promise<readonly unknown[]> {
       },
     )
   }
-  const document = parseDocument(text)
-  const value: unknown =
-    document.errors.length === 0 && document.warnings.length === 0
-      ? document.toJS()
-      : undefined
-  if (value === null) return []
-  if (!Array.isArray(value))
-    throw new RuntimeFailure(
-      'claw_disabled',
-      'A profile patch layer cannot be verified',
-    )
-  return value
+  return parsePatchLayer(text)
 }
 
 function disables(entry: Entry): boolean {
@@ -103,12 +124,43 @@ function disables(entry: Entry): boolean {
 }
 
 /**
- * Static admission against the profile the Host is about to load. Never
+ * Every bundle layer DSH would load, in `dsh.profile.bundles` order. A bundle
+ * DSH skips (unresolvable, no manifest or `dsh.bundle`) contributes no layer
+ * there either; a declared patch file Corn cannot read is refused.
+ */
+async function bundleLayers(
+  bundles: readonly unknown[],
+  profile: string,
+): Promise<unknown[]> {
+  const patches: unknown[] = []
+  for (const name of bundles) {
+    if (typeof name !== 'string') continue
+    const directory = resolvePackageDir(name, [
+      DSH_INSTALL_ANCHOR,
+      join(profile, 'package.json'),
+    ])
+    const manifest = directory ? await readManifest(directory) : undefined
+    const bundle = isEntry(manifest?.dsh) ? manifest.dsh.bundle : undefined
+    const files = isEntry(bundle) ? bundlePatchFiles(bundle) : undefined
+    if (!directory || !files) continue
+    for (const file of files)
+      patches.push(
+        ...(await readPatchLayer(join(directory, file), { optional: false })),
+      )
+  }
+  return patches
+}
+
+/**
+ * Static admission against the profile the Host is about to load, composed
+ * from every effective layer in DSH's order: bundles, the profile's and the
+ * home's `cordis.patch.yml`, then the launcher's `--patch` overlays. Never
  * repairs, rewrites or removes anything; a failure leaves the profile as found.
  */
 export async function verifyClawProfile(
   profile: string,
   home?: string,
+  overlays: readonly string[] = [],
 ): Promise<void> {
   const manifest = await readManifest(profile)
   if (!manifest)
@@ -142,16 +194,14 @@ export async function verifyClawProfile(
         `${name} differs from the locked version`,
       )
   }
-  const declared = dshField(suite, 'bundle').patch
-  const files = typeof declared === 'string' ? [declared] : declared
-  if (
-    !Array.isArray(files) ||
-    !files.every((file): file is string => typeof file === 'string')
-  )
+  const files = bundlePatchFiles(dshField(suite, 'bundle'))
+  if (!files)
     throw new RuntimeFailure('claw_missing', 'Claw suite declares no bundle')
   const inserted = new Map<string, Entry>()
   for (const file of files)
-    for (const patch of await readPatchLayer(join(suiteDir, file)))
+    for (const patch of await readPatchLayer(join(suiteDir, file), {
+      optional: false,
+    }))
       if (isEntry(patch) && Array.isArray(patch.insert))
         for (const row of patch.insert)
           if (isEntry(row) && typeof row.id === 'string')
@@ -164,10 +214,17 @@ export async function verifyClawProfile(
         `Claw suite bundle does not load ${id}`,
       )
   }
-  const layers = [join(profile, PATCH_FILE)]
-  if (home !== undefined) layers.push(join(home, PATCH_FILE))
-  for (const layer of layers)
-    for (const patch of await readPatchLayer(layer)) {
+  const userLayers: Array<readonly unknown[]> = [
+    await readPatchLayer(join(profile, PATCH_FILE), { optional: true }),
+  ]
+  if (home !== undefined)
+    userLayers.push(
+      await readPatchLayer(join(home, PATCH_FILE), { optional: true }),
+    )
+  for (const overlay of overlays)
+    userLayers.push(await readPatchLayer(overlay, { optional: false }))
+  for (const layer of userLayers)
+    for (const patch of layer) {
       if (!isEntry(patch)) continue
       const rows = [patch, ...(Array.isArray(patch.insert) ? patch.insert : [])]
       for (const row of rows)
@@ -182,54 +239,104 @@ export async function verifyClawProfile(
             `A profile patch layer disables or replaces ${row.id}`,
           )
     }
+  verifyClawTopology(
+    composeEntries([
+      ...(await bundleLayers(bundles, profile)),
+      ...userLayers.flat(),
+    ]),
+    CLAW_ROW_IDS,
+    CLAW_SERVICES,
+  )
+}
+
+/** Runs one capability probe; the child's own exit or a refused connection stays the Host's failure. */
+async function probe(
+  run: (signal: AbortSignal) => Promise<unknown>,
+  signal: AbortSignal,
+  timeoutMs: number,
+): Promise<{ readonly failure: unknown } | undefined> {
+  try {
+    await run(AbortSignal.any([signal, AbortSignal.timeout(timeoutMs)]))
+    return undefined
+  } catch (error) {
+    if (signal.aborted || error instanceof TypeError) throw error
+    return { failure: error }
+  }
 }
 
 /**
- * Post-authentication admission: the Host must not have skipped the suite and
- * its Registry must answer `list` with a valid revision. Registry liveness
- * alone does not prove the Gate works; that is the static check's and the
- * governance smoke's job.
+ * Post-authentication admission: the Host must not have skipped the suite,
+ * its Registry must answer `list` with a valid revision, and the Gate must
+ * have mounted its audit route. A mounted route proves the Gate's `apply`
+ * ran (it installs the tool guard first); the governance smoke proves the
+ * guard itself.
  */
-export async function checkClawRuntime({
-  auth,
-  signal,
-  skippedBundles,
-}: AdmissionContext): Promise<void> {
-  let failure: unknown
-  try {
-    await new ClawRegistryClient(new HostTransport(auth)).revision({
-      signal: AbortSignal.any([
-        signal,
-        AbortSignal.timeout(REGISTRY_CHECK_TIMEOUT_MS),
-      ]),
-    })
-  } catch (error) {
-    // An exit or a refused connection is the Host's failure, not Claw's.
-    if (signal.aborted || error instanceof TypeError) throw error
-    failure = error
-  }
+export async function checkClawRuntime(
+  { auth, signal, skippedBundles }: AdmissionContext,
+  timeoutMs = CLAW_CHECK_TIMEOUT_MS,
+): Promise<void> {
+  const transport = new HostTransport(auth)
+  const registry = await probe(
+    (bounded) =>
+      new ClawRegistryClient(transport).revision({ signal: bounded }),
+    signal,
+    timeoutMs,
+  )
   if (skippedBundles.has(CLAW_SUITE))
     throw new RuntimeFailure(
       'claw_missing',
       'DSH skipped the Claw suite bundle',
     )
-  if (failure !== undefined)
+  if (registry)
     throw new RuntimeFailure(
       'claw_check_failed',
       'Claw Registry capability check failed',
-      { cause: failure },
+      { cause: registry.failure },
+    )
+  const gate = await probe(
+    (bounded) =>
+      new ClawGateClient(transport).verifyMounted({ signal: bounded }),
+    signal,
+    timeoutMs,
+  )
+  if (gate)
+    throw new RuntimeFailure(
+      'claw_check_failed',
+      'Claw Gate capability check failed',
+      { cause: gate.failure },
     )
 }
 
-export const CLAW_ADMISSION: HostAdmission = {
-  beforeSpawn: (home, profile) => verifyClawProfile(profile, home),
-  afterAuth: checkClawRuntime,
+export interface ClawAdmissionOptions {
+  /** Deadline of each post-authentication capability probe. */
+  readonly clawCheckTimeoutMs?: number
 }
+
+export function createClawAdmission({
+  clawCheckTimeoutMs = CLAW_CHECK_TIMEOUT_MS,
+}: ClawAdmissionOptions = {}): HostAdmission {
+  return {
+    beforeSpawn: (home, profile, overlays) =>
+      verifyClawProfile(profile, home, overlays),
+    afterAuth: (context) => checkClawRuntime(context, clawCheckTimeoutMs),
+  }
+}
+
+export const CLAW_ADMISSION: HostAdmission = createClawAdmission()
 
 /** The only Host entry for App readiness: every start re-runs both admissions. */
 export function createGovernedHost(
   home: string,
-  options: Omit<SupervisorOptions, 'admission'> = {},
+  {
+    clawCheckTimeoutMs,
+    ...options
+  }: Omit<SupervisorOptions, 'admission'> & ClawAdmissionOptions = {},
 ): DshHostSupervisor {
-  return new DshHostSupervisor(home, { ...options, admission: CLAW_ADMISSION })
+  return new DshHostSupervisor(home, {
+    ...options,
+    admission:
+      clawCheckTimeoutMs === undefined
+        ? CLAW_ADMISSION
+        : createClawAdmission({ clawCheckTimeoutMs }),
+  })
 }

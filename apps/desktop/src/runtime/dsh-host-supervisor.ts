@@ -48,7 +48,12 @@ export interface AdmissionContext {
 
 /** What a Host must satisfy before and after authentication to count as started. */
 export interface HostAdmission {
-  beforeSpawn(home: string, profile: string): Promise<void>
+  /** `overlays` are the `--patch` files this start passes, in argv order. */
+  beforeSpawn(
+    home: string,
+    profile: string,
+    overlays: readonly string[],
+  ): Promise<void>
   afterAuth(context: AdmissionContext): Promise<void>
 }
 
@@ -205,7 +210,7 @@ export class DshHostSupervisor {
       else if (!existsSync(join(profile, 'package.json')))
         args.push('--from-default-profile', 'web')
       args.push('--patch', patch, '--no-open', '--port', '0')
-      await this.#admission.beforeSpawn(this.home, profile)
+      await this.#admission.beforeSpawn(this.home, profile, [patch])
       this.#throwIfStopRequested()
       const life = this.#spawn(args, model)
       const launch = await this.#readiness(life)
