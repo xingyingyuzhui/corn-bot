@@ -77,6 +77,14 @@ Recorded 2026-10-11 on `fix/runtime-gate-admission`. "Old" is the pre-fix runtim
 
 The single `smoke:review` run (53 s) ended 6/7 on its desktop half: `governed-ready` reached `ready` with Claw and the bridge verified, but its layout probe reported `draftKept: false`. That run used the smoke-only background window (shown inactive, accessory activation policy), where `webContents.insertText` did not reach the composer even after `webContents.focus()`. This is a known limitation of the unfocused smoke window, not a Gate result.
 
+Third-round N5, **code fixed, GUI acceptance pending**. The probe no longer types: background layout probe draft preparation (`smoke/draft-preparation.ts`) finds the real composer field and sets the draft through the native prototype `value` setter. It then dispatches a bubbling `input` event so React's own `onChange` commits it. Before any measurement, the value must hold across consecutive polls within a 2 s deadline; otherwise `layout.draftPreparation` carries an explicit error and the layout fails. The `draftKept` checks after details close and after the notice walk are unchanged. Unit evidence, `draft-preparation.test.ts` (a vm fixture modelling React's value tracker and controlled re-render, with no Electron or browser):
+- the input event updates controlled state and the draft survives re-render;
+- a DOM-only value and an ignored change are both rejected;
+- missing, non-text and read-only targets fail;
+- the draft travels as JSON data.
+
+This covers no real keyboard, IME or native focus behaviour. The pending desktop acceptance is a single background desktop run confirming the initial draft, the draft after the details toggle, and the draft after notices and recovery.
+
 Not run on this branch (maintainer stop on Electron and packaged launches); run them once in a batch before signing off R1:
 
 - `pnpm smoke:review` (rerun for the desktop half: `governed-ready` layout probe under the background window, `crash-recovery-revalidated`)
