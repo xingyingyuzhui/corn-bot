@@ -145,7 +145,6 @@ const SCENARIOS = [
       status: 'ready',
       hostSpawns: 1,
       clawReady: true,
-      modelStatus: 'available',
       devModelOverride: true,
     },
   },
