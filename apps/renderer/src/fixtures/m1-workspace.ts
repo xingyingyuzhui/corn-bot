@@ -40,7 +40,6 @@ const BOTS: readonly BotView[] = [
     '已经安排好了。',
     42,
     '总调度：理解你的需求，拆分任务并转交给合适的 Bot',
-    ['tag-dispatch'],
   ),
   bot(
     'ops',
