@@ -3,6 +3,7 @@ import { randomUUID } from 'node:crypto'
 import { mkdir, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
+import WebSocket from 'ws'
 import { DshHostSupervisor } from '../apps/desktop/src/runtime/dsh-host-supervisor.ts'
 import { defaultDevelopmentHome } from '../apps/desktop/src/runtime/profile-bootstrap.ts'
 import { ClawRegistryClient } from '../packages/dsh-adapter/src/claw-registry-client.ts'
@@ -47,6 +48,40 @@ try {
   })
   assert.equal(badOrigin.status, 403)
   check('authenticated-wrong-origin-rejected', { status: badOrigin.status })
+  async function deniedWebSocket(headers, expectedStatus) {
+    const url = auth.url('/api/remote.mux')
+    url.protocol = 'ws:'
+    await new Promise((resolve, reject) => {
+      const socket = new WebSocket(url, { headers })
+      const timer = setTimeout(() => {
+        socket.terminate()
+        reject(new Error('Denied WS handshake timeout'))
+      }, 5_000)
+      socket.on('error', (error) => {
+        clearTimeout(timer)
+        reject(error)
+      })
+      socket.on('open', () => {
+        clearTimeout(timer)
+        socket.close()
+        reject(new Error('Unauthorized WS was accepted'))
+      })
+      socket.on('unexpected-response', (_request, response) => {
+        clearTimeout(timer)
+        response.resume()
+        socket.terminate()
+        if (response.statusCode === expectedStatus) resolve()
+        else reject(new Error('Unexpected WS rejection status'))
+      })
+    })
+  }
+  await deniedWebSocket({}, 401)
+  check('unauthenticated-websocket-rejected', { status: 401 })
+  await deniedWebSocket(
+    { ...auth.headers(), Origin: 'https://corn.invalid' },
+    403,
+  )
+  check('authenticated-wrong-origin-websocket-rejected', { status: 403 })
   await sessions.list()
   check('authenticated-session-list')
   const agent = await registry.create(`Corn M0 ${randomUUID().slice(0, 8)}`)

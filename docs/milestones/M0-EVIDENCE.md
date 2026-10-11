@@ -8,16 +8,16 @@ Recorded 2026-10-11. **M0 is not complete.** These are developer-runtime results
 | --- | --- |
 | Frozen dependency install | `pnpm install --frozen-lockfile` passed; DSH 0.2.0-rc.2, Electron 44.7.0 |
 | Source and package pin | `pnpm verify:runtime` passed; DSH contract commit `639ed015397290b3745d163aafe02ffee4aa3f84` |
-| Static checks and build | `pnpm check` and `pnpm build` passed; 9 boundary/admission tests |
+| Static checks and build | `pnpm check` and `pnpm build` passed; 10 boundary/admission tests |
 | Published Claw release | Archive SHA-256 and ten internal package checksums verified; own `corn-dev` install only |
 | Independent cold boot | `pnpm smoke:cold`: three empty temporary homes booted/authenticated/listed/stopped; concurrent stop and stop-during-start also passed |
-| Real Host integration | `pnpm smoke:host`: 14 checks passed, listed below |
+| Real Host integration | `pnpm smoke:host`: 16 checks passed, listed below |
 | Electron sandbox/IPC | `CORN_DESKTOP_SMOKE=1 pnpm dev:desktop`: safe status returned through sandboxed preload; independent Host ready; captured diagnostic window |
 | SQLite candidate | CLI and Electron Node mode opened/read/wrote WAL database; Electron's Node 24.21.0 / SQLite 3.53.4 |
 | Native governance and cancellation | `pnpm smoke:governance`: real Gate deny, Remote reject and Remote cancel passed; queue retained, approval withdrawn, trace matched, zero bash body executions |
 | Forced crash indication | `CORN_DESKTOP_SMOKE=1 CORN_DESKTOP_CRASH_SMOKE=1 pnpm dev:desktop`: owned Host killed, sandboxed Renderer received failed status and rendered disconnect message |
 
-The 14 Host checks establish: independent startup/token-cookie exchange; unauthenticated 401; authenticated wrong-Origin 403; Session listing; real Claw agent creation and preset ensure; real Session creation and binding; authenticated follow snapshot; reconnect with consistent fresh snapshot; nonexistent Session binding rejected; missing Claw preset rejected; SQLite WAL; concurrent graceful shutdown releases port; restart re-ensures the preset and recovers the durable Session; forced child crash notifies its supervisor and a subsequent manual restart recovers the Session.
+The 16 Host checks establish: independent startup/token-cookie exchange; unauthenticated HTTP and WS 401; authenticated wrong-Origin HTTP and WS 403; Session listing; real Claw agent creation and preset ensure; real Session creation and binding; authenticated follow snapshot; reconnect with consistent fresh snapshot; nonexistent Session binding rejected; missing Claw preset rejected; SQLite WAL; concurrent graceful shutdown releases port; restart re-ensures the preset and recovers the durable Session; forced child crash notifies its supervisor and a subsequent manual restart recovers the Session.
 
 The Electron screen is an M0 diagnostic surface, not M1 product UI. Private reports and screenshot remain ignored under `.artifacts/`: `m0-host-smoke.json`, `m0-electron-smoke.json`, `m0-electron.png`. They contain no model responses or credentials. Test-only governance evidence, when run, is stored separately as `m0-governance-smoke.json` and must be interpreted with its stated native/PTC scope.
 

@@ -81,4 +81,4 @@ The tested flat workspace component files were compared byte-for-byte with all f
 
 **Live M0 acceptance is pending.** Record concrete results for independent boot and shutdown, endpoint authentication, preset provisioning, real streaming chat, cancellation, deny/ask/reject, isolated workspace placement, and reconnect/restart behavior before declaring M0 complete.
 
-Corn's subsequent developer runtime evidence is recorded in [M0 evidence](milestones/M0-EVIDENCE.md). It establishes 14 Host integration checks, native governance/approval/queue checks and isolated baseline cold starts, while real model, PTC governance and packaged app checks remain outstanding. Upstream test results above are separate evidence.
+Corn's subsequent developer runtime evidence is recorded in [M0 evidence](milestones/M0-EVIDENCE.md). It establishes 16 Host integration checks, native governance/approval/queue checks and isolated baseline cold starts, while real model, PTC governance and packaged app checks remain outstanding. Upstream test results above are separate evidence.
