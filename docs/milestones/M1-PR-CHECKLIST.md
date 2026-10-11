@@ -16,6 +16,7 @@ M0 is accepted except signing and notarization ([ADR-0001](../adr/ADR-0001-dsh-t
 | 02D-1 | `apps/desktop/assets/app-icon-source.png`, `scripts/generate-app-icons.mjs` (writes the gitignored `.build/icons/Corn Bot.icns`), builder/package configuration | v3 flat corn icon with `/` eyes; reproducible iconset/ICNS, no external design-folder build dependency; inspect the new packaged App in Finder, Dock and App switcher |
 | 02D-2 | `packages/ui/src/avatar/*`, `packages/state/src/avatar-presentation.ts`, avatar fixtures and tests | Original 18-state motion ([ADR-0003](../adr/ADR-0003-avatar-engine.md)); shared scheduling, unique SVG IDs, StrictMode/lifecycle/reduced-motion, regional visuals and 20+ Bot load evidence. Real-event wiring remains M2/03A |
 | 02E-1 | `src/features/details/*`, `bot-editor/{bot-editor-controller,editor-specs,use-bot-editor}.ts`, `src/app/layout-state.ts` | Fixture only. Bot management pane navigation (概览 / 配置 / 资料库) and shared embeddable editors with a single write path; unsaved-config guard; per-Bot restore. Rebased onto 02D-1: the shared profile fields carry the role-avatar picker |
+| 02E-2 (planned) | Renderer unit/visual tests, layout probe, design-spec / SPEC_MAPPING | Integrate U1 and 02D-1; verify late async responses, dirty drafts, focus and per-Bot isolation; update the intentional right-pane content baseline while keeping measured layout |
 | all | `packages/contracts`, `apps/desktop/src/ipc/*` | Narrow typed methods, sender validation, credential-free view models; no raw Host endpoint or filesystem proxy |
 
 M1 may use clearly labelled fixtures for visual states. Real creation/binding and persistent Bot/Conversation/Run transactions belong to M2. Fixtures must never report successful model calls, permissions or computer control.
@@ -39,6 +40,32 @@ The five group avatars are retained as design assets; deferred group product fea
 These planning changes belong in the first commit on the post-#7 02D-1 branch, not in #7. Runtime smoke entry points and U1 announcement deduplication are specified in asset integration plan §7.
 
 Not in M1: task threads, group detail tabs, dark theme, and switchable `dmg-0681`/`website-demo` profiles. M2 groundwork that does not touch the Renderer (SQLite schema and migrations, session event reducer, Run state machine) may proceed in parallel, but is wired into the UI only after PR-02C merges.
+
+## Official model configuration follow-up
+
+See the [model configuration fix plan](../plans/CORN_MODEL_CONFIGURATION_FIX_PLAN.md). This supplements the existing runtime fix, not its replacement. Runtime R1–R3 merged in #10; the API audit is `docs/milestones/MODEL-CONFIG-API-AUDIT.md` (#12).
+
+- [x] Close runtime startup exceptions and lifetime races with old-code counter-evidence; fixed tests exit promptly and the Electron window shows safe errors.
+- [x] Audit and exercise RC2 settings/credentials/LLM endpoints in an isolated Corn profile; establish an explicit public global-default write path.
+- [ ] Use the official configuration and credential services; remove production model.env/environment-Key injection and the two-route restriction.
+- [ ] Deliver real provider/Key/default-model configuration, conflict/partial-success handling and keyless first-start guidance; distinguish Host readiness from model availability.
+- [ ] Validate new packaged App setup and persistence after restart, with no installed DSH/Node/pnpm dependency and no stored Key echoed to the UI.
+- [ ] M2: bind Bot overrides through Claw and prove two-Bot/global/Session isolation; fixture UI and official settings alone are not live-chat evidence.
+
+## Bot management panel next-step scope
+
+Main plan §14 decision 13 / §16 replaces the right pane's product content with Overview / Configuration / Library. 02E-1 (#14) delivered the fixture navigation, shared editors and joint avatar smoke; the 02B evidence below records the previously shipped UI.
+
+- [x] Migrate old `details/library/computer` navigation to the new hierarchy and preserve per-Bot preferences, chat drafts and scroll state.
+- [x] Embed existing profile/model forms and the read-only permissions view; one business write path for dialogs, new subpages and shortcuts.
+- [x] Define independent unavailable/loading/empty/error states for skills, identity documents, artifacts and memory. Keep global Memory settings in Settings.
+- [x] Unsaved configuration is never kept silently across a Bot switch: switching tab, closing the pane or switching Bot offers 保存 / 放弃 / 取消, and a failed save keeps the draft and does not switch; keys never enter a cross-Bot draft. Also verify stale loads and late write completion; preserve #7 focus/busy/conflict behaviour.
+- [x] Copy ID lives only in Overview: Corn Bot ID and bound Claw Agent ID are labelled separately, and an unbound Bot shows no invented Claw ID.
+- [x] Integrate the avatar component and U1 fixed runtime notice; verify two/three-column and narrow-overlay layouts and keyboard navigation.
+- [ ] Update right-pane visual baselines, SPEC_MAPPING and coverage with explicit intentional deviations; keep historical 02B evidence unchanged.
+- [ ] M2/03B: audit published Claw route scope and write semantics before enabling real saves; validate model inheritance, effective permissions, memory ownership and partial failures.
+
+Computer control remains M3, entered through Configuration → Permissions or an active Run; its preview/pause/takeover lives in a separate operation view. Real skills/library/routines capability follows the original M6/M7 schedule. Planning and fixture checks do not prove those capabilities are connected.
 
 ## PR-02A evidence
 
