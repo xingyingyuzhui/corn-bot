@@ -7,6 +7,7 @@ import { Button } from '../../shared/Button.tsx'
 import { Dialog } from '../../shared/Dialog.tsx'
 import { useNotice } from '../../shared/notice.tsx'
 import { TextField } from '../../shared/TextField.tsx'
+import { AvatarPicker } from './AvatarPicker.tsx'
 import {
   type CreateBotErrors,
   type CreateBotForm,
@@ -61,6 +62,7 @@ export function CreateBotDialog({ onClose, onCreated }: CreateBotDialogProps) {
       role: form.role,
       workStyle: form.workStyle,
       groupId: form.groupId === UNGROUPED ? null : form.groupId,
+      ...(form.variantId === null ? {} : { variantId: form.variantId }),
     }
     const result = await repository.createBot(draft)
     setPending(false)
@@ -167,6 +169,12 @@ export function CreateBotDialog({ onClose, onCreated }: CreateBotDialogProps) {
             </p>
           ) : null}
         </div>
+        <AvatarPicker
+          value={form.variantId}
+          onChange={(variantId) => edit({ variantId })}
+          emptyHint="不选时按新 Bot 的 ID 自动分配一个角色，之后可在编辑资料中更换"
+          error={errors.variantId}
+        />
         {errors.form ? (
           <p className="corn-create-bot__error" role="alert">
             {errors.form}

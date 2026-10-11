@@ -50,12 +50,15 @@ export interface BotDraft {
   readonly role: string
   readonly workStyle: string
   readonly groupId: string | null
+  /** Omitted: the repository picks a default from the new Bot's id. */
+  readonly variantId?: string
 }
 
 export interface BotProfilePatch {
   readonly name?: string
   readonly role?: string
   readonly workStyle?: string
+  readonly variantId?: string
 }
 
 /**

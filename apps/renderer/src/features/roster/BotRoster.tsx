@@ -8,7 +8,7 @@ import {
 } from '../../app/layout-state.ts'
 import type { RosterView } from '../../model/workspace.ts'
 import { ActionButton } from '../../shared/ActionButton.tsx'
-import { Avatar } from '../../shared/Avatar.tsx'
+import { AccountAvatar } from '../../shared/Avatar.tsx'
 import { BotListItem } from './BotListItem.tsx'
 import { HiddenBotsSection } from './HiddenBotsSection.tsx'
 import { PinnedBotCard } from './PinnedBotCard.tsx'
@@ -239,7 +239,7 @@ export function BotRoster({
             onOpenOverlay({ kind: 'settings', section: 'general' })
           }
         >
-          <Avatar spec={roster.account} size={30} />
+          <AccountAvatar spec={roster.account} size={30} />
         </ActionButton>
         {collapsed ? (
           <ActionButton

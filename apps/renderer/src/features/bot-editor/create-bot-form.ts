@@ -7,6 +7,8 @@ export interface CreateBotForm {
   readonly workStyle: string
   /** Empty string means 未分组. */
   readonly groupId: string
+  /** `null` lets the repository pick a default from the new Bot's id. */
+  readonly variantId: string | null
 }
 
 export const EMPTY_CREATE_BOT_FORM: CreateBotForm = {
@@ -14,6 +16,7 @@ export const EMPTY_CREATE_BOT_FORM: CreateBotForm = {
   role: '',
   workStyle: '',
   groupId: '',
+  variantId: null,
 }
 
 export type CreateBotErrors = Partial<
@@ -46,6 +49,7 @@ const FIELDS: ReadonlySet<string> = new Set([
   'role',
   'workStyle',
   'groupId',
+  'variantId',
 ])
 
 /** Repository errors land on their field; anything else is a form error. */
