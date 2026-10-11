@@ -280,7 +280,9 @@ async function probeNotices(window: BrowserWindow): Promise<{
  */
 export async function probeRecoveringNotice(
   window: BrowserWindow,
-): Promise<NoticeCheck & { readonly passed: boolean }> {
+): Promise<
+  NoticeCheck & { readonly shown: boolean; readonly passed: boolean }
+> {
   const shown = await run<boolean>(
     window,
     `new Promise((resolve) => {
@@ -294,10 +296,7 @@ export async function probeRecoveringNotice(
     })`,
   )
   const check = await checkNotice(window, 'crash recovery')
-  const failures = shown
-    ? check.failures
-    : [...check.failures, 'runtime status: recovering never shown']
-  return { ...check, failures, passed: failures.length === 0 }
+  return { ...check, shown, passed: shown && check.failures.length === 0 }
 }
 
 /** Drives the real shell at the reference size; diagnostic smoke only. */

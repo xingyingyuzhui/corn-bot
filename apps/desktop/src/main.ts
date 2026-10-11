@@ -20,6 +20,8 @@ const paths = resolveAppPaths({
 })
 const { control, host: supervisor } = createAppRuntime(paths)
 const currentStatus = (): RuntimeStatus => control.view.status
+/** Two Renderer status polls: a recovery at least this long must show in the strip. */
+const RECOVERY_VISIBLE_MS = 2_000
 let exitAllowed = false
 let cleanup: Promise<void> | undefined
 
@@ -64,11 +66,14 @@ async function runSmoke(window: BrowserWindow): Promise<void> {
       )
     process.kill(pid, 'SIGKILL')
     facts.recoveringObserved = await untilStatus((s) => s !== 'ready', 5_000)
+    const recoveringSince = Date.now()
     facts.rendererDuringRecovery = await window.webContents.executeJavaScript(
       'window.corn.runtimeStatus().then((view) => view.status)',
     )
-    facts.recoveringNotice = await probeRecoveringNotice(window)
+    const notice = probeRecoveringNotice(window)
     facts.recovered = await untilStatus((s) => s === 'ready', 60_000)
+    facts.recoveringMs = Date.now() - recoveringSince
+    facts.recoveringNotice = await notice
     facts.hostReplaced =
       supervisor.processId !== undefined && supervisor.processId !== pid
     facts.clawReadyAfterRecovery = await clawReady()
@@ -109,6 +114,14 @@ async function runSmoke(window: BrowserWindow): Promise<void> {
     `${JSON.stringify({ ...control.view, ...facts }, null, 2)}\n`,
     { mode: 0o600 },
   )
+  const recoveringNotice = facts.recoveringNotice as
+    | { readonly shown: boolean; readonly failures: readonly string[] }
+    | undefined
+  const noticeHeld =
+    recoveringNotice !== undefined &&
+    recoveringNotice.failures.length === 0 &&
+    (recoveringNotice.shown ||
+      (facts.recoveringMs as number) < RECOVERY_VISIBLE_MS)
   const passed =
     control.view.status === 'ready' &&
     facts.bridgeVerified === true &&
@@ -116,7 +129,7 @@ async function runSmoke(window: BrowserWindow): Promise<void> {
     (crashSmoke || (facts.layout as { passed?: boolean }).passed === true) &&
     (!crashSmoke ||
       (facts.recoveringObserved === true &&
-        (facts.recoveringNotice as { passed?: boolean }).passed === true &&
+        noticeHeld &&
         facts.hostReplaced === true &&
         facts.clawReadyAfterRecovery === true))
   process.exitCode = passed ? 0 : 1
