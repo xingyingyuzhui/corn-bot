@@ -1,4 +1,8 @@
-import type { RuntimeStatus, RuntimeView } from '@corn-bot/contracts'
+import type {
+  RuntimeErrorCode,
+  RuntimeStatus,
+  RuntimeView,
+} from '@corn-bot/contracts'
 import type { WorkspaceRepository } from '../model/repository.ts'
 
 /** What the Renderer knows about Main's runtime. */
@@ -13,18 +17,36 @@ export const PENDING_READING: RuntimeReading = { kind: 'pending' }
 export const UNAVAILABLE_READING: RuntimeReading = { kind: 'unavailable' }
 
 /**
- * Safe, closed failure codes from Main. Empty until the runtime contract
- * defines them: then alias the contract union here, read the field in
- * `safeErrorCode` and word each code in `errorCodeText`. Raw Main messages
- * are never shown.
+ * Main's closed failure code, only while `failed`. Raw Main messages are
+ * never shown.
  */
-export type RuntimeErrorCode = never
-
-export const safeErrorCode = (_view: RuntimeView): RuntimeErrorCode | null =>
-  null
+export const safeErrorCode = (view: RuntimeView): RuntimeErrorCode | null =>
+  view.status === 'failed' ? (view.errorCode ?? null) : null
 
 export function errorCodeText(code: RuntimeErrorCode): string {
   switch (code) {
+    case 'model_config_invalid':
+      return '模型配置不完整或无法识别'
+    case 'model_config_permissions':
+      return '模型配置文件权限过宽'
+    case 'model_config_unreadable':
+      return '无法读取模型配置文件'
+    case 'runtime_home_rejected':
+      return '运行时目录不属于 Corn'
+    case 'runtime_home_locked':
+      return '运行时目录正被另一个进程使用'
+    case 'runtime_version_mismatch':
+      return '运行时版本与锁定版本不一致'
+    case 'claw_missing':
+      return '缺少 Claw 治理组件'
+    case 'claw_version_mismatch':
+      return 'Claw 组件版本与锁定版本不一致'
+    case 'claw_disabled':
+      return 'Claw 治理组件未启用或被替换'
+    case 'claw_check_failed':
+      return 'Claw 治理自检未通过'
+    case 'host_unavailable':
+      return '运行时进程已退出或无法连接'
     default: {
       const unreachable: never = code
       throw new Error(`Unknown runtime error code ${String(unreachable)}`)

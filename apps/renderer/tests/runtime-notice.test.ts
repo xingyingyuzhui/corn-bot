@@ -1,6 +1,10 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
-import type { RuntimeStatus } from '@corn-bot/contracts'
+import {
+  RUNTIME_ERROR_CODES,
+  type RuntimeErrorCode,
+  type RuntimeStatus,
+} from '@corn-bot/contracts'
 import {
   type Announcement,
   type DataSource,
@@ -73,6 +77,52 @@ test('runtime wording never repeats raw Main messages or claims a Bot is connect
   assert.equal(runtimeNotice(host('ready')).tone, 'ok')
   assert.equal(runtimeNotice(host('failed')).tone, 'error')
   assert.equal(runtimeNotice(UNAVAILABLE_READING).tone, 'error')
+})
+
+const failedWith = (errorCode: RuntimeErrorCode): RuntimeReading => ({
+  kind: 'host',
+  view: {
+    status: 'failed',
+    dshVersion: '0.2.0-rc.2',
+    message: 'Error: raw /tmp/x',
+    errorCode,
+  },
+})
+
+test('every safe error code has its own wording and dedupe key', () => {
+  const notices = RUNTIME_ERROR_CODES.map((code) =>
+    runtimeNotice(failedWith(code)),
+  )
+  assert.equal(new Set(notices.map((notice) => notice.text)).size, 11)
+  for (const [index, notice] of notices.entries()) {
+    assert.equal(notice.key, `failed:${RUNTIME_ERROR_CODES[index]}`)
+    assert.equal(notice.tone, 'error')
+    assert.ok(notice.text.startsWith(text(host('failed'))))
+    assert.doesNotMatch(notice.text, /\/tmp|Error|_/u)
+  }
+})
+
+test('an error code is read only while failed', () => {
+  const recovering: RuntimeReading = {
+    kind: 'host',
+    view: {
+      status: 'recovering',
+      dshVersion: '0.2.0-rc.2',
+      message: '',
+      errorCode: 'host_unavailable',
+    },
+  }
+  assert.equal(runtimeNotice(recovering).key, 'recovering')
+})
+
+test('a different failure code is announced again; the same one is not', () => {
+  const said = spoken([
+    failedWith('claw_missing'),
+    failedWith('claw_missing'),
+    failedWith('claw_disabled'),
+  ])
+  assert.equal(said.length, 2)
+  assert.equal(said[1], text(failedWith('claw_disabled')))
 })
 
 test('the sample marker belongs to the fixture source only', () => {
