@@ -5,7 +5,7 @@
 
 ## Context
 
-Plan v1.3 §12.1 lists three visual sources: the user's two screenshots (`user-screenshots`), the static analysis of the 0.68.1 installer (`dmg-0681`) and the public website demo (`website-demo`). It proposes switchable layout profiles plus boundary tests for `dmg-0681`. These sources disagree. For example, the `dmg-0681` sidebar defaults to 280px with details at 320px, while the screenshots show roughly 380px and 37% of the window width at 1416 CSS px.
+Plan v1.3 §12.1 lists three visual sources: the user's two screenshots (`user-screenshots`), the static analysis of the 0.68.1 installer (`dmg-0681`) and the public website demo (`website-demo`). It proposes switchable layout profiles plus boundary tests for `dmg-0681`. These sources disagree. For example, the `dmg-0681` sidebar defaults to 280px with details at 320px, while the screenshots show roughly 380px and 37% of the window width at 1416 CSS px. (PR-02A calibration corrected this: the screenshots are DPR 2 at 1024×764 CSS px, with a 276px sidebar and details at 36.7% of the total width. See [design-spec](../../design/design-spec.md).)
 
 ## Decision
 

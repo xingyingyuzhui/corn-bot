@@ -1,6 +1,6 @@
 # ADR-0001: Corn-owned DSH runtime and Electron Main transport
 
-- Status: **Proposed — candidate B selected by the maintainer (2026-10-11); acceptance pending the remaining live M0 checks**
+- Status: **Accepted (2026-10-11)** — candidate B, after the live M0 checks recorded in [M0 evidence](../milestones/M0-EVIDENCE.md). Signing and notarization are deferred ([ADR-0005](ADR-0005-packaging.md)); nested PTC governance is not verified and PTC stays disabled (plan §14 #10)
 - Date: 2026-10-10; selection recorded 2026-10-11
 - Milestone: M0
 - DSH: `0.2.0-rc.2`, tag `dsh-v0.2.0-rc.2`, commit `639ed015397290b3745d163aafe02ffee4aa3f84`
@@ -12,13 +12,13 @@ Corn requires the complete Host Session API, interactive approvals, ordered live
 
 Corn is an independent application. Its shipped runtime, runtime dependencies, DSH home, profile, sessions, and model configuration belong to Corn. Installation and execution must not require an existing DSH application, CLI, Node installation, or user profile. Model setup starts from new Corn configuration; existing DSH credentials, provider settings, and models are not imported or copied.
 
-## Proposed decision
+## Decision
 
 Choose candidate B: Electron Main supervises a Corn-owned DSH Host and owns a Node HTTP/WebSocket carrier using the published RC2 Connection and Typert Gateway protocols. Renderer accesses narrowly typed Corn IPC methods. Main keeps startup tokens, browser authentication cookies, and model credentials outside Renderer state, IPC responses, logs, and exported diagnostics.
 
 Use the normal Connection authentication and Host/Origin checks. Do not disable authentication, manufacture signed cookies, modify upstream internals, or expose an unrestricted local proxy. Prefer public package exports, generated Remote descriptors, and official stream adapters where they remove owned protocol code. Any custom carrier is a pinned implementation of the published transport, not a replacement Agent Loop.
 
-This decision remains proposed until live validation establishes the authentication, streaming, approval, cancellation, recovery, isolation, and Claw requirements. Source inspection is evidence of intended behavior, not evidence that Corn has passed M0.
+Live validation established authentication, real model streaming, approval, cancellation, crash recovery, isolation, Claw enforcement for ordinary tool calls and the packaged runtime. Source inspection alone was not counted as evidence.
 
 ## Runtime and authentication lifecycle
 
@@ -50,7 +50,7 @@ If B fails a required check, record the failure and validate A or a minimal publ
 
 ## Maintainer selection (2026-10-11)
 
-B is the selected production direction, and A is no longer pursued unless B fails a required check. Plan §2's `plugins/dsh-corn-bridge` Host plugin is deferred. Main already calls the public Session Remote and Claw Registry routes directly, so the plugin is created only when Corn needs a Host-side route that RC2 and Claw do not expose. Each such route must be recorded here with the reason. This selection does not change the acceptance status above: real model streaming (M0-03), model-in-flight cancellation and packaged runtime checks remain outstanding.
+B is the selected production direction, and A is no longer pursued unless B fails a required check. Plan §2's `plugins/dsh-corn-bridge` Host plugin is deferred. Main already calls the public Session Remote and Claw Registry routes directly, so the plugin is created only when Corn needs a Host-side route that RC2 and Claw do not expose. Each such route must be recorded here with the reason. The remaining checks named at selection time (real model streaming, model-in-flight cancellation and the packaged runtime) have since passed.
 
 ## Evidence and consequences
 
@@ -58,4 +58,4 @@ RC2 ownership is documented by `packages/client/connection/src/{browser-auth,api
 
 The proposal adds a Main-owned credential jar, child lifecycle supervisor, typed IPC allowlist, and stream generation management. It preserves DSH as the authoritative execution log and keeps Renderer separate from privileged transport. Runtime packaging, native dependencies, SQLite selection, real model execution, and Claw enforcement remain validation work; this ADR does not certify them.
 
-Developer implementation now boots an independently installed RC2 Host, exchanges the exact 303 `./` redirect, rejects unauthenticated/wrong-Origin requests, creates and binds a Claw Session, opens/reopens its WS snapshot and recovers it after a graceful restart. A sandboxed Electron diagnostic window receives only safe runtime status. See [M0 evidence](../milestones/M0-EVIDENCE.md). These results support candidate B but do not establish the real model, cancellation, crash or packaged runtime acceptance gate.
+Developer implementation now boots an independently installed RC2 Host, exchanges the exact 303 `./` redirect, rejects unauthenticated/wrong-Origin requests, creates and binds a Claw Session, opens/reopens its WS snapshot and recovers it after a graceful restart. A sandboxed Electron diagnostic window receives only safe runtime status. See [M0 evidence](../milestones/M0-EVIDENCE.md). Later M0 work added real model streaming and lifecycle, Gate deny/approval for model tool calls, automatic Host recovery and an unsigned packaged app with three fresh-profile boots; together these accept candidate B.

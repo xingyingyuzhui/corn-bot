@@ -1,0 +1,64 @@
+/*
+ * Corn light theme, `user-screenshots` profile (ADR-0004). Values are measured
+ * from design/references at 1024×764 CSS px, DPR 2; see design/design-spec.md.
+ * Names are semantic so a dark mapping only adds a second block.
+ */
+:root {
+  color-scheme: light;
+
+  --corn-surface-page: #fcfcfc;
+  --corn-surface-sidebar: #f7f7f7;
+  --corn-surface-raised: #fcfcfc;
+  --corn-surface-pinned: #e1e1e1;
+  --corn-surface-selected: #f0f0f0;
+  --corn-surface-hover: rgb(20 20 20 / 0.04);
+
+  --corn-text-primary: #141414;
+  --corn-text-secondary: rgb(20 20 20 / 0.6);
+  --corn-text-tertiary: rgb(20 20 20 / 0.42);
+  --corn-text-inverse: #fcfcfc;
+
+  --corn-bubble-bot: #eeeeee;
+  --corn-bubble-user: #070707;
+  --corn-fill-strong: #070707;
+  --corn-fill-muted: #eeeeee;
+
+  --corn-divider: #eeeeee;
+  --corn-border-control: rgb(20 20 20 / 0.08);
+  --corn-shadow-control:
+    0 1px 2px rgb(0 0 0 / 0.04), 0 2px 8px rgb(0 0 0 / 0.05);
+  --corn-shadow-overlay: -8px 0 24px rgb(0 0 0 / 0.08);
+  --corn-focus-ring: #1084fe;
+  --corn-accent-star: #ff9800;
+
+  --corn-font-ui:
+    -apple-system, BlinkMacSystemFont, "PingFang SC", "Helvetica Neue",
+    sans-serif;
+  --corn-text-xs: 12px;
+  --corn-text-sm: 13px;
+  --corn-text-md: 14px;
+  --corn-text-lg: 17px;
+  --corn-leading-xs: 16px;
+  --corn-leading-sm: 18px;
+  --corn-leading-body: 19px;
+  --corn-leading-md: 21px;
+  --corn-leading-lg: 24px;
+
+  --corn-radius-bubble: 18px;
+  --corn-radius-card: 10px;
+  --corn-radius-pill: 999px;
+
+  --corn-sidebar-width: 276px;
+  --corn-details-ratio: 0.367;
+  --corn-chat-min-width: 340px;
+  --corn-titlebar-height: 46px;
+  --corn-control-size: 32px;
+  --corn-action-size: 28px;
+  --corn-avatar-row: 32px;
+  --corn-bubble-max: 486px;
+  --corn-bubble-gutter: 72px;
+  --corn-gutter: 14px;
+
+  --corn-ease: cubic-bezier(0.16, 1, 0.3, 1);
+  --corn-duration: 160ms;
+}

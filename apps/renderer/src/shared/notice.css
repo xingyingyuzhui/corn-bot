@@ -1,0 +1,26 @@
+.corn-notice {
+  position: fixed;
+  inset-block-end: 72px;
+  inset-inline: 0;
+  z-index: 10;
+  display: flex;
+  justify-content: center;
+  pointer-events: none;
+}
+
+.corn-notice__bubble {
+  padding: 6px 12px;
+  border-radius: var(--corn-radius-pill);
+  background: var(--corn-fill-strong);
+  color: var(--corn-text-inverse);
+  font-size: var(--corn-text-sm);
+  line-height: var(--corn-leading-sm);
+  animation: corn-notice-in var(--corn-duration) var(--corn-ease);
+}
+
+@keyframes corn-notice-in {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+}

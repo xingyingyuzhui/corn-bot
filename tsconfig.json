@@ -1,5 +1,8 @@
 {
   "extends": "./tsconfig.base.json",
-  "compilerOptions": { "noEmit": true },
-  "include": ["apps/**/*.ts", "packages/**/*.ts", "services/**/*.ts"]
+  "compilerOptions": {
+    "noEmit": true
+  },
+  "include": ["apps/**/*.ts", "packages/**/*.ts", "services/**/*.ts"],
+  "exclude": ["apps/renderer/**"]
 }

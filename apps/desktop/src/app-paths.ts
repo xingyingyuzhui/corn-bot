@@ -28,7 +28,7 @@ export function resolveAppPaths(
   if (!location.isPackaged) {
     const root = resolve(location.appPath, '../..')
     return {
-      renderer: join(root, 'apps/renderer/src/index.html'),
+      renderer: join(root, 'apps/renderer/dist/index.html'),
       preload,
       artifacts: join(root, '.artifacts'),
       home: env.CORN_DSH_HOME ?? defaultDevelopmentHome(),

@@ -64,8 +64,9 @@ await cp(join(root, 'apps/desktop/dist'), join(app, 'dist'), {
   recursive: true,
   filter: (source) => !source.endsWith('.map'),
 })
-await cp(join(root, 'apps/renderer/src'), join(app, 'renderer'), {
+await cp(join(root, 'apps/renderer/dist'), join(app, 'renderer'), {
   recursive: true,
+  filter: (source) => !source.endsWith('.map'),
 })
 await writeFile(
   join(app, 'package.json'),
