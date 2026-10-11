@@ -1,6 +1,6 @@
 import { type FormEvent, useEffect, useId, useRef, useState } from 'react'
 import { useRepository, useWorkspace } from '../../app/workspace-context.tsx'
-import { NAME_MAX } from '../../fixtures/fixture-repository.ts'
+import { NAME_MAX } from '../../model/limits.ts'
 import type { BotDraft } from '../../model/repository.ts'
 import { Button } from '../../shared/Button.tsx'
 import { Dialog } from '../../shared/Dialog.tsx'

@@ -10,7 +10,9 @@ interface DialogProps {
   readonly children: ReactNode
   /** Footer actions, laid out end-aligned. */
   readonly actions?: ReactNode
-  readonly size?: 'sm' | 'md' | 'lg'
+  readonly size?: 'sm' | 'md' | 'lg' | 'xl'
+  /** Drops body padding for layouts that draw their own panes (settings). */
+  readonly flush?: boolean
 }
 
 /**
@@ -24,6 +26,7 @@ export function Dialog({
   children,
   actions,
   size = 'md',
+  flush = false,
 }: DialogProps) {
   const ref = useRef<HTMLDialogElement>(null)
   const titleId = useId()
@@ -42,6 +45,7 @@ export function Dialog({
       ref={ref}
       className="corn-dialog"
       data-size={size}
+      data-flush={flush || undefined}
       aria-labelledby={titleId}
       aria-describedby={description ? descriptionId : undefined}
       onCancel={(event) => {

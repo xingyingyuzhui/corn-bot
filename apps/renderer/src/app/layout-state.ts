@@ -97,7 +97,9 @@ export type LayoutAction =
   | { readonly type: 'close-roster-search' }
   | { readonly type: 'toggle-group'; readonly groupId: string }
   | { readonly type: 'open-overlay'; readonly overlay: Overlay }
-  | { readonly type: 'close-overlay' }
+  /** Closes `overlay` only if it is still the open one, so a late async
+   * callback from a replaced dialog cannot dismiss its successor. */
+  | { readonly type: 'close-overlay'; readonly overlay: Overlay }
 
 export function initialLayout(
   selectedBotId: string,
@@ -277,7 +279,9 @@ export function layoutReducer(
     case 'open-overlay':
       return { ...state, overlay: action.overlay }
     case 'close-overlay':
-      return state.overlay === null ? state : { ...state, overlay: null }
+      return state.overlay === action.overlay
+        ? { ...state, overlay: null }
+        : state
     default: {
       const unreachable: never = action
       throw new Error(`Unknown layout action ${JSON.stringify(unreachable)}`)

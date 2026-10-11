@@ -1,16 +1,4 @@
 /* Kit settings dialog: 198px nav, 7px 9px items with 8px radius, 14px cards. */
-.corn-dialog:has(.corn-settings) {
-  --corn-dialog-width: 760px;
-}
-
-.corn-dialog:has(.corn-settings) .corn-dialog__body {
-  display: flex;
-  padding: 0;
-  overflow: hidden;
-  border-block-start: 0.5px solid var(--corn-border-control);
-  margin-block-start: 12px;
-}
-
 .corn-settings {
   display: grid;
   flex: 1;

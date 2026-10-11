@@ -38,7 +38,7 @@ export function SettingsDialog({
 }: SettingsDialogProps) {
   const headingId = useId()
   return (
-    <Dialog title="设置" size="lg" onClose={onClose}>
+    <Dialog title="设置" size="xl" flush onClose={onClose}>
       <div className="corn-settings">
         <nav className="corn-settings__nav" aria-label="设置分区">
           {SETTINGS_SECTIONS.map((id) => {

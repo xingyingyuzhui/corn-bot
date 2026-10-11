@@ -1,6 +1,6 @@
 import { useId, useState } from 'react'
 import { useRepository, useWorkspace } from '../../app/workspace-context.tsx'
-import { NAME_MAX } from '../../fixtures/fixture-repository.ts'
+import { NAME_MAX } from '../../model/limits.ts'
 import type { CommandError } from '../../model/repository.ts'
 import type { BotView } from '../../model/workspace.ts'
 import { ActionButton } from '../../shared/ActionButton.tsx'

@@ -1,3 +1,4 @@
+import { NAME_MAX, TAG_MAX } from '../model/limits.ts'
 import {
   type BotDraft,
   type BotProfilePatch,
@@ -18,8 +19,6 @@ import type {
 } from '../model/workspace.ts'
 import { M1_INITIAL_BOT_ID, m1FixtureSnapshot } from './m1-workspace.ts'
 
-export const NAME_MAX = 24
-export const TAG_MAX = 12
 const UNGROUPED_ID = 'ungrouped'
 
 export interface FixtureOptions {

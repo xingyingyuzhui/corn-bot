@@ -5,10 +5,8 @@ import {
   errorsFromResult,
   validateCreateBot,
 } from '../src/features/bot-editor/create-bot-form.ts'
-import {
-  FixtureWorkspaceRepository,
-  NAME_MAX,
-} from '../src/fixtures/fixture-repository.ts'
+import { FixtureWorkspaceRepository } from '../src/fixtures/fixture-repository.ts'
+import { NAME_MAX } from '../src/model/limits.ts'
 
 test('required fields are checked before the repository is called', () => {
   assert.deepEqual(validateCreateBot(EMPTY_CREATE_BOT_FORM, NAME_MAX), {

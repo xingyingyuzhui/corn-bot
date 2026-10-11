@@ -6,7 +6,7 @@ import {
   sameTagSet,
   toggleTag,
 } from '../src/features/bot-editor/tag-editor.ts'
-import { TAG_MAX } from '../src/fixtures/fixture-repository.ts'
+import { TAG_MAX } from '../src/model/limits.ts'
 import type { TagView } from '../src/model/workspace.ts'
 
 const TAGS: Readonly<Record<string, TagView>> = {

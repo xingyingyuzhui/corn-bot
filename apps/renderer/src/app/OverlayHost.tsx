@@ -17,7 +17,7 @@ interface OverlayHostProps {
 /** Renders the single open overlay; features never mount modals themselves. */
 export function OverlayHost({ overlay, dispatch }: OverlayHostProps) {
   if (!overlay) return null
-  const close = () => dispatch({ type: 'close-overlay' })
+  const close = () => dispatch({ type: 'close-overlay', overlay })
   switch (overlay.kind) {
     case 'create-bot':
       return (

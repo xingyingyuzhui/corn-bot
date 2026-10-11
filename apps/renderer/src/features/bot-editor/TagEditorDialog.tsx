@@ -1,7 +1,7 @@
 import { Plus } from 'lucide-react'
 import { useId, useState } from 'react'
 import { useRepository, useWorkspace } from '../../app/workspace-context.tsx'
-import { TAG_MAX } from '../../fixtures/fixture-repository.ts'
+import { TAG_MAX } from '../../model/limits.ts'
 import type { CommandError } from '../../model/repository.ts'
 import type { BotView, TagId } from '../../model/workspace.ts'
 import { Button } from '../../shared/Button.tsx'

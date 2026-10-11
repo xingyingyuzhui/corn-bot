@@ -11,6 +11,7 @@ import {
   type LayoutAction,
   type LayoutState,
   layoutReducer,
+  type Overlay,
   resolveLayout,
   resolveSidebarDrag,
   sidebarCollapsed,
@@ -90,9 +91,26 @@ test('one overlay at a time, closing is idempotent', () => {
     { type: 'open-overlay', overlay: { kind: 'bot-tags', botId: 'a' } },
   )
   assert.deepEqual(state.overlay, { kind: 'bot-tags', botId: 'a' })
-  const closed = run(state, { type: 'close-overlay' })
+  const open = state.overlay
+  if (!open) throw new Error('overlay expected')
+  const closed = run(state, { type: 'close-overlay', overlay: open })
   assert.equal(closed.overlay, null)
-  assert.equal(layoutReducer(closed, { type: 'close-overlay' }), closed)
+  assert.equal(
+    layoutReducer(closed, { type: 'close-overlay', overlay: open }),
+    closed,
+  )
+})
+
+test('a late close from a replaced overlay leaves its successor open', () => {
+  const model: Overlay = { kind: 'bot-model', botId: 'a' }
+  const settings: Overlay = { kind: 'settings', section: 'models' }
+  const state = run(
+    initialLayout('a'),
+    { type: 'open-overlay', overlay: model },
+    { type: 'open-overlay', overlay: settings },
+    { type: 'close-overlay', overlay: model },
+  )
+  assert.equal(state.overlay, settings)
 })
 
 test('preferred width is clamped to the kit range 240–400', () => {
