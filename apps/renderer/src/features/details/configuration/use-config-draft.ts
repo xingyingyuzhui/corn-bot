@@ -1,7 +1,7 @@
 import { useEffect, useEffectEvent } from 'react'
 import type { BotEditorController } from '../../bot-editor/bot-editor-controller.ts'
 import type { ConfigSubpage } from '../details-navigation.ts'
-import type { ConfigDraftRegistry } from './config-drafts.ts'
+import { type ConfigDraftRegistry, configDraftHandle } from './config-drafts.ts'
 
 /**
  * Makes a subpage editor answerable to the unsaved-changes prompt and
@@ -17,13 +17,7 @@ export function useConfigDraft<D>(
   const report = useEffectEvent((next: boolean) => onDirtyChange(next))
 
   useEffect(
-    () =>
-      registry.register({
-        botId: controller.botId,
-        page,
-        save: async () => (await controller.save()) !== 'failed',
-        discard: () => controller.reload(),
-      }),
+    () => registry.register(configDraftHandle(page, controller)),
     [registry, page, controller],
   )
   useEffect(() => report(dirty), [dirty])

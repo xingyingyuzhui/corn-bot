@@ -44,7 +44,7 @@ export function CoreSettingsSection({
   useConfigDraft(drafts, 'core', controller, onDirtyChange)
 
   const submit = async () => {
-    const outcome = await controller.save()
+    const outcome = await controller.saveDraft()
     if (outcome === 'saved' && controller.attached) notify('资料已保存')
   }
 

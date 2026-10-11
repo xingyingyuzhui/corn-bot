@@ -34,7 +34,7 @@ export function ModelSettingsSection({
   useConfigDraft(drafts, 'model', controller, onDirtyChange)
 
   const submit = async () => {
-    const outcome = await controller.save()
+    const outcome = await controller.saveDraft()
     if (outcome === 'saved' && controller.attached) notify('模型已保存')
   }
 

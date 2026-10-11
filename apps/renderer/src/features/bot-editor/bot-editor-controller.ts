@@ -37,6 +37,9 @@ export interface BotEditorState<D> {
 
 export type SaveOutcome = 'unchanged' | 'saved' | 'failed'
 
+/** What a save means for the draft on screen; see `saveDraft`. */
+export type DraftSaveResult = 'saved' | 'unchanged' | 'unsaved' | 'failed'
+
 const fresh = <D>(spec: BotEditorSpec<D>, bot: BotView): BotEditorState<D> => ({
   base: bot,
   draft: spec.fromBot(bot),
@@ -139,6 +142,16 @@ export class BotEditorController<D> {
       })
     this.#inflight = write
     return write
+  }
+
+  /** The save every close or leave goes through. */
+  saveDraft(): Promise<DraftSaveResult> {
+    return this.save()
+  }
+
+  /** Drops the draft and starts over from the stored Bot. */
+  async discard(): Promise<void> {
+    this.reload()
   }
 
   #settleSaved(sent: D) {

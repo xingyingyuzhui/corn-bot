@@ -43,7 +43,7 @@ function ProfileForm({
   const pending = state.saving
 
   const submit = async () => {
-    const outcome = await controller.save()
+    const outcome = await controller.saveDraft()
     if (!controller.attached) return
     if (outcome === 'saved') notify('资料已保存')
     if (outcome !== 'failed') onClose()

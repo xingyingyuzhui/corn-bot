@@ -6,6 +6,8 @@ import { useNotice } from '../../../shared/notice.tsx'
 import { CONFIG_PAGE_CATALOG } from '../details-navigation.ts'
 import {
   type ConfigDraftRegistry,
+  leavesAfter,
+  settlementNotice,
   settleUnsaved,
   type UnsavedChoice,
 } from './config-drafts.ts'
@@ -29,13 +31,14 @@ export function UnsavedConfigDialog({
   const choose = async (choice: UnsavedChoice) => {
     if (saving) return
     if (choice === 'save') setSaving(true)
-    const leave = await settleUnsaved(
+    const settlement = await settleUnsaved(
       choice,
       drafts.find(overlay.botId, overlay.page),
     )
     setSaving(false)
-    if (choice === 'save' && leave) notify(`“${page}”已保存`)
-    onResolve(leave)
+    const notice = settlementNotice(settlement, page)
+    if (notice !== null) notify(notice)
+    onResolve(leavesAfter(settlement))
   }
 
   return (

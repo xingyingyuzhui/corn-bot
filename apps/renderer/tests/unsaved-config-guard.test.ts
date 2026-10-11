@@ -9,12 +9,18 @@ import {
   type Overlay,
   type UnsavedConfigOverlay,
 } from '../src/app/layout-state.ts'
-import { BotEditorController } from '../src/features/bot-editor/bot-editor-controller.ts'
+import {
+  BotEditorController,
+  type DraftSaveResult,
+} from '../src/features/bot-editor/bot-editor-controller.ts'
 import { PROFILE_EDITOR } from '../src/features/bot-editor/editor-specs.ts'
 import {
   type ConfigDraftHandle,
   ConfigDraftRegistry,
+  configDraftHandle,
+  leavesAfter,
   settleUnsaved,
+  type UnsavedChoice,
 } from '../src/features/details/configuration/config-drafts.ts'
 import { FixtureWorkspaceRepository } from '../src/fixtures/fixture-repository.ts'
 
@@ -155,21 +161,25 @@ test('the editor reporting clean or unmounting removes the guard', () => {
 
 test('settle: save leaves only when the write succeeds', async () => {
   const calls: string[] = []
-  const handle = (saved: boolean): ConfigDraftHandle => ({
+  const handle = (result: DraftSaveResult): ConfigDraftHandle => ({
     botId: 'a',
     page: 'core',
     save: async () => {
       calls.push('save')
-      return saved
+      return result
     },
-    discard: () => calls.push('discard'),
+    discard: async () => {
+      calls.push('discard')
+    },
   })
-  assert.equal(await settleUnsaved('save', handle(true)), true)
-  assert.equal(await settleUnsaved('save', handle(false)), false)
-  assert.equal(await settleUnsaved('discard', handle(true)), true)
-  assert.equal(await settleUnsaved('cancel', handle(true)), false)
-  assert.deepEqual(calls, ['save', 'save', 'discard'])
-  assert.equal(await settleUnsaved('save', undefined), true)
+  const leaves = async (choice: UnsavedChoice, result: DraftSaveResult) =>
+    leavesAfter(await settleUnsaved(choice, handle(result)))
+  assert.equal(await leaves('save', 'saved'), true)
+  assert.equal(await leaves('save', 'unchanged'), true)
+  assert.equal(await leaves('save', 'failed'), false)
+  assert.equal(await leaves('discard', 'saved'), true)
+  assert.equal(await leaves('cancel', 'saved'), false)
+  assert.deepEqual(calls, ['save', 'save', 'save', 'discard'])
 })
 
 test('end to end: a failed save keeps the draft and does not switch Bot', async () => {
@@ -178,12 +188,7 @@ test('end to end: a failed save keeps the draft and does not switch Bot', async 
   const bot = repository.getSnapshot().roster.bots.ops
   if (!bot) throw new Error('fixture Bot missing')
   const editor = new BotEditorController(repository, PROFILE_EDITOR, bot)
-  const unregister = registry.register({
-    botId: 'ops',
-    page: 'core',
-    save: async () => (await editor.save()) !== 'failed',
-    discard: () => editor.reload(),
-  })
+  const unregister = registry.register(configDraftHandle('core', editor))
   editor.edit((draft) => ({ ...draft, name: '' }), 'name')
 
   let state = run(
@@ -193,12 +198,16 @@ test('end to end: a failed save keeps the draft and does not switch Bot', async 
     { type: 'select-bot', botId: 'backend' },
   )
   const prompt = promptOf(state)
-  const leave = await settleUnsaved(
+  const saved = await settleUnsaved(
     'save',
     registry.find(prompt.botId, prompt.page),
   )
-  state = run(state, { type: 'resolve-unsaved-config', overlay: prompt, leave })
-  assert.equal(leave, false)
+  state = run(state, {
+    type: 'resolve-unsaved-config',
+    overlay: prompt,
+    leave: leavesAfter(saved),
+  })
+  assert.equal(saved, 'failed')
   assert.equal(state.selectedBotId, 'ops')
   assert.equal(editor.getState().draft.name, '')
   assert.equal(editor.getState().fieldErrors.name, '请填写名称')
@@ -212,7 +221,7 @@ test('end to end: a failed save keeps the draft and does not switch Bot', async 
   state = run(state, {
     type: 'resolve-unsaved-config',
     overlay: promptOf(state),
-    leave: discarded,
+    leave: leavesAfter(discarded),
   })
   assert.equal(state.selectedBotId, 'backend')
   unregister()
