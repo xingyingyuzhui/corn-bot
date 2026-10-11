@@ -1,0 +1,36 @@
+{
+  "name": "corn-bot",
+  "version": "0.1.0-dev.0",
+  "private": true,
+  "type": "module",
+  "license": "MIT",
+  "packageManager": "pnpm@11.7.0",
+  "engines": {
+    "node": ">=24.18.0 <25"
+  },
+  "scripts": {
+    "postinstall": "node scripts/install-electron.mjs",
+    "lint": "biome check .",
+    "format": "biome check --write .",
+    "typecheck": "tsc --noEmit",
+    "build": "tsc -p apps/desktop/tsconfig.build.json",
+    "test": "node --test apps/desktop/tests/*.test.ts packages/dsh-adapter/tests/*.test.ts",
+    "verify:runtime": "node scripts/verify-dsh-version.mjs",
+    "setup:runtime": "node scripts/setup-runtime.mjs",
+    "smoke:host": "node scripts/smoke-host.mjs",
+    "smoke:cold": "node scripts/smoke-cold-start.mjs",
+    "smoke:model": "node scripts/smoke-model.mjs",
+    "smoke:governance": "node scripts/smoke-governance.mjs",
+    "dev:desktop": "pnpm build && electron apps/desktop",
+    "check": "pnpm lint && pnpm typecheck && pnpm test"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "2.5.15",
+    "@deepseek-ai/dsh": "0.2.0-rc.2",
+    "@types/node": "24.19.2",
+    "@types/ws": "8.18.1",
+    "electron": "44.7.0",
+    "typescript": "5.9.3",
+    "ws": "8.21.0"
+  }
+}
