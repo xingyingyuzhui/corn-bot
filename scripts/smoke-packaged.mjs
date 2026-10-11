@@ -145,6 +145,86 @@ try {
   await rm(legacyScratch, { recursive: true, force: true })
   await rm(legacyHome, { recursive: true, force: true })
 }
+// F1: a seeded packaged profile whose Gate is moved out of its service scope,
+// or whose Gate never mounts its audit capability, must not become ready.
+const gateHome = await createReviewHome('packaged-gate')
+const gateScratch = await mkdtemp(join(tmpdir(), 'corn-packaged-gate-'))
+const gateRejections = []
+try {
+  const env = (artifacts) => ({
+    PATH: process.env.PATH,
+    HOME: process.env.HOME,
+    TMPDIR: process.env.TMPDIR,
+    LANG: process.env.LANG ?? 'en_US.UTF-8',
+    CORN_DESKTOP_SMOKE: '1',
+    CORN_DSH_HOME: gateHome,
+    CORN_ARTIFACTS_DIR: artifacts,
+    CORN_MODEL_ENV_FILE: join(gateScratch, 'no-model.env'),
+  })
+  const seedArtifacts = join(gateScratch, 'seed')
+  assert.equal(
+    await launch(env(seedArtifacts), [
+      `--user-data-dir=${join(gateScratch, 'user-data-seed')}`,
+    ]),
+    0,
+    'The Gate rounds start from a ready packaged profile',
+  )
+  const profile = join(gateHome, 'profiles', 'corn-dev')
+  const patchFile = join(profile, 'cordis.patch.yml')
+  const gateHost = join(profile, 'node_modules', 'dsh-claw-gate', 'host.js')
+  for (const attack of [
+    {
+      name: 'gate-isolated-by-profile-patch',
+      file: patchFile,
+      content: '- id: dsh-claw-gate\n  isolate:\n    tools: true\n',
+      errorCode: 'claw_disabled',
+      hostSpawns: 0,
+    },
+    {
+      name: 'gate-replaced-by-noop-plugin',
+      file: gateHost,
+      content:
+        "export const name = 'dsh-claw-gate'\nexport function apply() {}\n",
+      errorCode: 'claw_check_failed',
+      hostSpawns: 1,
+    },
+  ]) {
+    const original = await readFile(attack.file)
+    await writeFile(attack.file, attack.content)
+    try {
+      const fingerprint = await plantSentinels(gateHome)
+      const baseline = await fingerprint()
+      const artifacts = join(gateScratch, attack.name)
+      const code = await launch(env(artifacts), [
+        `--user-data-dir=${join(gateScratch, `user-data-${attack.name}`)}`,
+      ])
+      const report = JSON.parse(
+        await readFile(join(artifacts, 'm0-electron-smoke.json'), 'utf8'),
+      )
+      assert.equal(code, 1, `${attack.name} must fail the smoke self-check`)
+      assert.equal(report.packaged, true)
+      assert.equal(report.status, 'failed')
+      assert.equal(report.errorCode, attack.errorCode)
+      assert.equal(report.hostSpawns, attack.hostSpawns)
+      assert.equal(report.clawReady, false)
+      assert.equal(await fingerprint(), baseline, 'The profile is untouched')
+      assert.ok(!existsSync(join(gateHome, 'corn-host.lock')))
+      gateRejections.push({
+        name: attack.name,
+        status: report.status,
+        errorCode: report.errorCode,
+        hostSpawns: report.hostSpawns,
+        profileUntouched: true,
+      })
+      console.log(`PASS packaged ${attack.name} refused (${attack.errorCode})`)
+    } finally {
+      await writeFile(attack.file, original)
+    }
+  }
+} finally {
+  await rm(gateScratch, { recursive: true, force: true })
+  await rm(gateHome, { recursive: true, force: true })
+}
 assert.equal(
   await userDshFingerprint(),
   before,
@@ -154,6 +234,6 @@ console.log('PASS existing ~/.dsh untouched')
 await mkdir(join(root, '.artifacts'), { recursive: true, mode: 0o700 })
 await writeFile(
   join(root, '.artifacts', 'm0-packaged-smoke.json'),
-  `${JSON.stringify({ recordedAt: new Date().toISOString(), signed: false, userDshUntouched: true, rounds, noClawRejection: rejection }, null, 2)}\n`,
+  `${JSON.stringify({ recordedAt: new Date().toISOString(), signed: false, userDshUntouched: true, rounds, noClawRejection: rejection, gateRejections }, null, 2)}\n`,
   { mode: 0o600 },
 )
