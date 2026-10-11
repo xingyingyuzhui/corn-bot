@@ -148,7 +148,7 @@ test('closing the stub drops every hanging connection', async (t) => {
   await stub.hangArrived
   await stub.close()
   const closed = await stub.hangClosed
-  assert.equal(closed.byPeer, true)
+  assert.equal(closed.answered, false)
   controller.abort()
   await leaked
   await assert.rejects(fetch(hangUrl(stub)))

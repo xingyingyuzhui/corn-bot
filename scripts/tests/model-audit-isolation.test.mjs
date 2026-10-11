@@ -7,6 +7,7 @@ import {
   mkdtemp,
   readdir,
   readFile,
+  realpath,
   rm,
   stat,
   writeFile,
@@ -179,8 +180,8 @@ test('refusal is decided from argv and env strings alone', () => {
 
 test('a lab owns a fresh, claimed, locked home and destroys it completely', async (t) => {
   const parent = await scratch(t)
-  const lab = await createAuditLab({ purpose: 'unit', parent, timing: FAST })
-  assert.ok(lab.root.startsWith(parent))
+  const lab = await createAuditLab({ label: 'unit', parent, timing: FAST })
+  assert.ok(lab.root.startsWith(await realpath(parent)))
   assert.equal(lab.home, join(lab.root, 'home'))
   const marker = JSON.parse(
     await readFile(join(lab.home, '.corn-bot-home.json'), 'utf8'),
@@ -197,7 +198,7 @@ test('a lab owns a fresh, claimed, locked home and destroys it completely', asyn
 
 test('a spawn error rejects promptly and leaves no lab behind', async (t) => {
   const parent = await scratch(t)
-  const lab = await createAuditLab({ purpose: 'unit', parent, timing: FAST })
+  const lab = await createAuditLab({ label: 'unit', parent, timing: FAST })
   await assert.rejects(
     lab.startHost({ command: join(parent, 'missing-host'), args: [] }),
     /spawn|ENOENT/u,
@@ -208,7 +209,7 @@ test('a spawn error rejects promptly and leaves no lab behind', async (t) => {
 
 test('a Host that exits before readiness rejects and leaves no lab behind', async (t) => {
   const parent = await scratch(t)
-  const lab = await createAuditLab({ purpose: 'unit', parent, timing: FAST })
+  const lab = await createAuditLab({ label: 'unit', parent, timing: FAST })
   await assert.rejects(
     lab.startHost(fakeHost({ exitCode: 3 })),
     /exited before readiness/u,
@@ -219,7 +220,7 @@ test('a Host that exits before readiness rejects and leaves no lab behind', asyn
 
 test('a Host ignoring SIGTERM is killed within the bounded grace', async (t) => {
   const parent = await scratch(t)
-  const lab = await createAuditLab({ purpose: 'unit', parent, timing: FAST })
+  const lab = await createAuditLab({ label: 'unit', parent, timing: FAST })
   const host = await lab.startHost(fakeHost({ ignoreTerm: true }))
   assert.ok(alive(host.pid))
   const started = Date.now()
@@ -246,7 +247,7 @@ test('no ambient or real key reaches the Host environment', async (t) => {
       if (value === undefined) Reflect.deleteProperty(process.env, key)
       else process.env[key] = value
   })
-  const lab = await createAuditLab({ purpose: 'unit', parent, timing: FAST })
+  const lab = await createAuditLab({ label: 'unit', parent, timing: FAST })
   try {
     const host = await lab.startHost({
       ...fakeHost({ dumpEnv: true }),
@@ -301,7 +302,7 @@ test('profiles come only from a verified, credential-free template', async (t) =
   await assert.rejects(assertCredentialFreeTemplate(dirty), /credential-free/u)
   const clean = await fakeTemplate(join(parent, 'clean'))
   await assertCredentialFreeTemplate(clean)
-  const lab = await createAuditLab({ purpose: 'unit', parent, timing: FAST })
+  const lab = await createAuditLab({ label: 'unit', parent, timing: FAST })
   try {
     await assert.rejects(lab.seedProfile(dirty), /credential-free/u)
     await lab.seedProfile(clean)
@@ -320,7 +321,7 @@ test('a Claw or DSH version mismatch fails safely and destroys the lab', async (
   const labs = join(parent, 'labs')
   await mkdir(labs)
   const report = await runAudit({
-    purpose: 'unit',
+    label: 'unit',
     reportPath,
     labParent: labs,
     timing: FAST,
@@ -353,7 +354,7 @@ test('a failing configuration step stops the Host, releases the lock and replace
   await mkdir(labs)
   let pid
   const report = await runAudit({
-    purpose: 'unit',
+    label: 'unit',
     reportPath,
     labParent: labs,
     timing: FAST,
@@ -380,7 +381,7 @@ test('a failed cancellation check exits non-zero and leaves no Host, stub, lock 
   let port
   const started = Date.now()
   const report = await runAudit({
-    purpose: 'unit',
+    label: 'unit',
     reportPath: join(parent, 'report.json'),
     labParent: labs,
     timing: FAST,
@@ -425,7 +426,7 @@ test('success requires every listed capability and removes the lab', async (t) =
   await mkdir(labs)
   const reportPath = join(parent, 'report.json')
   const skipped = await runAudit({
-    purpose: 'unit',
+    label: 'unit',
     reportPath,
     labParent: labs,
     timing: FAST,
@@ -434,7 +435,7 @@ test('success requires every listed capability and removes the lab', async (t) =
   })
   assert.equal(skipped.status, 'failed')
   const passed = await runAudit({
-    purpose: 'unit',
+    label: 'unit',
     reportPath,
     labParent: labs,
     timing: FAST,
@@ -457,7 +458,7 @@ test('a cleanup failure exits non-zero and never claims cleanup', async (t) => {
   await mkdir(labs)
   const reportPath = join(parent, 'report.json')
   const report = await runAudit({
-    purpose: 'unit',
+    label: 'unit',
     reportPath,
     labParent: labs,
     timing: FAST,
@@ -490,7 +491,7 @@ test('fake keys are caught in wire, output, report and the home tree', async (t)
   await mkdir(labs)
   const reportPath = join(parent, 'report.json')
   const report = await runAudit({
-    purpose: 'unit',
+    label: 'unit',
     reportPath,
     labParent: labs,
     timing: FAST,
