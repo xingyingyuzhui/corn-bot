@@ -219,9 +219,6 @@ try {
   )
   await writeFile(join(profile, 'cordis.yml'), '')
   await writeFile(join(profile, 'cordis.patch.yml'), '[]\n')
-  // The disposable test profile passes the same formal admission as the App.
-  await verifyClawProfile(profile, home)
-  check('formal-claw-profile-admission')
   const patch = join(home, 'probe.patch.yml')
   const fixture = new URL(
     '../tests/fixtures/dsh-corn-m0-probe/host.js',
@@ -231,6 +228,9 @@ try {
     patch,
     `- id: workspace-controller\n  config:\n    documentsDirectory: ${JSON.stringify(join(home, 'documents'))}\n${ptc ? '- id: tools\n  config:\n    mode: both\n' : ''}- insert:\n    - id: dsh-corn-m0-probe\n      name: ${JSON.stringify(fixture)}\n      config:\n        enabled: true\n        testHome: ${JSON.stringify(home)}\n`,
   )
+  // The disposable test profile and its probe overlay pass the same formal admission as the App.
+  await verifyClawProfile(profile, home, [patch])
+  check('formal-claw-profile-admission')
   const env = cornHostEnvironment(home, null)
   child = spawn(
     process.execPath,
