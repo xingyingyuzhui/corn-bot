@@ -45,9 +45,10 @@ The native traffic lights are placed with `trafficLightPosition: { x: 11, y: 12 
 
 - **Unavailable controls keep the reference look.** A control whose feature hasn't shipped yet (dictation, live voice, app connectors, avatar upload and so on) is drawn exactly as in the screenshot. It is marked `aria-disabled` and given a reason via `aria-description` and `title`, and a click shows that reason in the polite notice region (`shared/notice.tsx`). Every reason string lives in `shared/unavailable.ts`. It is never dimmed, because dimming would break fidelity to the reference.
 - **The Bot pill is the details toggle.** The reference has no separate details button. Clicking the centred Bot name opens or closes the details pane (`aria-expanded`, `aria-controls="corn-bot-details"`), and Escape inside details also closes it.
-- **One intentional deviation: the details ⋯ button.** The details header adds a ⋯ menu (edit profile, tags, model, permissions) to the left of share and close. The reference shows no such control, but those editors need an entry point that doesn't change the default view.
+- **Intentional deviation: the details ⋯ button.** The details header adds a ⋯ menu (edit profile, tags, model, permissions) to the left of share and close. The reference shows no such control, but those editors need an entry point that doesn't change the default view.
+- **Intentional deviation: the fixed status strip.** A one-line caption sits between the feed and the composer (`features/chat/RuntimeNotice.tsx`). It states two separate facts: "示例数据，未连接真实 Bot" while the repository is the fixture (`repository.label`), and the local Host runtime status (starting, ready, recovering, failed, or that the status can't be read). "运行时已就绪" describes the Host only and never says a Bot is connected. The strip is in normal flow, so the feed gets about 22 px shorter (more where it wraps) and the strip never scrolls away, covers a message, the composer or the Bot pill. With details as an overlay it pads itself into the part of the chat the overlay leaves visible. The reference screenshots have no such line. PR-02C must treat it as an accepted baseline difference, not hide it to match the old captures. The strip is silent. A single polite, atomic live region above the shell (`app/RuntimeAnnouncer.tsx`) announces the sample source once (and again if it changes) and each runtime change, keyed on the previous status and safe error code. Polling, Bot switches, layout changes and ChatPane remounts don't re-announce.
 - **Per-Bot state survives layout changes.** The draft, scroll position and selected details tab are kept per Bot in `layout-state.ts`. The feed stays pinned to the newest message when the chat column resizes, unless the user has scrolled up.
-- **Placeholders are labelled.** Until PR-02D lands, avatars are hue-and-initial placeholders. Image attachments are grey placeholder boxes. The fixture conversation carries the visible notice "示例数据，未连接真实 Bot".
+- **Placeholders are labelled.** Until PR-02D lands, avatars are hue-and-initial placeholders. Image attachments are grey placeholder boxes. The fixed status strip keeps "示例数据，未连接真实 Bot" in view next to every fixture send, approval and handoff result.
 
 ## Verification
 
@@ -57,12 +58,17 @@ The native traffic lights are placed with `trafficLightPosition: { x: 11, y: 12 
 2. Measures the regions with details closed.
 3. Opens details through the Bot pill and measures again.
 4. Closes details and confirms the draft is still there.
+5. Checks the status strip with the feed scrolled to the bottom and top, in three-pane, after switching Bot, with the roster collapsed, at 720×520 with details as an overlay and closed, and back on the first Bot at 1024×764.
 
 The smoke fails unless:
 
 - the sidebar is 276 ± 1 px wide;
 - the sidebar moves by less than 1 px between the two states;
 - details take 0.367 ± 0.01 of the window width;
-- the draft is kept.
+- the draft is kept, including across the Bot switch;
+- in every strip scenario, the sample marker (found by its text) and the runtime status (`data-runtime-status`, matching what Main reports) are rendered inside the visible chat pane, in normal flow, outside every scroll container and live region, unclipped, uncovered at their centre, and clear of the composer, Bot pill, roster and details;
+- there is exactly one polite, atomic runtime announcer outside the chat pane, and it doesn't change during the walk.
+
+The crash smoke (`CORN_DESKTOP_CRASH_SMOKE=1`) runs the same strip check while Main is recovering and fails unless the window shows `recovering`.
 
 The probe sends a pointer leave before measuring, so hover-only chrome such as message copy buttons stays out of the captures. The run writes `m1-layout-two-pane.png` and `m1-layout-three-pane.png` to `.artifacts/` (gitignored) for review by eye. Pixel-level region diffs come with PR-02C.
