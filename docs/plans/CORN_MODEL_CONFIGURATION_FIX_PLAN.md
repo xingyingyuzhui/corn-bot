@@ -1,6 +1,6 @@
 # Corn 模型配置修复与官方能力接入计划
 
-日期：2026-10-11（Asia/Shanghai）。状态：**待执行；本文件只形成修复计划，没有修改 App 代码，也没有证明正式配置流程已接通。**
+日期：2026-10-11（Asia/Shanghai）；2026-10-12状态更新：**启动/治理/有限停止/审计清理代码已合main 8b6989c，相关真实门禁仍pending；官方接口审计已合。WP3实现为未合且暂停的PR #15/a026f68，N1–N3待修；WP4真实Bot模型覆盖未实施。** 当前顺序以[后续统一计划](CORN_BOT_FORWARD_PLAN.md)为准，下面旧分支基线只作历史参考。未合分支和fake-Key记录不证明main正式产品配置或真实聊天已接通。
 
 基线：main `d28f085`。runtime 修复分支已存在，读取时 HEAD 为 `40d9f66`；U1 与头像各有独立分支。本计划位于 `docs/bot-management-plan` 工作区，接续[管理面板计划](CORN_BOT_MANAGEMENT_PANEL_PLAN.md)，不修改正在进行的修复代码。
 

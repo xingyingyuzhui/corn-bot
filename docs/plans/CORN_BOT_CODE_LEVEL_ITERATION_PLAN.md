@@ -1,5 +1,8 @@
 # Corn Bot — 本地 macOS 持久 Bot 工作平台：代码级迭代实施计划
 
+> 2026-10-12执行入口更新：当前进度、排期和门禁以[后续统一实施计划](CORN_BOT_FORWARD_PLAN.md)为准。本文件保留v1.3设计和§14维护者决策；旧阶段/分支指令不再代表当前待办。
+
+
 > 版本：计划 v1.3 · 2026-10-11（基于 Kit 动态头像更新，新增 Avatar Motion 子系统与代码级验收）；仓库同步版附 §14 维护者决策及 §15 Corn 原创素材接入增量，§14 与正文冲突时以 §14 为准
 > 交付对象：执行开发的 Coding Agent / 工程团队  
 > 目标：独立 `Corn Bot.app`，高保真借鉴 Grok Bot 的白色双栏/三栏桌面 UI，运行于用户当前 macOS 桌面，复用 DeepSeek Harness（DSH）的 Agent 引擎及既有 DSH Claw Suite 的治理能力。  
@@ -555,10 +558,10 @@ export interface CornEvent {
 
 **M2 最小数据库必须先于真实 Bot 创建落地：**
 
-- 表：`schema_migrations`、`bots`（包含可选 `model_override`）、`app_settings`（包含全局默认模型）、`conversations`、`session_bindings`、`task_runs`、`run_attempts`、`corn_events`、`ui_state`、`tags`、`bot_tags`。`task_runs` 必须从 M2 开始具备稳定 `run_id`、`bot_id`、`conversation_id`、`dsh_session_id`、`state`、`idempotency_key`、`last_event_seq`。
+- 表：`schema_migrations`、`bots`（包含可选 `model_override`）、`app_settings`（只包含产品偏好或可重建模型投影；全局模型/Provider/Key 的权威值由官方服务持有）、`conversations`、`session_bindings`、`task_runs`、`run_attempts`、`corn_events`、`ui_state`、`tags`、`bot_tags`。`task_runs` 必须从 M2 开始具备稳定 `run_id`、`bot_id`、`conversation_id`、`dsh_session_id`、`state`、`idempotency_key`、`last_event_seq`。
 - 原则：一个事务提交所需的 Corn 元数据；DSH 本身的 Session Log 不复制为第二份权威日志。DB 采用 SQLite WAL 和显式迁移版本，`UNIQUE` / 外键 / 复合幂等键提供重复操作防护，写入由唯一进程所有者串行管理；不得让 Electron Renderer 直接访问 db 文件。驱动选择（Node `node:sqlite` vs better-sqlite3）在 M0 记录平台验证，选定后固定版本和打包测试。
 - 首次 Bot→Session 绑定建立时，保存最小 `CornTaskRun`（创建/对话每次执行拥有独立 `runId`）；M2 为真实运行创建 `run.started/completed/cancelled/interrupted` 等事件，且 UI 可读；M4 再做跨重启完整对账、长期任务调度、失败重试和历史查询。
-- M2 重启恢复必须可用：数据库恢复 `botId → conversationId → dshSessionId` 和 UI 选择状态，随后从 DSH Session Follow 获取权威消息；未终结 Run 恢复为 `interrupted` 或 `reconciling`，不能误报 `completed`。
+- M2 重启恢复必须可用：数据库恢复 `botId → conversationId → dshSessionId` 和 UI 选择状态，先通过 DSH 只读 projections/page 获取历史并裁决，再决定是否 Follow（冷普通 Session 的 Follow 会触发 Agent 激活）；未终结 Run 恢复为 `interrupted` 或 `reconciling`，不能误报 `completed` 或复活已停止工作。
 - `packages/local-db/tests/{migration,run-repository,round-trip}.test.ts`、`tests/integration/run-m2-restart.test.ts` 必须加入 M2 门禁。
 
 **事务步骤**（遵循现有 `dsh-claw-registry/registry-navigation.mjs`，不凭空发明另一套）：
@@ -570,7 +573,7 @@ Corn UI: create/select Bot
 → DSH remote.session.create({workspaceId, sessionId: clientGenerated, agentPreset})
 → 校验 returned agentPreset
 → POST /api/dsh-claw/registry/session/bind({sessionId, agentId, expectedRevision, source:'create'})
-→ 按 Bot model 需要调用 remote.session.selectModel
+→ 按 Bot model 使用经隔离验证的 Session-only 模型选择（RC2 session.selectModel 会异步改全局默认，不直接用于独立 Bot 覆盖）
 → POST /api/dsh-claw/registry/session/state({sessionId, state:'ready'})
 → corn local DB commit ConversationBinding
 → remote.session.follow({address:{kind:'session',sessionId}, assistantStream:true})
@@ -578,7 +581,7 @@ Corn UI: create/select Bot
 
 - 注意 `remote.session` 返回可能带 `RemoteResult` envelope，必须采用版本相符的解包逻辑，失败码不可吞掉。
 - `session.create` 成功而 `bind` 失败时**标记部分创建**；不要丢失 Session ID、不要自动把它转给别的 Bot。提供 UI 重试绑定与人工修复入口。
-- `selectModel` 失败标记 `needs_model`，不要继续假装 ready。
+- 模型应用失败标记 `needs_model`，不要继续假装 ready；Session-only seam 未验证时不开放 Bot 覆盖，不采用 selectModel 后恢复全局值的做法。
 - 向 `remote.session.prompt` 发送 `requestId`, `mode:'queue' | 'steer'`, `content:[{type:'text',text}]`, `sessionId`, `clientTimeZone`；requestId 持久化与重试去重。
 - `remote.session.cancel({sessionId})` 仅终止当前活跃 Turn，待处理消息保留，UI 文案必须准确。
 - `follow` 首帧的 `snapshot.records` 和后续 seq 日志按身份、位置去重；流式 assistant chunks 与最终 committed `assistant/message` 合并，不展示两份答案。

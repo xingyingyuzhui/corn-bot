@@ -200,7 +200,7 @@ Risks:
 
 ## 10. Audit harness guarantees (re-review F3/F4)
 
-Status: on branch `fix/model-audit-isolation`; awaiting independent review before merge. F3/F4 were verified by a live headless audit. Round 3 N4 (interrupted template build) is code-fixed with unit evidence only, and its real-audit acceptance is pending. Until that merges, `main`'s audit script still has the F3/F4 defects and its runs are not acceptable evidence.
+Status updated 2026-10-12: PR #16 is merged at main `8b6989c`, including F3/F4 and round 3 N4; finite supervisor stop is merged through PR #19. F3/F4 have historical live headless audit evidence. N4 interrupted-template cleanup and finite stop have unit/fake-child evidence; their real-Host interruption checks and packaged acceptance remain pending while verification is paused. Do not infer that this merge or the old audit result establishes those new checks. Current work order is in the [forward plan](../plans/CORN_BOT_FORWARD_PLAN.md).
 
 ### Lab lifecycle (`scripts/lib/model-audit-fixtures.mjs`)
 
