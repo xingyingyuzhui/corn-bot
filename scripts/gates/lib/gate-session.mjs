@@ -15,6 +15,7 @@ import {
   ResourceSampler,
   removeRunHome,
   repo,
+  sandboxedSpawn,
   unsandboxedSpawn,
   writeReport,
 } from './gate-env.mjs'
@@ -56,10 +57,28 @@ export async function runGate(
   const stub = await startFakeModel({ scripts })
   const home = await createRunHome(name, { baseURL: stub.baseURL })
   const hostExits = []
+  // The supervisor reports on `close`, which waits for every stdio holder;
+  // `exit` and a stderr tail record what the Host process itself did.
+  const hostProcess = { exits: [], stderrTail: '' }
+  const spawn = hostSandbox ? sandboxedSpawn : unsandboxedSpawn
   const host = governedHost(home, {
     onFailure: (message) =>
       hostExits.push({ at: Date.now() - t0, message: message.slice(0, 160) }),
-    ...(hostSandbox ? {} : { spawnHost: unsandboxedSpawn }),
+    spawnHost: (command, args, options) => {
+      const child = spawn(command, args, options)
+      child.once('exit', (code, signal) =>
+        hostProcess.exits.push({
+          at: Date.now() - t0,
+          pid: child.pid,
+          code,
+          signal,
+        }),
+      )
+      child.stderr?.on('data', (chunk) => {
+        hostProcess.stderrTail = (hostProcess.stderrTail + chunk).slice(-4_000)
+      })
+      return child
+    },
   })
   const network = hostSandbox ? null : new NetworkWatch(() => host.processId)
   const ctx = {
@@ -138,7 +157,20 @@ export async function runGate(
         ?.split('\n')
         .slice(1, 4)
         .map((line) => line.trim().replace(repo, '.')) ?? null,
+    errorCause: error?.cause
+      ? `${error.cause.code ?? error.cause.name}: ${error.cause.message}`.slice(
+          0,
+          300,
+        )
+      : null,
+    errorContext: error?.context ?? null,
     hostExits,
+    hostProcess: {
+      exits: hostProcess.exits,
+      stderrTail: error
+        ? hostProcess.stderrTail.replaceAll(home, '<home>')
+        : null,
+    },
     fakeModel: {
       requests: requestFacts(stub, t0),
       tools: stub.requests.find((row) => row.kind === 'agent')?.tools ?? [],

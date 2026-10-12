@@ -23,6 +23,8 @@ const RPC_ENDPOINTS = new Set([
   'session/updateQueue',
   'session/modelCatalog',
   'session/selectModel',
+  'job/kill',
+  'subagents/interruptByParent',
   '$events/result',
 ])
 /** Corn never lets `session/selectModel` save the Host global default. */
@@ -38,6 +40,7 @@ function admitsArgs(endpoint: string, args: Record<string, unknown>): boolean {
 const STREAM_ENDPOINTS = new Set([
   'session/follow',
   'session/control',
+  'job/list',
   '$events',
 ])
 
