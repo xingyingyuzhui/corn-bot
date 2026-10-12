@@ -116,7 +116,7 @@ DSH路线需先解决：Session-only模型选择、Host侧RunControl与只读恢
 - **02D-2a 动效引擎（UI-01a）**：全部实例共 1 个 RAF 的统一 scheduler、useAvatarLifecycle、时间纯函数采样、可承载形变的帧契约、形变↔idle 过渡、静态路径与清理；沿用 v1 视觉，现在可开工，只做虚拟时钟＋JSDOM 测试。
 - **02D-2b 形变接入（UI-01b）**：Corn 原创 `corn-avatar-kit-v2`（独立资产锁，v1 不变）定稿后接入。第一批 writing/thinking/searching(radar)/progress/alerting，第二批 orbit/waiting、spawning、sending、receiving、uploading、dictating、powering-down；orbit/spawning 不在现有 18 态内，需先定契约。
 - 动画状态不改变任务状态：不继承 DMG 自动回 idle，失败/审批/后台任务由 PR-03A 展示 reducer 按真实事件驱动，短态由展示层 TTL 回落。
-- 增补门禁：30/60/120 FPS 及不规则/长间隔 delta 同一时刻帧一致；14–60px 全部使用尺寸＋144px fixture，14px 走 compact；形变→idle 恢复眼睛无残留；不裁切；N 实例 1 个 RAF；卸载/切 Bot/StrictMode/窗口销毁后 RAF、observer、listener 归零。GUI/视觉部分在 smoke 暂停期间保持 pending。细则见[头像计划](CORN_AVATAR_ASSET_INTEGRATION_PLAN.md) §3A、§4 与 [ADR-0003 增补](../adr/ADR-0003-avatar-engine.md)；Kit 锁 `0248419`→`5bb4379` 由独立小 PR 处理。
+- 增补门禁：同一虚拟动画时间在 30/60/120 FPS 及低于 100ms 封顶的不规则 delta 下帧一致；长间隔（后台、睡眠）每 tick 最多推进 100ms、从原处继续不跳相位（维护者决策，单独测试）；14–60px 全部使用尺寸＋144px fixture，14px 走 compact；形变→idle 恢复眼睛无残留；不裁切；N 实例 1 个 RAF；卸载/切 Bot/StrictMode/窗口销毁后 RAF、observer、listener 归零。GUI/视觉部分在 smoke 暂停期间保持 pending。细则见[头像计划](CORN_AVATAR_ASSET_INTEGRATION_PLAN.md) §3A、§4 与 [ADR-0003 增补](../adr/ADR-0003-avatar-engine.md)；Kit 锁 `0248419`→`5bb4379` 由独立小 PR 处理。
 
 静态头像、角色选择器、图标源和哈希保留。头像上传在 P3 受控资产访问后接通。真实事件驱动在 P3/P4 接入；组件层只消费脱敏 presentation，不能直接调用 Host。
 

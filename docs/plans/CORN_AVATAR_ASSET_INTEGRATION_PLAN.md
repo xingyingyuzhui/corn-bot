@@ -32,6 +32,7 @@
    - 3b. **Corn avatar kit v2 素材包（仓库外设计工作）。** `design-assets/corn-avatar-kit-v2` 提供 Corn 原创形变目标，独立资产锁；v1 静态头像、16 角色与 App 图标不变。
    - 3c. **PR-02D-2b：形变接入。** v2 定稿锁定且 02D-2a 合入后实施；第一批 5 种形变及视觉验收，第二批随后。
    - Kit 研究锁由 `0248419` 升至 `5bb4379`（独立小代码 PR，由另一 agent 处理）。§3A 引用的 DMG 事实以 `5bb4379` 文档为准；02D-2a 合并时如该 PR 仍未合，PR 描述须注明所引用的提交。
+   - **合并顺序（2026-10-12）：** #20 → #23 / #25 → #24（其 `AVATAR_SOURCE_MATRIX` 链接指向 #25 的 ADR-0003 增补）；引擎实现 #26（`feat/avatar-motion-engine`，`504dccc`，即 02D-2a）独立合并。
 4. **PR-03A（M2）：真实事件驱动。** 在 PR-02C 门禁通过、PR-02D 接入完成和真实 Session/Run 适配具备后，连接 DSH/Claw 状态。
 5. **PR-09A（M8）：发布复查。** 再次核查资产来源、构建清单与签名/公证后的实际图标；M1 先验证未签名开发 `.app`。
 
@@ -73,20 +74,22 @@ macOS 图标采用上述 ICNS 路径（选项 A），本轮不新增 Icon Compos
 
 | DMG 状态 / 形变 | 结构（借用） | 时序与曲线（借用） |
 | --- | --- | --- |
-| writing / pencil | 主体缩成笔尖＋笔杆，完整形变隐藏眼睛；落笔书写→抬笔返回；可见墨迹 | 2500ms 周期，前 68% 落笔、后 32% 抬笔；墨迹为预计算路径按状态时间取样，最多 64 点，抬笔按时间擦除，不随 RAF 追加 |
-| thinking / dots | 主体变中心点＋左右两点，隐藏眼睛 | 左右点轮流抬升、缩放、变淡 |
+| writing / pencil | 主体缩成笔尖＋笔杆，完整形变隐藏眼睛；落笔书写→抬笔返回；可见墨迹 | 2500ms 周期，前 68% 落笔、后 32% 抬笔；墨迹为预计算路径按状态时间取样，最多 64 点，抬笔按时间擦除，不随 RAF 追加。**Corn 选择（#26）：** 最多 25 点 = 24 个预计算路径采样＋1 个当前笔尖点 |
+| thinking / dots | 主体变中心点＋左右两点，隐藏眼睛 | 左右点轮流抬升、缩放、变淡。**Corn 选择（#26）：** 周期 1400ms |
 | searching → radar | 主体＋3 层扩散环 | 每轮 1300ms，三环错相，透明度随扩散衰减 |
 | progress（DMG `loading` 同形变） | 主体＋淡色轨道＋进度弧；不是永久 100% 圆环 | 形变 2500ms、休息 1500ms 循环；休息相位恢复眼睛 |
 | alerting / bang | 直立提醒条＋主体缩成圆点，隐藏眼睛；不得用 writing 或静态感叹号替代 | 2.2s 周期衰减抖动 |
 | orbit（DMG `waiting` 同形变） | 主体＋5 颗轨道点，深度改变半径/透明度 | 持续循环 |
 | spawning / gather | 5 粒子向主体聚拢、逐颗消失；单帧可见数随阶段变化 | 展示 2000ms、休息 1500ms，粒子错相；休息恢复眼睛 |
-| sending / send | 主粒子＋尾随小粒子＋淡出环；某帧只见一点属正常阶段 | 1500ms，各元素有不同出现窗口 |
-| receiving / receive | 外侧点收拢到主体，再出现接收环；不与 sending 强制镜像 | 1700ms；入射方向按 seed 变化，不固定 |
+| sending / send | 主粒子＋尾随小粒子＋淡出环；某帧只见一点属正常阶段 | 1500ms，各元素有不同出现窗口。**#26：** 02D-2a 仍画 v1 装饰，相位按 1500ms 周期 |
+| receiving / receive | 外侧点收拢到主体，再出现接收环；不与 sending 强制镜像 | 1700ms；入射方向按 seed 变化，不固定。**#26：** 02D-2a 仍画 v1 装饰，相位按 1700ms 周期 |
 | uploading / dock | 两点依次进入再环绕主体 | 首点约 0.2s、次点约 1.5s 起，入场段约 0.9s |
 | dictating / wave | 中央主体＋左右 4 节点 | 幅度由时间函数驱动，不代表真实麦克风音量 |
 | powering-down / standby | 缩小主体＋淡色呼吸光晕，入场有收缩环 | 持续呼吸；名称不表示组件自行销毁 |
 
 通用规则：完整形变相位隐藏眼睛，形变→idle 后恢复两眼并清除形变节点；DMG 小于 48px 启用 compact，影响 idle 等片段调度，**不**减少形变粒子数；头像 SVG 与紧邻父级保持 overflow 可见，形变缩放/viewBox 随显示尺寸调整，不导出大尺寸帧再缩小或固定覆盖 viewBox。DMG 的 `next/hold`（waking 1.6s→idle、finished/failed/approving 片段后→idle、blocked 120s→drowsy）不进入引擎，见 §5。
+
+**Corn 过渡与 compact 参数（#26 `504dccc`，均为 Corn 选择）：** 形变进入 320ms，形变权重 >0.5 时隐藏眼睛；状态切换 240ms 平滑混合；形变之间切换时旧形变在过渡前半段淡出、新形变在后半段生长。waking 不自转 idle：从 1.6s 起在 waking 状态内用 400ms 把姿态混合到 idle 姿态，waking 何时结束由展示层 TTL 决定。<48px compact 循环去掉 idle 摆动、保留轻微上下浮动；形变粒子/环数量不减少。
 
 **Corn 18 状态对照。** 契约词表不变（ADR-0003 §2）；无形变状态的 DMG clips 是关键帧数据，Corn 按片段语义自写姿态，属 Corn 选择。
 
@@ -94,7 +97,7 @@ macOS 图标采用上述 ICNS 路径（选项 A），本轮不新增 Icon Compos
 | --- | --- | --- | --- |
 | idle | 官网 idle 身体/眼睛运动参数（不用 DMG idle clips） | 2a | <48px 简化 idle 运动沿用 DMG compact 尺寸规则，记为 Corn 选择 |
 | sleeping | sleeping：sleepy，无形变 | 2a | v1 `standby` 装饰属偏离，2b 视觉验收时定去留 |
-| waking | waking：surprised；DMG 1.6s 自回 idle | 2a | 不继承自回，由展示层 TTL 决定 |
+| waking | waking：surprised；DMG 1.6s 自回 idle | 2a | 不继承自回：1.6s 起在 waking 内 400ms 混合到 idle 姿态，状态结束由展示层 TTL 决定 |
 | listening | listening：calm，无形变 | 2a | v1 `wave` 装饰属偏离，须与 dictating 形变可区分 |
 | thinking | thinking 形变 | 2b 第一批 | 形变为三粒玉米粒（v2） |
 | searching | radar 形变 | 2b 第一批 | v1 与 thinking 共用 `dots` 是缺陷；2a 帧契约先区分为 radar，视觉在 2b |
@@ -117,13 +120,13 @@ macOS 图标采用上述 ICNS 路径（选项 A），本轮不新增 Icon Compos
 
 | 模块 | 实施内容 |
 | --- | --- |
-| `motion-scheduler.ts` | 全局唯一调度器：N 个实例共 1 个 RAF；注册即订阅，0 订阅取消 RAF；共享一个 `IntersectionObserver`、一个 `visibilitychange` 与一个 reduced-motion 监听。时钟可注入（产品为单调时钟，测试为虚拟时钟） |
-| 采样器（`motion-presets.ts`，必要时拆 `motion-sampler.ts`） | 帧 = 纯函数（状态、`now − stateEpoch`、seed、显示尺寸、过渡信息）。不累计 dt、不按帧积分、不追帧；长间隔/后台恢复直接按当前时间采样。主计划 §13.4/§13.6 的“封顶 dt”“隐藏后重置时间相位”对动画时钟不再适用（不追帧的目的由直接采样达成），仅可用于调度器自身簿记。时序表每项注明 DMG 参照值或“Corn 选择” |
+| `motion-scheduler.ts` | 全局唯一调度器：N 个实例共 1 个 RAF；注册即订阅，0 订阅取消 RAF；共享一个 `IntersectionObserver`、一个 `visibilitychange` 与一个 reduced-motion 监听。时钟可注入（产品为单调时钟，测试为虚拟时钟）。调度器维护共享的虚拟动画时间，每个 tick 推进量封顶 100ms（参照 DMG） |
+| 采样器（`motion-presets.ts`，必要时拆 `motion-sampler.ts`） | 帧 = 共享虚拟动画时间的纯函数（状态、虚拟时间 − 状态起点、seed、显示尺寸、过渡信息）；不按帧积分。**长间隔（维护者决策 2026-10-12）：** 后台 Tab、睡眠等长间隔后虚拟时间只推进 100ms，从原处继续，不跳相位、不追帧。主计划 §13.4/§13.6 的“封顶 dt”按此落地；“隐藏后重置时间相位”不采用。时序表每项注明 DMG 参照值或“Corn 选择” |
 | 帧契约 | 在 v1 `AvatarFrame`（姿态＋表情＋装饰）上增加形变字段：形变类型、权重 0–1、相位、眼睛可见性、抽象部件（粒子/环/笔杆/墨迹点）数量与位置，以及按显示尺寸所需的绘制范围。2a 中 searching 已标为 radar，与 thinking 区分 |
-| 形变↔idle 过渡 | 进入/退出均为时间纯函数（记录过渡起点与上一状态在该时刻的采样）；完整形变隐藏眼睛，回 idle 恢复眼睛并移除形变节点/属性。2a 用测试专用占位形变验证契约，不进入产品视觉 |
-| 墨迹 | 每周期由 seed 预计算路径，按状态时间取样，最多 64 点（DMG 参照），抬笔相位按时间擦除；同一时刻在任何帧率下结果相同 |
+| 形变↔idle 过渡 | 进入/退出均为时间纯函数（记录过渡起点与上一状态在该时刻的采样）；完整形变隐藏眼睛，回 idle 恢复眼睛并移除形变节点/属性。Corn 选择：形变进入 320ms（权重 >0.5 隐藏眼睛），状态切换 240ms 平滑混合；形变间切换时旧形变在前半段淡出、新形变在后半段生长。2a 用测试专用占位形变验证契约，不进入产品视觉 |
+| 墨迹 | 每周期由 seed 预计算路径，按状态时间取样，抬笔相位按时间擦除；同一虚拟时间在任何帧率下结果相同。上限为 Corn 选择 25 点（24 个预计算采样＋1 个当前笔尖点；DMG 最多 64 点） |
 | `useAvatarLifecycle.ts`、`AvatarRenderer`、`StaticAvatar` | 隐藏、离屏、系统减少动态、`animatedAvatars=false` 走静态路径，不加载动画运行时、不建 RAF；`setState`/偏好变化更新现有实例而不重建运行时；StrictMode 双挂载、切 Bot、关闭详情、销毁窗口后 RAF/observer/listener 归零 |
-| compact 与裁切 | <48px 走 compact 分支（14px 必须命中），保留眼睛方向，不减少形变粒子数；SVG `overflow: visible`，紧邻父级不得 `overflow: hidden`，viewBox 按显示尺寸适配 |
+| compact 与裁切 | <48px 走 compact 分支（14px 必须命中）：去掉 idle 摆动、保留轻微上下浮动（Corn 选择），保留眼睛方向，不减少形变粒子/环数；sending/receiving 仍画 v1 装饰，相位按 1500/1700ms 周期；SVG `overflow: visible`，紧邻父级不得 `overflow: hidden`，viewBox 按显示尺寸适配 |
 | 无自主状态切换 | 引擎 API 没有 next/hold，不设会改变状态的定时器；状态只由 props 输入（§5） |
 
 其余沿用原 §4：稳定 seed 来源为 Bot ID/持久偏好；同一 Bot 的多个可见实例拥有不同 SVG ID；`spin` 真正转一圈且不裁切，`bounce/burst` 受动效设置约束。开发专用 fixture 路由展示 16 角色和 18 状态（形变状态在 2a 显示 v1 视觉并标注“形变待 2b”）；正常 M1 UI 保留示例标记；5 群组素材只作预览。新增/迁入 avatar contract、shape、lifecycle、scheduler、sampler 测试，纳入根级 `pnpm test`/typecheck/build；保留原 9 项测试覆盖。上传图、原名文本与邻近状态提示继续可用；动画表情不能替代可访问的错误或审批文本。
@@ -141,7 +144,8 @@ macOS 图标采用上述 ICNS 路径（选项 A），本轮不新增 Icon Compos
 
 | 门禁 | 方法 | 归属 |
 | --- | --- | --- |
-| 同一时刻帧一致：30/60/120 FPS 与不规则 delta（含长间隔、后台 Tab）结果相同，墨迹亦然 | 虚拟时钟逐字段比较帧与序列化 SVG | 2a |
+| 帧率无关：同一虚拟动画时间在 30/60/120 FPS 及低于 100ms 封顶的不规则 delta 下得到相同帧，墨迹亦然 | 虚拟时钟逐字段比较帧与序列化 SVG | 2a |
+| 长间隔（后台 Tab、睡眠）：虚拟时间单次最多推进 100ms，从原处继续，无相位跳变 | 虚拟时钟注入长间隔，单独断言 | 2a |
 | 全部使用尺寸 14/24/30/32/36/48/52/60px＋144px fixture；14px 走 compact | JSDOM 尺寸模拟（2a）；区域截图（2b，GUI pending）。30px 仅为尺寸矩阵，账户头像语义不变 | 2a + 2b |
 | 形变→idle 恢复两眼、无残留节点/属性 | DOM 断言：2a 占位形变，2b 真实形变 | 2a + 2b |
 | 粒子/笔杆/环不裁切：SVG overflow 可见、紧邻父级无 `overflow: hidden`、viewBox 按显示尺寸 | 计算样式与祖先检查（2a）；视觉复核（2b，GUI pending） | 2a + 2b |
