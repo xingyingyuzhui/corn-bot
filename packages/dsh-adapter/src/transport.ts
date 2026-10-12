@@ -39,6 +39,22 @@ const STREAM_ENDPOINTS = new Set([
   '$events',
 ])
 
+/**
+ * Model settings. Settings writes are limited to `replace` and path `mutate`:
+ * `update` merges and would keep stale fields of a complete selection.
+ */
+const MODEL_SETTINGS_ENDPOINTS = [
+  'settings/describe',
+  'settings/replace',
+  'settings/mutate',
+  'credentials/describe',
+  'credentials/set',
+  'credentials/unset',
+  'llm/listProviders',
+  'llm/listConfigurableProviders',
+]
+for (const endpoint of MODEL_SETTINGS_ENDPOINTS) RPC_ENDPOINTS.add(endpoint)
+
 /** Exact Claw Fetch routes (under `/api/dsh-claw/`) Main may call; Gate audit is a Main-only probe. */
 const CLAW_ROUTES = new Set([
   'registry/list',

@@ -1,3 +1,4 @@
+import type { ModelStatusView } from '@corn-bot/contracts/model-settings'
 import {
   type CSSProperties,
   useEffect,
@@ -22,6 +23,7 @@ import {
 } from './layout-state.ts'
 import { OverlayHost } from './OverlayHost.tsx'
 import {
+  modelNotice,
   type RuntimeReading,
   runtimeNotice,
   sampleNotice,
@@ -39,9 +41,10 @@ const VOICE_FIXTURE =
 
 interface CornShellProps {
   readonly runtime: RuntimeReading
+  readonly model: ModelStatusView | null
 }
 
-export function CornShell({ runtime }: CornShellProps) {
+export function CornShell({ runtime, model }: CornShellProps) {
   const repository = useRepository()
   const workspace = useWorkspace()
   const [state, dispatch] = useReducer(
@@ -101,6 +104,7 @@ export function CornShell({ runtime }: CornShellProps) {
         conversation={conversation}
         sample={sampleNotice(repository.label)}
         runtime={runtimeNotice(runtime)}
+        model={modelNotice(runtime, model)}
         draft={draftFor(state, bot.id)}
         scroll={state.scroll[bot.id]}
         detailsOpen={state.detailsOpen}
@@ -124,6 +128,12 @@ export function CornShell({ runtime }: CornShellProps) {
             type: 'open-details-entry',
             botId: bot.id,
             entry: 'permissions',
+          })
+        }
+        onConfigureModel={() =>
+          dispatch({
+            type: 'open-overlay',
+            overlay: { kind: 'settings', section: 'models' },
           })
         }
       />

@@ -7,6 +7,8 @@ import { ClawRegistryClient } from '../../../packages/dsh-adapter/src/claw-regis
 import { HostTransport } from '../../../packages/dsh-adapter/src/transport.ts'
 import { resolveAppPaths } from './app-paths.ts'
 import { applyDevDockIcon } from './dock-icon.ts'
+import { registerModelSettingsIpc } from './ipc/model-settings.ts'
+import { ModelSettingsService } from './model-settings/service.ts'
 import { redactHostDiagnostic } from './runtime/host-readiness.ts'
 import { createAppRuntime } from './runtime/startup-control.ts'
 import { assertTrustedSender } from './security/ipc-allowlist.ts'
@@ -28,6 +30,10 @@ const paths = resolveAppPaths({
   resourcesPath: process.resourcesPath,
 })
 const { control, host: supervisor } = createAppRuntime(paths)
+const modelSettings = new ModelSettingsService({
+  authority: () => (control.view.status === 'ready' ? control.auth : undefined),
+  devOverride: () => supervisor.modelOverride,
+})
 const currentStatus = (): RuntimeStatus => control.view.status
 /** Two Renderer status polls: a recovery at least this long must show in the strip. */
 const RECOVERY_VISIBLE_MS = 2_000
@@ -54,6 +60,33 @@ async function clawReady(): Promise<boolean> {
   }
 }
 
+/** Model status settles off `checking`, and the Renderer's read carries no ref, namespace or path. */
+async function modelFacts(
+  window: BrowserWindow,
+): Promise<Record<string, unknown>> {
+  const deadline = Date.now() + 15_000
+  while (modelSettings.status().status === 'checking' && Date.now() < deadline)
+    await delay(100)
+  const view = modelSettings.status()
+  const reply: unknown = await window.webContents.executeJavaScript(
+    'window.corn.modelSettings.read()',
+  )
+  return {
+    modelStatus: view.status,
+    modelStatusReason: view.reason,
+    devModelOverride: view.devOverride,
+    modelBridgeVerified:
+      typeof reply === 'object' &&
+      reply !== null &&
+      'ok' in reply &&
+      reply.ok === true,
+    modelSnapshotRedacted:
+      !/_API_KEY|apiKeyEnv|credentials\.yaml|settingsNs|"ns"/u.test(
+        JSON.stringify(reply),
+      ),
+  }
+}
+
 /** Diagnostic self-check for development and packaged smoke runs; exits the app. */
 async function runSmoke(window: BrowserWindow): Promise<void> {
   const crashSmoke = process.env.CORN_DESKTOP_CRASH_SMOKE === '1'
@@ -67,6 +100,8 @@ async function runSmoke(window: BrowserWindow): Promise<void> {
   facts.initialStatus = currentStatus()
   facts.lastFailure = control.lastFailure ?? null
   facts.clawReady = await clawReady()
+  if (currentStatus() === 'ready')
+    Object.assign(facts, await modelFacts(window))
   if (crashSmoke) {
     const pid = supervisor.processId
     if (currentStatus() !== 'ready' || pid === undefined)
@@ -86,6 +121,9 @@ async function runSmoke(window: BrowserWindow): Promise<void> {
     facts.hostReplaced =
       supervisor.processId !== undefined && supervisor.processId !== pid
     facts.clawReadyAfterRecovery = await clawReady()
+    const recovered = await modelFacts(window)
+    facts.modelStatusAfterRecovery = recovered.modelStatus
+    facts.modelStatusReasonAfterRecovery = recovered.modelStatusReason
   }
   const rendererView: unknown = await window.webContents.executeJavaScript(
     'window.corn.runtimeStatus()',
@@ -112,6 +150,36 @@ async function runSmoke(window: BrowserWindow): Promise<void> {
       { mode: 0o600 },
     )
   }
+  const recoveringNotice = facts.recoveringNotice as
+    | { readonly shown: boolean; readonly failures: readonly string[] }
+    | undefined
+  const noticeHeld =
+    recoveringNotice !== undefined &&
+    recoveringNotice.failures.length === 0 &&
+    (recoveringNotice.shown ||
+      (facts.recoveringMs as number) < RECOVERY_VISIBLE_MS)
+  const checks: Record<string, boolean> = {
+    ready: control.view.status === 'ready',
+    bridgeVerified: facts.bridgeVerified === true,
+    clawReady: facts.clawReady === true,
+    modelBridgeVerified: facts.modelBridgeVerified === true,
+    modelSnapshotRedacted: facts.modelSnapshotRedacted === true,
+    modelStatusSettled:
+      facts.modelStatus !== 'checking' && facts.modelStatus !== 'unavailable',
+    ...(crashSmoke
+      ? {
+          recoveringObserved: facts.recoveringObserved === true,
+          recoveringNoticeHeld: noticeHeld,
+          hostReplaced: facts.hostReplaced === true,
+          clawReadyAfterRecovery: facts.clawReadyAfterRecovery === true,
+          modelStatusKeptAfterRecovery:
+            facts.modelStatusAfterRecovery === facts.modelStatus,
+        }
+      : { layout: (facts.layout as { passed?: boolean }).passed === true }),
+  }
+  const failedChecks = Object.keys(checks).filter((check) => !checks[check])
+  facts.checks = checks
+  facts.failedChecks = failedChecks
   const name = crashSmoke ? 'm0-electron-crash' : 'm0-electron'
   await writeFile(
     join(paths.artifacts, `${name}.png`),
@@ -123,25 +191,22 @@ async function runSmoke(window: BrowserWindow): Promise<void> {
     `${JSON.stringify({ ...control.view, ...facts }, null, 2)}\n`,
     { mode: 0o600 },
   )
-  const recoveringNotice = facts.recoveringNotice as
-    | { readonly shown: boolean; readonly failures: readonly string[] }
-    | undefined
-  const noticeHeld =
-    recoveringNotice !== undefined &&
-    recoveringNotice.failures.length === 0 &&
-    (recoveringNotice.shown ||
-      (facts.recoveringMs as number) < RECOVERY_VISIBLE_MS)
-  const passed =
-    control.view.status === 'ready' &&
-    facts.bridgeVerified === true &&
-    facts.clawReady === true &&
-    (crashSmoke || (facts.layout as { passed?: boolean }).passed === true) &&
-    (!crashSmoke ||
-      (facts.recoveringObserved === true &&
-        noticeHeld &&
-        facts.hostReplaced === true &&
-        facts.clawReadyAfterRecovery === true))
-  process.exitCode = passed ? 0 : 1
+  if (failedChecks.length > 0)
+    // Closed codes and status names only; never a key, path or Host message.
+    console.error(
+      `Corn smoke failed: ${JSON.stringify({
+        failedChecks,
+        status: control.view.status,
+        lastFailure: control.lastFailure ?? null,
+        modelStatus: facts.modelStatus ?? null,
+        modelStatusReason: facts.modelStatusReason ?? null,
+        modelStatusAfterRecovery: facts.modelStatusAfterRecovery ?? null,
+        modelStatusReasonAfterRecovery:
+          facts.modelStatusReasonAfterRecovery ?? null,
+        recoveringMs: facts.recoveringMs ?? null,
+      })}`,
+    )
+  process.exitCode = failedChecks.length === 0 ? 0 : 1
   app.quit()
 }
 
@@ -153,7 +218,10 @@ else {
     cleanup ??= (async () => {
       try {
         await control.shutdown()
-      } catch {
+      } catch (error) {
+        console.error(
+          `Corn shutdown failed: ${error instanceof Error ? error.name : 'unknown'}`,
+        )
         process.exitCode = 1
       } finally {
         exitAllowed = true
@@ -193,6 +261,7 @@ else {
       assertTrustedSender(event, window)
       return control.view
     })
+    registerModelSettingsIpc(ipcMain, window, modelSettings)
     await window.loadFile(paths.renderer)
     if (cleanup) return
     await control.start()

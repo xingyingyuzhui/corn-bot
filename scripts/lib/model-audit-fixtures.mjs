@@ -396,7 +396,12 @@ class AuditLab {
       throw new Error('Audit lab marker changed; refusing to remove the lab')
   }
 
-  /** Stops Hosts, closes stubs, releases the lock, then removes the lab. Throws with `summary` on any failure. */
+  /**
+   * Stops Hosts, closes stubs, releases the lock, then removes the lab; runs
+   * once. A Host not confirmed stopped keeps the lab and the lock, like
+   * `OwnedResources` keeps a directory a live process may use. Throws with
+   * `summary` on any failure.
+   */
   destroy() {
     this.#destroyFlight ??= this.#destroy()
     return this.#destroyFlight
@@ -406,9 +411,11 @@ class AuditLab {
     const summary = {
       hostsSpawned: this.#hosts.length,
       hostsStopped: 0,
+      unconfirmedHosts: [],
       stubsClosed: 0,
       lockReleased: false,
       removed: false,
+      retained: [],
     }
     const errors = []
     const attempt = async (step) => {
@@ -421,7 +428,12 @@ class AuditLab {
     for (const host of this.#hosts)
       await attempt(async () => {
         const live = host.running
-        await host.stop()
+        try {
+          await host.stop()
+        } catch (error) {
+          summary.unconfirmedHosts.push(host.pid)
+          throw error
+        }
         if (live) summary.hostsStopped++
       })
     for (const close of this.#closers.toReversed())
@@ -433,6 +445,19 @@ class AuditLab {
         if (!closed.settled) throw new Error('Audit stub did not close in time')
         summary.stubsClosed++
       })
+    if (summary.unconfirmedHosts.length > 0) {
+      summary.retained.push('lab', 'process lock')
+      summary.labRoot = this.root
+      errors.push(
+        new Error(
+          `Audit lab and lock retained: Host ${summary.unconfirmedHosts.join(', ')} not confirmed stopped`,
+        ),
+      )
+      throw Object.assign(
+        new AggregateError(errors, 'Audit lab cleanup failed'),
+        { summary },
+      )
+    }
     await attempt(async () => {
       await this.#release?.()
       summary.lockReleased = true
