@@ -43,7 +43,7 @@ import {
   listTags,
   setBotTags,
 } from '../src/stores/tags.ts'
-import { getUiPrefs, setUiPref } from '../src/stores/ui-prefs.ts'
+import { clearUiPref, getUiPrefs, setUiPref } from '../src/stores/ui-prefs.ts'
 import { openReady, seedChat, T0 } from './helpers.ts'
 
 function constraint(kind: LocalDbError['constraint']) {
@@ -569,6 +569,21 @@ test('ui prefs: whitelisted keys, typed values, invalid stored rows skipped', as
       'layout.sidebarWidth': 320,
       'layout.sidebarCollapsed': true,
     },
+  )
+  db.write((tx) => {
+    clearUiPref(tx, 'layout.sidebarWidth')
+    clearUiPref(tx, 'workspace.selectedBotId')
+  })
+  assert.deepEqual(
+    db.read((tx) => getUiPrefs(tx)),
+    {
+      'layout.sidebarCollapsed': true,
+    },
+  )
+  assert.throws(
+    () =>
+      db.write((tx) => clearUiPref(tx, 'layout.theme' as 'layout.detailsOpen')),
+    isCode('invalid_input'),
   )
 })
 

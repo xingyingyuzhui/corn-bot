@@ -1,4 +1,5 @@
 import { join, resolve } from 'node:path'
+import { siblingDataDir } from './data/paths.ts'
 import { defaultDevelopmentHome } from './runtime/profile-bootstrap.ts'
 
 export interface AppPaths {
@@ -6,6 +7,12 @@ export interface AppPaths {
   readonly preload: string
   readonly artifacts: string
   readonly home: string
+  /**
+   * Corn's own database directory, never inside or above `home`. Packaged:
+   * `userData/corn-data`; development: `<home>-data` beside the DSH home.
+   * `CORN_DATA_DIR` overrides both.
+   */
+  readonly data: string
   /**
    * Explicit development model override (`CORN_DEV_MODEL_ENV_FILE`), honoured
    * only by unpackaged builds. Absent by default: the App boots keyless and is
@@ -31,11 +38,13 @@ export function resolveAppPaths(
   const preload = join(location.appPath, 'dist/apps/desktop/src/preload.cjs')
   if (!location.isPackaged) {
     const root = resolve(location.appPath, '../..')
+    const home = env.CORN_DSH_HOME ?? defaultDevelopmentHome()
     return {
       renderer: join(root, 'apps/renderer/dist/index.html'),
       preload,
       artifacts: join(root, '.artifacts'),
-      home: env.CORN_DSH_HOME ?? defaultDevelopmentHome(),
+      home,
+      data: env.CORN_DATA_DIR || siblingDataDir(home),
       devModelOverrideFile: env.CORN_DEV_MODEL_ENV_FILE || undefined,
       profileTemplate: undefined,
     }
@@ -45,6 +54,7 @@ export function resolveAppPaths(
     preload,
     artifacts: env.CORN_ARTIFACTS_DIR ?? join(location.userData, 'artifacts'),
     home: env.CORN_DSH_HOME ?? join(location.userData, 'dsh'),
+    data: env.CORN_DATA_DIR || join(location.userData, 'corn-data'),
     devModelOverrideFile: undefined,
     profileTemplate: join(location.resourcesPath, 'profile-template'),
   }

@@ -77,6 +77,14 @@ export function setUiPref<K extends UiPrefKey>(
   )
 }
 
+/** Removes a stored preference so its default applies again. */
+export function clearUiPref(tx: SqlExecutor, key: UiPrefKey): void {
+  if (!isUiPrefKey(key)) {
+    throw new LocalDbError('invalid_input', `Invalid UI pref ${key}`)
+  }
+  tx.run('DELETE FROM ui_prefs WHERE key = :key', { key })
+}
+
 function parseJson(text: string): unknown {
   try {
     return JSON.parse(text)
