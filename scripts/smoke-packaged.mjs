@@ -141,6 +141,7 @@ for (let round = 1; round <= 3; round++) {
           status: report.status,
           failedChecks: report.failedChecks,
           checks: report.checks,
+          sqlite: report.sqlite,
           modelStatus: report.modelStatus,
           modelStatusReason: report.modelStatusReason,
           modelStatusAfterRecovery: report.modelStatusAfterRecovery,
@@ -149,6 +150,18 @@ for (let round = 1; round <= 3; round++) {
         })}`,
       )
     assert.equal(code, 0, `Packaged round ${round} exited ${code}`)
+    console.log(
+      `Packaged round ${round} sqlite: ${JSON.stringify(report.sqlite)}`,
+    )
+    // ADR-0002: node:sqlite in the packaged App's Electron Main.
+    assert.equal(report.sqlite?.failure, null)
+    assert.match(report.sqlite.sqliteVersion, /^3\.\d+\.\d+$/u)
+    assert.equal(report.sqlite.wal, true)
+    assert.equal(report.sqlite.synchronousFull, true)
+    assert.equal(report.sqlite.foreignKeys, true)
+    assert.equal(report.sqlite.backupOk, true)
+    assert.equal(report.sqlite.mainProcess, true)
+    assert.equal(report.checks.sqlite, true)
     assert.equal(report.status, 'ready')
     assert.equal(report.packaged, true)
     assert.equal(report.bundledProfile, true)

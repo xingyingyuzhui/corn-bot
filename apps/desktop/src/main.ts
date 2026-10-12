@@ -13,6 +13,7 @@ import { redactHostDiagnostic } from './runtime/host-readiness.ts'
 import { createAppRuntime } from './runtime/startup-control.ts'
 import { assertTrustedSender } from './security/ipc-allowlist.ts'
 import { probeLayout, probeRecoveringNotice } from './smoke/layout-probe.ts'
+import { probeSqlite, sqliteProbePassed } from './smoke/sqlite-probe.ts'
 import {
   applyAppPresentation,
   presentationWindowOptions,
@@ -97,6 +98,9 @@ async function runSmoke(window: BrowserWindow): Promise<void> {
     node: process.versions.node,
     independentRuntime: true,
   }
+  const sqlite = await probeSqlite()
+  facts.sqlite = sqlite
+  console.log(`Corn smoke sqlite: ${JSON.stringify(sqlite)}`)
   facts.initialStatus = currentStatus()
   facts.lastFailure = control.lastFailure ?? null
   facts.clawReady = await clawReady()
@@ -159,6 +163,7 @@ async function runSmoke(window: BrowserWindow): Promise<void> {
     (recoveringNotice.shown ||
       (facts.recoveringMs as number) < RECOVERY_VISIBLE_MS)
   const checks: Record<string, boolean> = {
+    sqlite: sqliteProbePassed(sqlite),
     ready: control.view.status === 'ready',
     bridgeVerified: facts.bridgeVerified === true,
     clawReady: facts.clawReady === true,
@@ -196,6 +201,7 @@ async function runSmoke(window: BrowserWindow): Promise<void> {
     console.error(
       `Corn smoke failed: ${JSON.stringify({
         failedChecks,
+        sqliteFailure: sqlite.failure,
         status: control.view.status,
         lastFailure: control.lastFailure ?? null,
         modelStatus: facts.modelStatus ?? null,
