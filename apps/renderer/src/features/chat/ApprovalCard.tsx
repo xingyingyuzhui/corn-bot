@@ -7,7 +7,7 @@ import { approvalView } from './transcript-model.ts'
 
 interface ApprovalCardProps {
   readonly botId: string
-  readonly requestId: string
+  readonly handle: string
   readonly title: string
   readonly detail: string
   readonly status: ApprovalStatus
@@ -21,7 +21,7 @@ interface ApprovalCardProps {
  */
 export function ApprovalCard({
   botId,
-  requestId,
+  handle,
   title,
   detail,
   status,
@@ -40,7 +40,7 @@ export function ApprovalCard({
     inFlight.current = true
     setAnswering(choice)
     setError(null)
-    const result = await repository.answerApproval(botId, requestId, choice)
+    const result = await repository.answerApproval(botId, handle, choice)
     inFlight.current = false
     setAnswering(null)
     if (!result.ok && result.error.code !== 'stale')

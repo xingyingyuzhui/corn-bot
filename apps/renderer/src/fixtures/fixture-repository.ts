@@ -30,7 +30,7 @@ export interface FixtureOptions {
   /** Artificial latency so pending states are visible; 0 in unit tests. */
   readonly latencyMs?: number
   /** Approval requests that settle as `cancelled`, as a late DSH reply would. */
-  readonly staleRequestIds?: readonly string[]
+  readonly staleHandles?: readonly string[]
 }
 
 const hueOf = (text: string) =>
@@ -59,7 +59,7 @@ export class FixtureWorkspaceRepository implements WorkspaceRepository {
     this.#snapshot = snapshot
     this.initialBotId = initialBotId
     this.#latencyMs = options.latencyMs ?? 0
-    this.#stale = new Set(options.staleRequestIds ?? [])
+    this.#stale = new Set(options.staleHandles ?? [])
   }
 
   getSnapshot = (): WorkspaceSnapshot => this.#snapshot
@@ -123,22 +123,22 @@ export class FixtureWorkspaceRepository implements WorkspaceRepository {
 
   async answerApproval(
     botId: string,
-    requestId: string,
+    handle: string,
     answer: ApprovalAnswer,
   ): Promise<CommandResult> {
     const card = this.#snapshot.conversations[botId]?.items.find(
-      (item) => item.kind === 'approval' && item.requestId === requestId,
+      (item) => item.kind === 'approval' && item.handle === handle,
     )
     if (card?.kind !== 'approval') return fail('not-found', '找不到这个请求')
     if (card.status !== 'pending')
       return fail('conflict', '这个请求已经处理过了')
-    this.#setApproval(botId, requestId, 'submitting')
+    this.#setApproval(botId, handle, 'submitting')
     await this.#settle()
-    if (this.#stale.has(requestId)) {
-      this.#setApproval(botId, requestId, 'cancelled')
+    if (this.#stale.has(handle)) {
+      this.#setApproval(botId, handle, 'cancelled')
       return fail('stale', '这个请求已失效，Bot 已不再等待回复')
     }
-    this.#setApproval(botId, requestId, answer)
+    this.#setApproval(botId, handle, answer)
     return done
   }
 
@@ -355,12 +355,12 @@ export class FixtureWorkspaceRepository implements WorkspaceRepository {
 
   #setApproval(
     botId: string,
-    requestId: string,
+    handle: string,
     status: Extract<FeedItem, { kind: 'approval' }>['status'],
   ) {
     this.#updateConversation(botId, (items) =>
       items.map((item) =>
-        item.kind === 'approval' && item.requestId === requestId
+        item.kind === 'approval' && item.handle === handle
           ? { ...item, status }
           : item,
       ),

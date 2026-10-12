@@ -6,6 +6,7 @@
   "exports": {
     ".": "./src/runtime.ts",
     "./avatar": "./src/avatar.ts",
-    "./model-settings": "./src/model-settings.ts"
+    "./model-settings": "./src/model-settings.ts",
+    "./workspace": "./src/workspace.ts"
   }
 }

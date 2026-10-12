@@ -77,7 +77,7 @@ export interface WorkspaceRepository {
   resend(botId: string, messageId: string): Promise<CommandResult>
   answerApproval(
     botId: string,
-    requestId: string,
+    handle: string,
     answer: ApprovalAnswer,
   ): Promise<CommandResult>
 

@@ -1,3 +1,5 @@
 /** Input limits every `WorkspaceRepository` enforces, counted in code points. */
-export const NAME_MAX = 24
-export const TAG_MAX = 12
+export {
+  BOT_NAME_MAX as NAME_MAX,
+  TAG_LABEL_MAX as TAG_MAX,
+} from '@corn-bot/contracts/workspace'

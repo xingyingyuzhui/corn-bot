@@ -10,7 +10,7 @@ import {
 import { M1_INITIAL_BOT_ID, m1FixtureSnapshot } from './m1-workspace.ts'
 
 /** Answering this request settles it as `cancelled`, like a late DSH reply. */
-export const UI_STATES_STALE_REQUEST_ID = 'req-2'
+export const UI_STATES_STALE_HANDLE = 'req-2'
 
 /** Conversations that show the non-ready states, by Bot id. */
 export const UI_STATES_BOTS = {
@@ -24,7 +24,7 @@ const STATE_ITEMS: readonly FeedItem[] = [
   {
     kind: 'approval',
     id: 'approval-1',
-    requestId: 'req-1',
+    handle: 'req-1',
     title: '运行终端命令',
     detail: 'pnpm install --frozen-lockfile',
     status: 'pending',
@@ -32,7 +32,7 @@ const STATE_ITEMS: readonly FeedItem[] = [
   {
     kind: 'approval',
     id: 'approval-2',
-    requestId: UI_STATES_STALE_REQUEST_ID,
+    handle: UI_STATES_STALE_HANDLE,
     title: '修改工作区文件',
     detail: 'apps/renderer/src/styles/tokens.css',
     status: 'pending',
@@ -129,6 +129,6 @@ export function createUiStatesRepository(
 ): FixtureWorkspaceRepository {
   return new FixtureWorkspaceRepository(uiStatesSnapshot(), {
     latencyMs: options.latencyMs ?? 600,
-    staleRequestIds: [UI_STATES_STALE_REQUEST_ID],
+    staleHandles: [UI_STATES_STALE_HANDLE],
   })
 }
