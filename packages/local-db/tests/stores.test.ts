@@ -8,6 +8,7 @@ import {
   findMessageAdmissionByClientId,
   insertMessageAdmission,
   listOpenMessageAdmissions,
+  listUnsettledMessageAdmissions,
   parseMessageAdmissionRow,
   transitionMessageAdmission,
 } from '../src/stores/admissions.ts'
@@ -317,6 +318,84 @@ test('admission transitions follow the closed table and unknown keeps the body',
       assert.notEqual(next, state)
     }
   }
+})
+
+test('a rejected admission keeps its body, can be resent and is listed as unsettled', async (t) => {
+  const db = await openReady(t, { path: ':memory:' })
+  const chat = seedChat(db)
+  const other = seedChat(db, '2')
+  const admit = (requestId: string, target = chat, now = T0) =>
+    db.write((tx) =>
+      insertMessageAdmission(tx, {
+        requestId,
+        conversationId: target.conversationId,
+        bindingId: target.bindingId,
+        clientId: `client_${requestId}`,
+        bodyText: 'refused',
+        now,
+      }),
+    )
+  admit('req_2', chat, T0 + 1)
+  admit('req_1')
+  admit('req_3', chat, T0 + 2)
+  admit('req_9', other)
+
+  const refused = db.write((tx) =>
+    transitionMessageAdmission(tx, 'req_1', 'rejected', {
+      now: T0 + 3,
+      lastError: 'not_sent',
+    }),
+  )
+  assert.equal(refused.bodyText, 'refused')
+  assert.equal(refused.attempts, 0)
+  db.write((tx) => {
+    transitionMessageAdmission(tx, 'req_3', 'sending', { now: T0 + 3 })
+    transitionMessageAdmission(tx, 'req_3', 'accepted', { now: T0 + 4 })
+    transitionMessageAdmission(tx, 'req_3', 'observed', {
+      now: T0 + 5,
+      observedSeq: 7,
+    })
+  })
+  assert.deepEqual(
+    db
+      .read((tx) => listUnsettledMessageAdmissions(tx, chat.conversationId))
+      .map((row) => [row.requestId, row.state]),
+    [
+      ['req_1', 'rejected'],
+      ['req_2', 'pending'],
+    ],
+  )
+
+  const resent = db.write((tx) =>
+    transitionMessageAdmission(tx, 'req_1', 'sending', {
+      now: T0 + 6,
+      countAttempt: true,
+    }),
+  )
+  assert.equal(resent.attempts, 1)
+  assert.equal(resent.lastError, null)
+  const rejected = db.write((tx) =>
+    transitionMessageAdmission(tx, 'req_1', 'rejected', {
+      now: T0 + 7,
+      lastError: 'session_busy',
+    }),
+  )
+  assert.equal(rejected.bodyText, 'refused')
+  const observed = db.write((tx) =>
+    transitionMessageAdmission(tx, 'req_1', 'observed', {
+      now: T0 + 8,
+      observedSeq: 9,
+    }),
+  )
+  assert.equal(observed.bodyText, null)
+  const withdrawn = db.write((tx) =>
+    transitionMessageAdmission(tx, 'req_2', 'withdrawn', { now: T0 + 9 }),
+  )
+  assert.equal(withdrawn.bodyText, null)
+  assert.deepEqual(
+    db.read((tx) => listUnsettledMessageAdmissions(tx, chat.conversationId)),
+    [],
+  )
 })
 
 test('row parsers reject values outside their closed enums', () => {

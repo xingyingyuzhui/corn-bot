@@ -76,15 +76,19 @@ export function admissionTransitions(
 ): readonly AdmissionState[] {
   switch (from) {
     case 'pending':
-      return ['sending', 'withdrawn']
+      // `rejected`: refused before any RPC (no model, no runtime); never on the wire.
+      return ['sending', 'rejected', 'withdrawn']
     case 'sending':
       return ['accepted', 'rejected', 'unknown', 'observed']
     case 'unknown':
       return ['sending', 'accepted', 'rejected', 'observed', 'withdrawn']
     case 'accepted':
       return ['observed', 'withdrawn']
-    case 'observed':
     case 'rejected':
+      // DSH holds nothing for a rejected request: a manual resend reuses its
+      // id. The journal still wins if it shows the request after all.
+      return ['sending', 'observed', 'withdrawn']
+    case 'observed':
     case 'withdrawn':
       return []
     default: {
@@ -203,6 +207,22 @@ export function listOpenMessageAdmissions(
       `SELECT ${COLUMNS} FROM message_admissions
        WHERE state IN ('pending', 'sending', 'unknown')
        ORDER BY created_at, request_id`,
+    )
+    .map(parseMessageAdmissionRow)
+}
+
+/** One conversation's sends DSH has not been seen holding, oldest first. */
+export function listUnsettledMessageAdmissions(
+  tx: SqlExecutor,
+  conversationId: string,
+): readonly MessageAdmissionRow[] {
+  return tx
+    .all(
+      `SELECT ${COLUMNS} FROM message_admissions
+       WHERE conversation_id = :conversationId
+         AND state IN ('pending', 'sending', 'accepted', 'rejected', 'unknown')
+       ORDER BY created_at, request_id`,
+      { conversationId },
     )
     .map(parseMessageAdmissionRow)
 }
