@@ -153,3 +153,18 @@ Reopen this ADR (trigger fully fired) if any of the following happens:
 - U2 is declined (not authorised, or rejected upstream) **and** the C1 pre-step fence is declined or fails its probe.
 - A real-Host run under the mandated order leaves a running Session, job or process tree at +2 s.
 - A DSH bump changes the delivery paths cited in U2 §3. In that case B6 must be re-run, leaf-first and idle-parent, before `runtime.lock.json` is bumped.
+
+## Addendum 2026-10-12 (b): C1 pre-step fence adopted
+
+The maintainer decided in advance to adopt the C1 pre-step fence if its probe showed zero leaked requests. The B6-idle probe ([DSH-HEADLESS-GATES §7](../milestones/DSH-HEADLESS-GATES.md#7-option-c-pre-step-stop-fence-b6-idle), PR #38) did: in 13 real-Host runs with a fake model, every fenced variant had 0 parent model requests and 0 compaction requests after the stop, and every woken parent Turn ended `blocked` without a step. Unfenced controls leaked 1–2 model requests and, under compaction pressure, 2 compaction requests.
+
+The pre-step fence is therefore **part of C1** (RUN-01a), in addition to `tools.guard`. The residual gap above is closed for the tested paths, and the stale-Turn rules remain as a fallback. Requirements:
+
+- The fence is raised in step 0, before the first stop call, and covers the whole Run set, including children. A fenced child settles early as a result.
+- The `agent/pre-step` listener is registered with `prepend`. The probe's zero-compaction result came from plugin load order, which is not a DSH contract.
+- A rejected Turn consumes its inbox notice: the model never sees it, and only the session log keeps a summary. Corn MUST record settlement outcomes itself from structured sources (`job.list`, `session.list`, `senderSessionId`) and MUST NOT rely on the parent reading them.
+- `blocked` inside a stopped Run is shown as stopped, not as an error. A fenced child's settlement text ("declined the task") is not a user-facing rejection.
+- The fence lives in Host memory. After a Host restart, Corn re-pushes the stop epochs of every non-terminal Run before any Session in them is followed or prompted.
+- Packaging the fence inside `corn-run-control` and its ADR-0006 admission is RUN-01a's design work. The probe loaded it as a `cordis.patch.yml` insert without touching Claw rows.
+
+Untested and still open: multiple concurrent Runs, a fence that is never lowered for a reused Session, plugin reload while fenced, DSH versions after `dsh-v0.2.0-rc.2`, and real models. U2 stays a draft; it is no longer needed to close this gap, and implementing or posting it still needs separate authorisation.
