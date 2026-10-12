@@ -12,7 +12,7 @@ The four inputs fixed in the [asset integration plan](../../docs/plans/CORN_AVAT
 | --- | --- | --- |
 | `assets/app-icon.png` | `4b783687…4d2942` | Copied byte-identical to `apps/desktop/assets/app-icon-source.png` |
 | `src/artwork.ts` | `642d014c…670061` | Adapted into `packages/ui/src/avatar/artwork.ts` and `variants.ts` |
-| `src/avatar.ts` | `075f8127…f8e314` | Not migrated; motion arrives with PR-02D-2 |
+| `src/avatar.ts` | `075f8127…f8e314` | Resting poses adapted into `packages/ui/src/avatar/motion-presets.ts` (PR-02D-2a); its per-instance controller was not migrated |
 | `assets/catalog.json` | `a5395558…6e536f` | Copied byte-identical to `packages/ui/assets/catalog.json` |
 
 ## Migrated files (byte-identical)
@@ -26,6 +26,8 @@ Each file's hash equals the kit's own `assets/manifest.json` entry. The gallery,
 ## Adapted code (new hashes)
 
 `artwork.ts` keeps the kit's geometry, palette, `/` capsule eyes (35° tilt) and decorations unchanged. It returns an element tree rather than an SVG string so React renders it without `dangerouslySetInnerHTML`, takes a per-instance id prefix (`useId`) so two instances of one Bot never share a clip path, and adds a `compact` detail for 24 px and below that drops the barely visible seam lines. The tests prove the adaptation is faithful: serialising the tree with the kit's wrapper reproduces all 16 migrated static avatars and all 5 group avatars byte for byte. The adapted files are not byte-identical to the kit source, so `ASSET_LOCK.json` records their own hashes separately. Change them only with a provenance review and a lock update.
+
+PR-02D-2a extends `artwork.ts` with an optional `morph` on motion frames; frames without one serialise exactly as before, so the byte-for-byte checks above still hold. `motion-presets.ts` keeps the kit's resting poses (sway, blink, gaze, expression and decoration per state) as time-sampled functions. The morph figures (side dots, rings, progress track, pen trail, alert shake) and their curves are new Corn drawings. Only their cycle lengths and phase structure follow the Grok Bot 0.68.1 behaviour audit, as recorded in [ADR-0003](../../docs/adr/ADR-0003-avatar-engine.md#addendum-2026-10-12-dmg-behaviour-reference-borrowing-boundary-unified-scheduler). No geometry, path data or source from the research kit is used. The kit's per-instance animation controller was replaced by the shared scheduler and is still not migrated.
 
 ## App icon
 
