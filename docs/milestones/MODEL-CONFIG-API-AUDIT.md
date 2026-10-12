@@ -210,6 +210,9 @@ Status: on branch `fix/model-audit-isolation`; awaiting independent review befor
 - **Versions** are read from the installed packages: DSH from the resolved `@deepseek-ai/dsh/package.json` (or the app's bundled copy), Claw from `profiles/corn-dev/node_modules/dsh-claw-suite` and all 9 components. They are compared with the contract and `runtime.lock.json`. A mismatch fails the run and destroys the lab.
 - **Host process.** Each Host is spawned in its own process group. A spawn `error`, an `exit` before readiness or a 45 s readiness deadline rejects the start. Stop sends SIGTERM with an 8 s grace, then SIGKILL with a 5 s bound, then reaps any survivor in the group. A survivor is a cleanup failure, never an endless wait. After cancellation the lab refuses new Hosts and stops running ones.
 - **Cleanup order** on success and failure: stop every Host, close tracked stubs (all connections dropped, 5 s bound), release the lock, verify the marker, remove the lab. Any failed step makes `cleanup.ok: false` and a non-zero exit, and nothing claims the cleanup succeeded.
+  - If any Host stop is not confirmed (it survived SIGKILL, or its process group did), stubs are still closed. The **lab, its home and the process lock are kept**: the lock is not released and nothing is removed under a possibly live Host. This is the same rule as `OwnedResources`.
+  - The cleanup record then lists `unconfirmedHosts`, `retained: ['lab', 'process lock']` and `labRoot` (post-merge review PMR-01).
+  - Destroy runs once; a second call returns the same outcome.
 
 ### Interruption and the template build (round 3 N4)
 
