@@ -1,6 +1,6 @@
 # Runtime compatibility matrix
 
-This document records the fixed M0 audit baseline. Source inspection and upstream unit tests do not constitute Corn integration acceptance. Live M0 remains pending; product UI work must wait for the M0 acceptance gate.
+This document records the fixed runtime compatibility baseline. Source inspection and upstream unit tests do not constitute integration acceptance. Later live results are in [M0 evidence](milestones/M0-EVIDENCE.md); M1 fixture UI is already merged. Reopened R1 joint checks and new lifecycle/packaged checks remain pending as of 2026-10-12. See the [forward plan](plans/CORN_BOT_FORWARD_PLAN.md) for current work order; existing fixture UI does not establish real product chat.
 
 ## Fixed dependencies
 

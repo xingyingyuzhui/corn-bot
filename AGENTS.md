@@ -1,6 +1,8 @@
 # Corn Bot implementation rules
 
-- Follow `docs/plans/CORN_BOT_CODE_LEVEL_ITERATION_PLAN.md` v1.3; §14 maintainer decisions override conflicting earlier sections. M0 must pass before product UI work.
+- Use `docs/plans/CORN_BOT_FORWARD_PLAN.md` for current status, work order and acceptance gates. Keep v1.3 `docs/plans/CORN_BOT_CODE_LEVEL_ITERATION_PLAN.md` and its §14 maintainer decisions as the design/contract reference. Do not execute obsolete handoff branch instructions. M0/R1 pending checks must pass before their dependent capability is signed off; existing M1 fixture UI is not evidence of real product chat.
+- Keep GUI smoke/Electron/packaged-app and real-Host verification paused until the maintainer explicitly resumes them. Only model-settings N1/N3 implementation and light fake tests may proceed to the existing PR; N2, integration, merge and real tests wait for runtime selection. Never auto-schedule verification.
+- Current DSH is implemented; OpenClaw/Mastra are candidates in the forward plan. Do not replace or stack execution loops until the runtime decision is recorded with evidence. Do not change another agent's worktree during documentation cleanup.
 - The UI/UX research kit is read-only and pinned in `design/grok-kit/kit.lock.json`. Never copy its files, geometry, fonts, images or audio into Corn; rewrite behaviour in Corn TypeScript.
 - Read pinned DSH RC2 source, not current master. Do not edit upstream DSH or copy Claw implementation into Corn.
 - Research existing official implementations first. Independent audits may run in parallel.
