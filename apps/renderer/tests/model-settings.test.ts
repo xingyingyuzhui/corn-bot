@@ -443,6 +443,77 @@ test('a successful write replaces the snapshot, closes the editor and says saved
   assert.match(done.notice?.text ?? '', /密钥已保存.*尚未验证/u)
 })
 
+const saveLocal: Operation = {
+  kind: 'save-custom',
+  mode: 'update',
+  providerId: 'local-compatible',
+}
+
+test('a save whose draft changed in flight keeps the editor and says the later edits are unsaved', () => {
+  const done = run(
+    { type: 'load-start', token: 1 },
+    { type: 'load-success', token: 1, snapshot },
+    {
+      type: 'open-editor',
+      editor: {
+        kind: 'custom',
+        mode: 'update',
+        providerId: 'local-compatible',
+      },
+    },
+    { type: 'op-start', token: 2, op: saveLocal },
+    { type: 'edit-draft' },
+    { type: 'op-success', token: 2, snapshot: changed },
+  )
+  assert.equal(done.snapshot, changed)
+  assert.equal(done.busy, null)
+  assert.deepEqual(done.editor, {
+    kind: 'custom',
+    mode: 'update',
+    providerId: 'local-compatible',
+  })
+  assert.match(done.editorError ?? '', /之后的修改尚未保存/u)
+  // Editing between saves is ordinary; only an edit during the save holds the editor.
+  const plain = run(
+    { type: 'load-start', token: 1 },
+    { type: 'load-success', token: 1, snapshot },
+    {
+      type: 'open-editor',
+      editor: {
+        kind: 'custom',
+        mode: 'update',
+        providerId: 'local-compatible',
+      },
+    },
+    { type: 'edit-draft' },
+    { type: 'op-start', token: 2, op: saveLocal },
+    { type: 'op-success', token: 2, snapshot: changed },
+  )
+  assert.equal(plain.editor, null)
+})
+
+test('a late result never closes a different editor', () => {
+  const busy = run(
+    { type: 'load-start', token: 1 },
+    { type: 'load-success', token: 1, snapshot },
+    {
+      type: 'open-editor',
+      editor: { kind: 'key', providerId: 'deepseek-official' },
+    },
+    { type: 'op-start', token: 2, op: setKey },
+  )
+  const other = { kind: 'key', providerId: 'local-compatible' } as const
+  for (const result of [
+    { type: 'op-success', token: 2, snapshot: changed },
+    { type: 'op-fail', token: 2, error: { code: 'host_error' } },
+  ] satisfies PageAction[]) {
+    const done = pageReducer({ ...busy, editor: other }, result)
+    assert.equal(done.editor, other)
+    assert.equal(done.editorError, null)
+    assert.ok(done.notice, 'the result is reported on the page instead')
+  }
+})
+
 test('a partial create keeps the editor open as an update and holds no secret', () => {
   const failed = run(
     { type: 'load-start', token: 1 },

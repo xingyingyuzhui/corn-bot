@@ -396,6 +396,14 @@
   box-shadow: inset 0 0 0 0.5px var(--corn-border-control);
 }
 
+.corn-provider-editor__fields {
+  display: contents;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  min-inline-size: 0;
+}
+
 .corn-model-settings__add > .corn-provider-editor {
   margin: 0 14px 14px;
 }

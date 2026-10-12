@@ -158,34 +158,37 @@ export function ProviderEditor(props: ProviderEditorProps) {
       noValidate
     >
       <p className="corn-provider-editor__title">{title}</p>
-      {props.error ? (
-        <p className="corn-provider-editor__error" role="alert">
-          {props.error}
-        </p>
-      ) : null}
-      {editor.kind === 'custom' && props.draft ? (
-        <CustomFields
-          draft={props.draft}
-          onDraft={props.onDraft}
-          errors={errors}
-          protocols={props.snapshot.protocols}
-          create={editor.mode === 'create'}
+      {/* While a save is in flight nothing in the editor can change. */}
+      <fieldset className="corn-provider-editor__fields" disabled={busy}>
+        {props.error ? (
+          <p className="corn-provider-editor__error" role="alert">
+            {props.error}
+          </p>
+        ) : null}
+        {editor.kind === 'custom' && props.draft ? (
+          <CustomFields
+            draft={props.draft}
+            onDraft={props.onDraft}
+            errors={errors}
+            protocols={props.snapshot.protocols}
+            create={editor.mode === 'create'}
+          />
+        ) : null}
+        <KeyField
+          inputRef={keyInput}
+          optional={editor.kind === 'custom'}
+          error={keyProblem ?? (retypeKey ? '请重新输入密钥' : null)}
+          hint={keyHint(editor, configured)}
         />
-      ) : null}
-      <KeyField
-        inputRef={keyInput}
-        optional={editor.kind === 'custom'}
-        error={keyProblem ?? (retypeKey ? '请重新输入密钥' : null)}
-        hint={keyHint(editor, configured)}
-      />
-      <div className="corn-provider-editor__actions">
-        <Button variant="ghost" disabled={busy} onClick={close}>
-          取消
-        </Button>
-        <Button variant="primary" type="submit" pending={busy}>
-          {busy ? '正在保存…' : '保存'}
-        </Button>
-      </div>
+        <div className="corn-provider-editor__actions">
+          <Button variant="ghost" disabled={busy} onClick={close}>
+            取消
+          </Button>
+          <Button variant="primary" type="submit" pending={busy}>
+            {busy ? '正在保存…' : '保存'}
+          </Button>
+        </div>
+      </fieldset>
     </form>
   )
 }

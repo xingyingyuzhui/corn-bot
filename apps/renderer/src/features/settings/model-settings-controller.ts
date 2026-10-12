@@ -582,6 +582,10 @@ export interface ModelSettingsPageState {
   readonly pending: number | null
   /** A failure left the page unsure of the Host's state. */
   readonly reloadRequested: boolean
+  /** Bumped by every editor open and draft edit. */
+  readonly draftVersion: number
+  /** `draftVersion` when the in-flight editor write was submitted. */
+  readonly submittedDraft: number | null
 }
 
 export const INITIAL_PAGE: ModelSettingsPageState = {
@@ -594,6 +598,8 @@ export const INITIAL_PAGE: ModelSettingsPageState = {
   editorError: null,
   pending: null,
   reloadRequested: false,
+  draftVersion: 0,
+  submittedDraft: null,
 }
 
 export type PageAction =
@@ -624,6 +630,7 @@ export type PageAction =
       readonly error: ModelSettingsError
     }
   | { readonly type: 'open-editor'; readonly editor: Editor }
+  | { readonly type: 'edit-draft' }
   | { readonly type: 'close-editor' }
   | { readonly type: 'dismiss-notice' }
 
@@ -657,6 +664,29 @@ function successText(op: Operation): string {
 
 const usesEditor = (op: Operation): boolean =>
   op.kind === 'set-key' || op.kind === 'save-custom'
+
+/** The editor that submitted `op`; a late result must not touch any other. */
+function editorOf(editor: Editor | null, op: Operation): boolean {
+  if (editor === null) return false
+  switch (op.kind) {
+    case 'set-key':
+      return editor.kind === 'key' && editor.providerId === op.providerId
+    case 'save-custom':
+      return (
+        editor.kind === 'custom' &&
+        editor.mode === op.mode &&
+        (editor.mode === 'create' || editor.providerId === op.providerId)
+      )
+    case 'clear-key':
+    case 'remove-custom':
+    case 'set-default':
+      return false
+    default: {
+      const unreachable: never = op
+      throw new Error(`Unknown operation ${JSON.stringify(unreachable)}`)
+    }
+  }
+}
 
 const scopeOf = (op: Operation): PageNotice['scope'] =>
   op.kind === 'set-default' ? op.field : 'page'
@@ -722,32 +752,49 @@ export function pageReducer(
         pending: action.token,
         notice: null,
         editorError: null,
+        submittedDraft: usesEditor(action.op) ? state.draftVersion : null,
       }
     case 'op-success': {
       const op = state.busy
       if (action.token !== state.pending || !op) return state
-      return {
+      const settled = {
         ...state,
         snapshot: action.snapshot,
         busy: null,
         pending: null,
-        editor: usesEditor(op) ? null : state.editor,
-        editorError: null,
-        notice: { tone: 'ok', text: successText(op), scope: scopeOf(op) },
+        submittedDraft: null,
       }
+      const notice: PageNotice = {
+        tone: 'ok',
+        text: successText(op),
+        scope: scopeOf(op),
+      }
+      if (!usesEditor(op) || !editorOf(state.editor, op))
+        return { ...settled, notice }
+      // Only the draft that was submitted is saved; later edits keep the editor.
+      return state.submittedDraft === state.draftVersion
+        ? { ...settled, editor: null, editorError: null, notice }
+        : {
+            ...settled,
+            editorError: `${successText(op)}，但保存期间之后的修改尚未保存`,
+            notice: null,
+          }
     }
     case 'op-fail': {
       const op = state.busy
       if (action.token !== state.pending || !op) return state
       const text = errorText(action.error)
-      const inEditor = usesEditor(op) && state.editor !== null
+      const inEditor = usesEditor(op) && editorOf(state.editor, op)
       return {
         ...state,
         snapshot: action.error.snapshot ?? state.snapshot,
         busy: null,
         pending: null,
-        editor: editorAfterFailure(state.editor, op, action.error),
-        editorError: inEditor ? text : null,
+        submittedDraft: null,
+        editor: inEditor
+          ? editorAfterFailure(state.editor, op, action.error)
+          : state.editor,
+        editorError: inEditor ? text : state.editorError,
         notice: inEditor ? null : { tone: 'error', text, scope: scopeOf(op) },
         reloadRequested:
           action.error.snapshot === undefined &&
@@ -757,7 +804,15 @@ export function pageReducer(
     case 'open-editor':
       return state.busy
         ? state
-        : { ...state, editor: action.editor, editorError: null, notice: null }
+        : {
+            ...state,
+            editor: action.editor,
+            editorError: null,
+            notice: null,
+            draftVersion: state.draftVersion + 1,
+          }
+    case 'edit-draft':
+      return { ...state, draftVersion: state.draftVersion + 1 }
     case 'close-editor':
       return state.busy || state.editor === null
         ? state

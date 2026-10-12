@@ -149,6 +149,10 @@ export function ModelsSection() {
   }
 
   const closeEditor = () => dispatch({ type: 'close-editor' })
+  const editDraft = (next: CustomProviderDraft) => {
+    setDraft(next)
+    dispatch({ type: 'edit-draft' })
+  }
 
   const submitKey = (providerId: string, key: string) =>
     void run({ kind: 'set-key', providerId }, (snapshot) => {
@@ -257,7 +261,7 @@ export function ModelsSection() {
         editor={editor}
         snapshot={snapshot}
         draft={draft}
-        onDraft={setDraft}
+        onDraft={editDraft}
         busy={
           state.busy?.kind === 'set-key' || state.busy?.kind === 'save-custom'
         }
