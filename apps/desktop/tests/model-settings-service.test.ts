@@ -11,7 +11,11 @@ import {
   type DevOverrideFacts,
   deriveKeyRef,
 } from '../src/model-settings/projection.ts'
-import { ModelSettingsService } from '../src/model-settings/service.ts'
+import {
+  ModelSettingsService,
+  STATUS_RETRY_MS,
+  STATUS_SETTLE_MS,
+} from '../src/model-settings/service.ts'
 import { FakeModelHost } from './helpers/fake-model-host.ts'
 
 const FAKE_KEY = 'sk-corn-wp3-FAKE-0000'
@@ -409,6 +413,67 @@ test('results are pinned to a Host generation', async () => {
     devOverride: false,
   })
   assert.equal(failure(await service.read()).code, 'runtime_unavailable')
+})
+
+const settle = () => new Promise((resolve) => setImmediate(resolve))
+
+test('a new Host generation stays checking through transient read failures, then reports a lasting one', async () => {
+  const world = { authority: authority(), host: new FakeModelHost(), now: 0 }
+  const service = new ModelSettingsService({
+    authority: () => world.authority,
+    devOverride: () => null,
+    api: () => world.host,
+    now: () => world.now,
+  })
+  const checking = { status: 'checking', reason: 'reading', devOverride: false }
+  value(await service.read())
+  assert.equal(service.status().status, 'needs_configuration')
+
+  // Recovery: the first read of the new Host fails, the next succeeds.
+  world.authority = authority()
+  world.host = new FakeModelHost()
+  world.host.failures.set('describe', new RemoteError('corn/http-503', 'x'))
+  assert.deepEqual(service.status(), checking)
+  await settle()
+  assert.deepEqual(service.status(), checking)
+  world.now += STATUS_RETRY_MS
+  assert.deepEqual(service.status(), checking)
+  await settle()
+  assert.equal(service.status().status, 'needs_configuration')
+
+  // A Host that keeps failing is reported once the settle window is over.
+  world.authority = authority()
+  world.host.before.set('describe', () => {
+    throw new RemoteError('corn/http-503', 'x')
+  })
+  service.status()
+  await settle()
+  world.now += STATUS_SETTLE_MS
+  assert.deepEqual(service.status(), checking)
+  await settle()
+  assert.deepEqual(service.status(), {
+    status: 'unavailable',
+    reason: 'host_error',
+    devOverride: false,
+  })
+})
+
+test("an old Host's unanswered status read neither blocks nor overwrites the new Host's", async () => {
+  const { world, service } = setup()
+  let release = () => {}
+  world.host.before.set(
+    'describe',
+    () => new Promise<void>((resolve) => (release = resolve)),
+  )
+  assert.equal(service.status().reason, 'reading')
+  world.authority = authority()
+  world.host = new FakeModelHost()
+  service.status()
+  await settle()
+  assert.equal(service.status().status, 'needs_configuration')
+  release()
+  await settle()
+  assert.equal(service.status().status, 'needs_configuration')
 })
 
 test('writes are serialized in Main', async () => {

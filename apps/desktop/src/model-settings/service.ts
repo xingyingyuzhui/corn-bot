@@ -75,6 +75,8 @@ interface Pinned {
   readonly generation: number
   readonly authority: HostAuthority
   readonly api: HostModelApi
+  /** When this generation was first seen. */
+  readonly since: number
 }
 
 interface HostState {
@@ -89,6 +91,13 @@ type Step =
   | { readonly ok: false; readonly code: ModelSettingsErrorCode }
 
 const STATUS_TTL_MS = 30_000
+/**
+ * A freshly committed Host may fail its first reads while its services start.
+ * Until a generation has a reading, failures stay `checking` for this long.
+ */
+export const STATUS_SETTLE_MS = 10_000
+/** Least time between status reads after a failed one. */
+export const STATUS_RETRY_MS = 500
 
 /**
  * Safe code for a failed Host call. A failure the Host did not answer leaves
@@ -141,7 +150,9 @@ export class ModelSettingsService {
         readonly view: ModelStatusView
       }
     | undefined
-  #refreshing: Promise<void> | undefined
+  /** Generation whose status read is in flight. */
+  #refreshing: number | undefined
+  #lastFailure: { readonly generation: number; readonly at: number } | undefined
   #queue: Promise<unknown> = Promise.resolve()
 
   constructor(options: ModelSettingsServiceOptions) {
@@ -159,25 +170,44 @@ export class ModelSettingsService {
       return { status: 'checking', reason: 'runtime_not_ready', devOverride }
     const cached =
       this.#status?.generation === pinned.generation ? this.#status : undefined
-    if (!cached || this.#now() - cached.at > STATUS_TTL_MS)
-      this.#refreshing ??= this.#read(pinned)
-        .then(
-          () => {},
-          () => {
-            if (this.#current(pinned))
-              this.#record(pinned, {
-                status: 'unavailable',
-                reason: 'host_error',
-                devOverride,
-              })
-          },
-        )
-        .finally(() => {
-          this.#refreshing = undefined
-        })
+    const failed =
+      this.#lastFailure?.generation === pinned.generation
+        ? this.#lastFailure.at
+        : undefined
+    if (
+      (!cached || this.#now() - cached.at > STATUS_TTL_MS) &&
+      this.#refreshing !== pinned.generation &&
+      (failed === undefined || this.#now() - failed >= STATUS_RETRY_MS)
+    )
+      this.#refresh(pinned, devOverride)
     return (
       cached?.view ?? { status: 'checking', reason: 'reading', devOverride }
     )
+  }
+
+  #refresh(pinned: Pinned, devOverride: boolean): void {
+    this.#refreshing = pinned.generation
+    this.#read(pinned)
+      .then(
+        () => {},
+        () => {
+          if (!this.#current(pinned)) return
+          const at = this.#now()
+          this.#lastFailure = { generation: pinned.generation, at }
+          const settling =
+            this.#status?.generation !== pinned.generation &&
+            at - pinned.since < STATUS_SETTLE_MS
+          if (!settling)
+            this.#record(pinned, {
+              status: 'unavailable',
+              reason: 'host_error',
+              devOverride,
+            })
+        },
+      )
+      .finally(() => {
+        if (this.#refreshing === pinned.generation) this.#refreshing = undefined
+      })
   }
 
   async read(): Promise<Result> {
@@ -439,6 +469,7 @@ export class ModelSettingsService {
         generation: this.#generation,
         authority,
         api: this.#api(authority),
+        since: this.#now(),
       }
     }
     return this.#pinned

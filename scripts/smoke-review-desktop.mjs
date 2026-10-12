@@ -175,7 +175,7 @@ async function launch(env, userData) {
     {
       cwd: root,
       env,
-      stdio: 'ignore',
+      stdio: ['ignore', 'ignore', 'inherit'],
     },
   )
   const timer = setTimeout(() => child.kill('SIGKILL'), 150_000)

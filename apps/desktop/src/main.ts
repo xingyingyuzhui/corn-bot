@@ -121,7 +121,9 @@ async function runSmoke(window: BrowserWindow): Promise<void> {
     facts.hostReplaced =
       supervisor.processId !== undefined && supervisor.processId !== pid
     facts.clawReadyAfterRecovery = await clawReady()
-    facts.modelStatusAfterRecovery = (await modelFacts(window)).modelStatus
+    const recovered = await modelFacts(window)
+    facts.modelStatusAfterRecovery = recovered.modelStatus
+    facts.modelStatusReasonAfterRecovery = recovered.modelStatusReason
   }
   const rendererView: unknown = await window.webContents.executeJavaScript(
     'window.corn.runtimeStatus()',
@@ -148,6 +150,36 @@ async function runSmoke(window: BrowserWindow): Promise<void> {
       { mode: 0o600 },
     )
   }
+  const recoveringNotice = facts.recoveringNotice as
+    | { readonly shown: boolean; readonly failures: readonly string[] }
+    | undefined
+  const noticeHeld =
+    recoveringNotice !== undefined &&
+    recoveringNotice.failures.length === 0 &&
+    (recoveringNotice.shown ||
+      (facts.recoveringMs as number) < RECOVERY_VISIBLE_MS)
+  const checks: Record<string, boolean> = {
+    ready: control.view.status === 'ready',
+    bridgeVerified: facts.bridgeVerified === true,
+    clawReady: facts.clawReady === true,
+    modelBridgeVerified: facts.modelBridgeVerified === true,
+    modelSnapshotRedacted: facts.modelSnapshotRedacted === true,
+    modelStatusSettled:
+      facts.modelStatus !== 'checking' && facts.modelStatus !== 'unavailable',
+    ...(crashSmoke
+      ? {
+          recoveringObserved: facts.recoveringObserved === true,
+          recoveringNoticeHeld: noticeHeld,
+          hostReplaced: facts.hostReplaced === true,
+          clawReadyAfterRecovery: facts.clawReadyAfterRecovery === true,
+          modelStatusKeptAfterRecovery:
+            facts.modelStatusAfterRecovery === facts.modelStatus,
+        }
+      : { layout: (facts.layout as { passed?: boolean }).passed === true }),
+  }
+  const failedChecks = Object.keys(checks).filter((check) => !checks[check])
+  facts.checks = checks
+  facts.failedChecks = failedChecks
   const name = crashSmoke ? 'm0-electron-crash' : 'm0-electron'
   await writeFile(
     join(paths.artifacts, `${name}.png`),
@@ -159,30 +191,22 @@ async function runSmoke(window: BrowserWindow): Promise<void> {
     `${JSON.stringify({ ...control.view, ...facts }, null, 2)}\n`,
     { mode: 0o600 },
   )
-  const recoveringNotice = facts.recoveringNotice as
-    | { readonly shown: boolean; readonly failures: readonly string[] }
-    | undefined
-  const noticeHeld =
-    recoveringNotice !== undefined &&
-    recoveringNotice.failures.length === 0 &&
-    (recoveringNotice.shown ||
-      (facts.recoveringMs as number) < RECOVERY_VISIBLE_MS)
-  const passed =
-    control.view.status === 'ready' &&
-    facts.bridgeVerified === true &&
-    facts.clawReady === true &&
-    facts.modelBridgeVerified === true &&
-    facts.modelSnapshotRedacted === true &&
-    facts.modelStatus !== 'checking' &&
-    facts.modelStatus !== 'unavailable' &&
-    (crashSmoke || (facts.layout as { passed?: boolean }).passed === true) &&
-    (!crashSmoke ||
-      (facts.recoveringObserved === true &&
-        noticeHeld &&
-        facts.hostReplaced === true &&
-        facts.clawReadyAfterRecovery === true &&
-        facts.modelStatusAfterRecovery === facts.modelStatus))
-  process.exitCode = passed ? 0 : 1
+  if (failedChecks.length > 0)
+    // Closed codes and status names only; never a key, path or Host message.
+    console.error(
+      `Corn smoke failed: ${JSON.stringify({
+        failedChecks,
+        status: control.view.status,
+        lastFailure: control.lastFailure ?? null,
+        modelStatus: facts.modelStatus ?? null,
+        modelStatusReason: facts.modelStatusReason ?? null,
+        modelStatusAfterRecovery: facts.modelStatusAfterRecovery ?? null,
+        modelStatusReasonAfterRecovery:
+          facts.modelStatusReasonAfterRecovery ?? null,
+        recoveringMs: facts.recoveringMs ?? null,
+      })}`,
+    )
+  process.exitCode = failedChecks.length === 0 ? 0 : 1
   app.quit()
 }
 
@@ -194,7 +218,10 @@ else {
     cleanup ??= (async () => {
       try {
         await control.shutdown()
-      } catch {
+      } catch (error) {
+        console.error(
+          `Corn shutdown failed: ${error instanceof Error ? error.name : 'unknown'}`,
+        )
         process.exitCode = 1
       } finally {
         exitAllowed = true

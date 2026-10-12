@@ -79,7 +79,10 @@ async function userDshFingerprint() {
 }
 
 async function launch(env, args) {
-  const child = spawn(binary, args, { env, stdio: 'ignore' })
+  const child = spawn(binary, args, {
+    env,
+    stdio: ['ignore', 'ignore', 'inherit'],
+  })
   const timer = setTimeout(() => child.kill('SIGKILL'), 150_000)
   const code = await new Promise((resolve, reject) => {
     child.once('error', reject)
@@ -131,6 +134,20 @@ for (let round = 1; round <= 3; round++) {
       ? 'm0-electron-crash-smoke.json'
       : 'm0-electron-smoke.json'
     const report = JSON.parse(await readFile(join(artifacts, name), 'utf8'))
+    if (code !== 0)
+      console.error(
+        `Packaged round ${round}: ${JSON.stringify({
+          code,
+          status: report.status,
+          failedChecks: report.failedChecks,
+          checks: report.checks,
+          modelStatus: report.modelStatus,
+          modelStatusReason: report.modelStatusReason,
+          modelStatusAfterRecovery: report.modelStatusAfterRecovery,
+          modelStatusReasonAfterRecovery: report.modelStatusReasonAfterRecovery,
+          recoveringMs: report.recoveringMs,
+        })}`,
+      )
     assert.equal(code, 0, `Packaged round ${round} exited ${code}`)
     assert.equal(report.status, 'ready')
     assert.equal(report.packaged, true)
