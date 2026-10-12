@@ -67,9 +67,39 @@ const CLAW_ROUTES = new Set([
   'registry/preset/ensure',
   'registry/session/bind',
   'registry/session/state',
+  'registry/policy',
   'gate/audit',
 ] as const)
 export type ClawRoute = typeof CLAW_ROUTES extends Set<infer T> ? T : never
+
+/** The only Claw policy presets Corn may set; full permission editing stays closed. */
+export const CLAW_POLICY_PRESETS = ['research', 'developer'] as const
+export type ClawPolicyPreset = (typeof CLAW_POLICY_PRESETS)[number]
+
+function exactKeys(value: unknown, keys: readonly string[]): boolean {
+  if (typeof value !== 'object' || value === null || Array.isArray(value))
+    return false
+  const own = Object.keys(value)
+  return (
+    own.length === keys.length && keys.every((key) => Object.hasOwn(value, key))
+  )
+}
+
+/** `registry/policy` admits exactly `{agentId: 'wa_…', policy: {preset}}`. */
+function admitsClawBody(
+  route: ClawRoute,
+  body: Record<string, unknown>,
+): boolean {
+  if (route !== 'registry/policy') return true
+  const policy = body.policy as Record<string, unknown>
+  return (
+    exactKeys(body, ['agentId', 'policy']) &&
+    typeof body.agentId === 'string' &&
+    body.agentId.startsWith('wa_') &&
+    exactKeys(policy, ['preset']) &&
+    (CLAW_POLICY_PRESETS as readonly unknown[]).includes(policy.preset)
+  )
+}
 
 export class HostTransport {
   readonly authority: HostAuthority
@@ -138,7 +168,8 @@ export class HostTransport {
       | 'create'
       | 'preset/ensure'
       | 'session/bind'
-      | 'session/state',
+      | 'session/state'
+      | 'policy',
     body: Record<string, unknown>,
     options: { readonly signal?: AbortSignal } = {},
   ): Promise<Record<string, unknown>> {
@@ -153,6 +184,11 @@ export class HostTransport {
   ): Promise<Record<string, unknown>> {
     if (!CLAW_ROUTES.has(route))
       throw new RemoteError('corn/endpoint-denied', 'Claw route is not allowed')
+    if (!admitsClawBody(route, body))
+      throw new RemoteError(
+        'corn/endpoint-denied',
+        'Only a research or developer policy preset is allowed',
+      )
     const response = await fetch(this.authority.url(`/api/dsh-claw/${route}`), {
       method: 'POST',
       headers: {
