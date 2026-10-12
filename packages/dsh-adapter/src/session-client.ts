@@ -108,4 +108,21 @@ export class SessionClient {
   cancel(sessionId: string): Promise<unknown> {
     return this.transport.rpc('session/cancel', { request: { sessionId } })
   }
+
+  /** Non-activating projection baseline at `asOfSeq`; `null` for an unknown Session. */
+  projections(sessionId: string): Promise<unknown> {
+    return this.transport.rpc('session/projections', { request: { sessionId } })
+  }
+
+  /** Mutates one still-pending inbox item; the receipt is not an adoption record. */
+  updateQueue(request: {
+    sessionId: string
+    itemId: string
+    action:
+      | { kind: 'edit'; content: readonly { type: 'text'; text: string }[] }
+      | { kind: 'remove' }
+      | { kind: 'steer' }
+  }): Promise<unknown> {
+    return this.transport.rpc('session/updateQueue', { request })
+  }
 }
