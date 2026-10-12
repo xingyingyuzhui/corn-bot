@@ -54,7 +54,7 @@ B is the selected production direction, and A is no longer pursued unless B fail
 
 ## Model configuration interfaces (M2 Work Package 2, 2026-10-11)
 
-Verified against RC2 source, generated descriptors and a live Corn-owned Host; evidence is in [model-configuration API audit](../milestones/MODEL-CONFIG-API-AUDIT.md). These are interface decisions. The Corn adapter, IPC and UI that use them are Work Package 3 and are not implemented here.
+Verified against RC2 source, generated descriptors and a live Corn-owned Host; evidence is in [model-configuration API audit](../milestones/MODEL-CONFIG-API-AUDIT.md). These are interface decisions; Work Package 3 (below) implements them.
 
 Accepted decisions:
 
@@ -68,6 +68,14 @@ Accepted decisions:
 Credential input exception (maintainer decision, 2026-10-11): the API key exists only in a password input and one write request. It crosses one restricted IPC method to Main, which forwards it once to `credentials/set`. It is never read back or returned over IPC, and it is never kept in Renderer state, drafts, storage or logs. `docs/security-boundaries.md` records this exception in Work Package 3.
 
 Credential storage (maintainer decision, 2026-10-11): this round uses the official `credentials-local` provider. It is a plaintext YAML file at `<Corn home>/.credentials.yaml`, mode `0600`, inside a `0700` home. File permissions are its only protection. It is not Keychain and does not isolate keys from same-user processes, including Agent tools. An OS credential vault would be a separate `CredentialProvider` behind the same seam.
+
+Implemented in Work Package 3 (2026-10-11):
+
+- Adapters `packages/dsh-adapter/src/{model-settings-client,credentials-client,model-catalog-client}.ts` call only `settings/{describe,replace,mutate}`, `credentials/{describe,set,unset}`, `llm/{listProviders,listConfigurableProviders}` and `session/modelCatalog`; the transport allowlist denies `settings/update`, settings documents, credential export and discovery.
+- `apps/desktop/src/model-settings/service.ts` is Main's only caller. It pins every reply to a Host generation (the authenticated Host identity), serializes writes, re-reads before each write, validates commands against the live directory, schema and catalog, and judges success by a read-back. Failures are closed codes (`conflict`, `partially_applied`, `outcome_unknown`, `stale_generation`, `read_only`, …) with a redacted snapshot, never raw Host messages.
+- `apps/desktop/src/ipc/model-settings.ts` exposes seven named channels with strict payloads and trusted-sender checks; Renderer never names a namespace, path, ref or RPC.
+- Model status (`needs_configuration | available | unavailable | checking`) is separate from runtime status. The production `CORN_MODEL_*` / `model.env` path is retired; an unpackaged build honours only an explicit `CORN_DEV_MODEL_ENV_FILE` override, labelled and read-only in the UI. The packaged profile template is keyless.
+- Not delivered: DeepSeek account sign-in (`deepseek-account` is hidden; it signs in rather than storing a key) and model discovery for custom providers (models are entered by id).
 
 Proposals, not yet decided:
 

@@ -1,13 +1,16 @@
-import { AlertCircle, LoaderCircle } from 'lucide-react'
 import type {
+  ModelNoticeView,
   RuntimeNoticeView,
-  RuntimeTone,
 } from '../../app/runtime-notice.ts'
+import { ModelSetupNotice } from '../settings/ModelSetupNotice.tsx'
+import { ToneIcon } from './ToneIcon.tsx'
 
 interface RuntimeNoticeProps {
   /** The sample-data marker, or `null` for a live source. */
   readonly sample: string | null
   readonly runtime: RuntimeNoticeView
+  readonly model: ModelNoticeView | null
+  readonly onConfigureModel: () => void
 }
 
 /**
@@ -15,7 +18,12 @@ interface RuntimeNoticeProps {
  * fact can scroll away or cover a message. Silent: `RuntimeAnnouncer` owns the
  * announcements.
  */
-export function RuntimeNotice({ sample, runtime }: RuntimeNoticeProps) {
+export function RuntimeNotice({
+  sample,
+  runtime,
+  model,
+  onConfigureModel,
+}: RuntimeNoticeProps) {
   return (
     <div className="corn-runtime-notice">
       {sample ? <p className="corn-runtime-notice__item">{sample}</p> : null}
@@ -27,29 +35,7 @@ export function RuntimeNotice({ sample, runtime }: RuntimeNoticeProps) {
         <ToneIcon tone={runtime.tone} />
         {runtime.text}
       </p>
+      <ModelSetupNotice notice={model} onConfigure={onConfigureModel} />
     </div>
   )
-}
-
-function ToneIcon({ tone }: { readonly tone: RuntimeTone }) {
-  switch (tone) {
-    case 'busy':
-      return (
-        <LoaderCircle
-          className="corn-runtime-notice__spin"
-          size={12}
-          strokeWidth={2}
-          aria-hidden
-        />
-      )
-    case 'error':
-      return <AlertCircle size={12} strokeWidth={2} aria-hidden />
-    case 'ok':
-    case 'muted':
-      return <span className="corn-runtime-notice__dot" aria-hidden />
-    default: {
-      const unreachable: never = tone
-      throw new Error(`Unknown runtime tone ${String(unreachable)}`)
-    }
-  }
 }

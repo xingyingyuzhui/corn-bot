@@ -285,7 +285,7 @@ async function run(scenario) {
       : createAppRuntime(
           {
             home,
-            modelEnvFile: join(home, 'no-model.env'),
+            devModelOverrideFile: undefined,
             profileTemplate: undefined,
           },
           seams,

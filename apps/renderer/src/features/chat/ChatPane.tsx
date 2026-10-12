@@ -1,7 +1,10 @@
 import { PanelLeft } from 'lucide-react'
 import { useState } from 'react'
 import type { ChatScroll } from '../../app/layout-state.ts'
-import type { RuntimeNoticeView } from '../../app/runtime-notice.ts'
+import type {
+  ModelNoticeView,
+  RuntimeNoticeView,
+} from '../../app/runtime-notice.ts'
 import type { ComposerDraft, SendAttempt } from '../../model/draft.ts'
 import type { BotView, ConversationView } from '../../model/workspace.ts'
 import { ActionButton } from '../../shared/ActionButton.tsx'
@@ -18,6 +21,8 @@ interface ChatPaneProps {
   /** Sample-data marker, or `null` for a live source. */
   readonly sample: string | null
   readonly runtime: RuntimeNoticeView
+  /** The model line, or `null` while the runtime is not ready. */
+  readonly model: ModelNoticeView | null
   readonly draft: ComposerDraft
   readonly scroll: ChatScroll | undefined
   readonly detailsOpen: boolean
@@ -31,6 +36,8 @@ interface ChatPaneProps {
   readonly onToggleSidebar: () => void
   /** Opens this Bot's permissions in the management pane. */
   readonly onOpenPermissions: () => void
+  /** Opens Settings → 模型. */
+  readonly onConfigureModel: () => void
 }
 
 const blockedReason = (conversation: ConversationView): string | null => {
@@ -78,7 +85,12 @@ export function ChatPane(props: ChatPaneProps) {
         onScroll={props.onScroll}
         onOpenPermissions={props.onOpenPermissions}
       />
-      <RuntimeNotice sample={props.sample} runtime={props.runtime} />
+      <RuntimeNotice
+        sample={props.sample}
+        runtime={props.runtime}
+        model={props.model}
+        onConfigureModel={props.onConfigureModel}
+      />
       <MessageComposer
         botId={bot.id}
         botName={bot.name}

@@ -522,9 +522,9 @@ export async function writeWebProfile(profile: string): Promise<void> {
 export interface HarnessOptions {
   readonly profile?: 'claw' | 'web' | 'none'
   readonly claw?: ClawProfileOptions
-  /** Private model file contents; absent means no file. */
-  readonly modelEnv?: string
-  readonly modelEnvMode?: number
+  /** Explicit development override file contents; absent means the App's default keyless start. */
+  readonly devOverride?: string
+  readonly devOverrideMode?: number
   readonly autoReady?: boolean
   readonly gateExchange?: boolean
   readonly profileTemplate?: string
@@ -549,7 +549,7 @@ export class RuntimeHarness {
   readonly root: string
   readonly home: string
   readonly profile: string
-  readonly modelEnvFile: string
+  readonly devOverrideFile: string
   readonly host: FakeHost
   readonly children: FakeChild[] = []
   readonly schedules: ScheduledRecovery[] = []
@@ -567,7 +567,7 @@ export class RuntimeHarness {
     this.root = root
     this.home = join(root, 'dsh')
     this.profile = join(this.home, 'profiles', 'corn-dev')
-    this.modelEnvFile = join(root, 'model.env')
+    this.devOverrideFile = join(root, 'model.env')
     this.host = host
     this.#options = options
   }
@@ -589,9 +589,11 @@ export class RuntimeHarness {
     const profile = options.profile ?? 'claw'
     if (profile === 'claw') await writeClawProfile(this.profile, options.claw)
     else if (profile === 'web') await writeWebProfile(this.profile)
-    if (options.modelEnv !== undefined) {
-      await writeFile(this.modelEnvFile, options.modelEnv, { mode: 0o600 })
-      await chmod(this.modelEnvFile, options.modelEnvMode ?? 0o600)
+    if (options.devOverride !== undefined) {
+      await writeFile(this.devOverrideFile, options.devOverride, {
+        mode: 0o600,
+      })
+      await chmod(this.devOverrideFile, options.devOverrideMode ?? 0o600)
     }
     this.runtime = this.build()
   }
@@ -601,7 +603,10 @@ export class RuntimeHarness {
     return createAppRuntime(
       {
         home: this.home,
-        modelEnvFile: this.modelEnvFile,
+        devModelOverrideFile:
+          this.#options.devOverride === undefined
+            ? undefined
+            : this.devOverrideFile,
         profileTemplate: this.#options.profileTemplate,
       },
       this.seams(),

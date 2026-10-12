@@ -4,6 +4,13 @@ import { join } from 'node:path'
 import { parseEnv } from 'node:util'
 import { RuntimeFailure } from './runtime-failure.ts'
 
+/**
+ * Development smoke override only. The App's model configuration lives in the
+ * official DSH settings and credential services; this path injects a key into
+ * the Host environment (read-only to those services) for scripted smokes and
+ * an explicitly requested unpackaged run, never for production.
+ */
+
 /** Routes Corn knows how to wire; each owns exactly one Host credential variable. */
 export const CORN_MODEL_ROUTES = [
   'deepseek-official',
@@ -50,6 +57,25 @@ export function routePlan(route: CornModelRoute): RoutePlan {
   }
 }
 
+/** What an override injects into the Host, without the key. */
+export interface ModelOverrideFacts {
+  readonly route: CornModelRoute
+  /** Credential ref the override supplies from the environment (read-only to DSH). */
+  readonly ref: string
+  /** Settings namespaces the override's `--patch` rows lock against writes. */
+  readonly lockedNamespaces: readonly string[]
+}
+
+export function overrideFacts(model: CornModelConfig): ModelOverrideFacts {
+  const plan = routePlan(model.route)
+  return {
+    route: model.route,
+    ref: plan.hostKeyEnv,
+    lockedNamespaces: plan.patch.map((row) => row.id),
+  }
+}
+
+/** Default file of the paid script smokes (`smoke:model*`); the App never reads it. */
 export function defaultModelEnvFile(): string {
   return join(homedir(), '.corn-bot-dev', 'model.env')
 }

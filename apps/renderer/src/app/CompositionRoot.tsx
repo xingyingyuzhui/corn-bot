@@ -1,11 +1,18 @@
 import { FixtureWorkspaceRepository } from '../fixtures/fixture-repository.ts'
+import { ModelSettingsFixture } from '../fixtures/model-settings-fixture.ts'
 import { parseFixtureRoute } from '../fixtures/routes.ts'
 import { parseRuntimeFixture } from '../fixtures/runtime-states.ts'
 import { createUiStatesRepository } from '../fixtures/ui-states.ts'
+import {
+  livePort,
+  type ModelSettingsPort,
+} from '../model/model-settings-port.ts'
 import type { WorkspaceRepository } from '../model/repository.ts'
 import { NoticeProvider } from '../shared/notice.tsx'
 import { CornShell } from './CornShell.tsx'
+import { ModelSettingsProvider } from './model-settings-context.tsx'
 import { RuntimeAnnouncer } from './RuntimeAnnouncer.tsx'
+import { useModelStatus } from './use-model-status.ts'
 import { useRuntimeFixture, useRuntimeStatus } from './use-runtime-status.ts'
 import { WorkspaceProvider } from './workspace-context.tsx'
 
@@ -28,19 +35,32 @@ function chooseRepository(): WorkspaceRepository {
 }
 
 const repository = chooseRepository()
-const useRuntime =
-  parseRuntimeFixture(window.location.hash, import.meta.env.DEV) === null
-    ? useRuntimeStatus
-    : useRuntimeFixture
+const runtimeFixture =
+  parseRuntimeFixture(window.location.hash, import.meta.env.DEV) !== null
+const useRuntime = runtimeFixture ? useRuntimeFixture : useRuntimeStatus
+
+const bridge = window.corn?.modelSettings
+const modelSettings: ModelSettingsPort = bridge
+  ? livePort(bridge)
+  : new ModelSettingsFixture(undefined, { latencyMs: 300 })
+/** The chat's model line needs a runtime to sit under: Main's, or a dev fixture. */
+const modelStatusSource = bridge || runtimeFixture ? modelSettings : null
 
 export function CompositionRoot() {
   const runtime = useRuntime()
+  const model = useModelStatus(modelStatusSource)
   return (
     <WorkspaceProvider repository={repository}>
-      <NoticeProvider>
-        <CornShell runtime={runtime} />
-      </NoticeProvider>
-      <RuntimeAnnouncer source={repository.label} reading={runtime} />
+      <ModelSettingsProvider port={modelSettings}>
+        <NoticeProvider>
+          <CornShell runtime={runtime} model={model} />
+        </NoticeProvider>
+      </ModelSettingsProvider>
+      <RuntimeAnnouncer
+        source={repository.label}
+        reading={runtime}
+        model={model}
+      />
     </WorkspaceProvider>
   )
 }

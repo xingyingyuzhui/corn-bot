@@ -37,6 +37,7 @@ jobs:
       - run: pnpm smoke:host
       - run: pnpm smoke:governance
       - run: pnpm smoke:governance-ptc
+      - run: pnpm smoke:model-settings
       - run: pnpm smoke:review
       - run: CORN_DESKTOP_SMOKE=1 pnpm dev:desktop
       - run: CORN_DESKTOP_SMOKE=1 CORN_DESKTOP_CRASH_SMOKE=1 pnpm dev:desktop
