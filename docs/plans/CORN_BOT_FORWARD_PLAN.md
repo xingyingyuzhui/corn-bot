@@ -95,6 +95,8 @@ DSH路线需先解决：Session-only模型选择、Host侧RunControl与只读恢
 
 2026-10-12：RT-DECISION 静态对照完成（[P1静态能力对照](../research/runtime-capability-matrix-2026-10-12.md)），同日维护者据此决定选 DSH，ADR-0007 已建，真实比较跳过。U1（Session-only 模型选择上游补丁）仍需单独授权；C1 `corn-run-control` 走公开 tools.guard，不改上游或 Claw。
 
+2026-10-12（定向停止）：B6（PR #30）结论是 ADR-0007 的“定向停止无法确认”触发条件**有条件成立**，维护者接受并记入 [ADR-0007 补遗](../adr/ADR-0007-execution-runtime.md#addendum-2026-10-12-targeted-stop-verdict)，ADR 不重开。C1 必须按叶子优先的顺序停止：先封停止代次，再 `interruptByParent` 子会话，然后 `job.kill` 后台任务并重新列表直到清空，最后才取消父 Turn。父会话已空闲时，结算通知仍会唤醒一个 Turn，最多泄漏一次模型请求；在 U2 落地前，Corn 必须立即取消这个陈旧 Turn，并计数、审计泄漏的请求。U2（取消时不让结算通知唤醒）[仅起草](../milestones/U2-STOP-SETTLEMENT-DRAFT.md)，实现或提交上游都需要单独授权。
+
 ## 6. P2：模型配置与 UI 收尾
 
 ### 6.1 #15 的处理
@@ -169,7 +171,7 @@ Main 的状态须接入可信执行边界。工具每次真实派发检查 Attem
 
 自然语言改方向和结构化强制限制分开。主张可强制的限制必须有工具/路径范围和执行检查；未覆盖范围不能标 enforced。失联/未知控制状态对受控 Worker 阻止新副作用。
 
-停止：封闭新派发 → 请求运行时取消 → 处理属于此 Run 的残余 Inbox/子工作/外部 Job → 确认停止和 fencing → 释放资源 → cancelled。未确认显示 stopping/stop_partial/unknown，保留资源隔离，不虚报回滚。
+停止：封闭新派发 → 请求运行时取消 → 处理属于此 Run 的残余 Inbox/子工作/外部 Job → 确认停止和 fencing → 释放资源 → cancelled。未确认显示 stopping/stop_partial/unknown，保留资源隔离，不虚报回滚。DSH 路线下，这里的“请求运行时取消”按 ADR-0007 补遗的叶子优先顺序执行，父 Turn 最后取消；其中包括陈旧 Turn 的处理和泄漏请求的审计。
 
 首次副作用即具备租约：前台和后台共同遵守工作树/浏览器/设备仲裁。代码工作使用独立 worktree 或写租约；同一真实 Mac 只有一个输入控制者；租约有 fencing、截止期限和人工接管。
 
@@ -228,6 +230,7 @@ GUI 操作的速度和成本以本机单场景实测，不因安装框架就声�
 | MODEL-01a | #15 N1/N3通用修复，只更新PR | 可与RT-DECISION静态对照并行；不合并、不跑真实验证 |
 | MODEL-01b | N2与选中底座的完整配置/集成 | 底座依赖已由 ADR-0007 满足；继续已有#15，审查后合并；真实 Key 检查需授权 |
 | U1 | DSH上游补丁：Session-only 模型选择 | **待单独授权**（§5.3，ADR-0007不构成授权）；Bot级模型覆盖与§7.3门禁依赖它 |
+| U2 | DSH上游补丁草案：取消时不让结算通知唤醒父会话（[草案](../milestones/U2-STOP-SETTLEMENT-DRAFT.md)） | **仅草案，未实现、未提交上游**；实现或提交都需单独授权。可替代 U2 的 C1 pre-step 停止闸门需另行决策并通过探针 |
 | UI-01a | 02D-2a 动效引擎：统一 scheduler（1 RAF）、lifecycle、时间采样、形变帧契约与过渡、静态路径/清理；v1 视觉 | 可立即开工，与接口工作并行；不直接访问运行时；只做虚拟时钟＋JSDOM 测试；引用 Kit `5bb4379`（锁升级小 PR 另行） |
 | ASSET-02 | `corn-avatar-kit-v2` 原创形变素材及独立资产锁 | 仓库外设计工作；不改 v1 静态头像、16 角色、App 图标 |
 | UI-01b | 02D-2b 形变接入（第一批5种，再第二批）＋视觉验收 | UI-01a + ASSET-02；第二批 orbit/spawning 先定契约；GUI/视觉待恢复 |
@@ -235,7 +238,7 @@ GUI 操作的速度和成本以本机单场景实测，不因安装框架就声�
 | DATA-01 | 最小DB、身份、幂等、只读恢复 | 底座依赖已由 ADR-0007 满足；先契约后实现 |
 | CHAT-01 | Main-backed真实聊天/审批/取消 | MODEL-01b + DATA-01 + 必需视觉门禁 |
 | RUN-01a | Run/Attempt/Directive/Outbox/Lease和Host控制契约 | CHAT-01；先模型隔离/执行控制seam |
-| C1（属RUN-01a） | Corn自有Host插件 `corn-run-control`：公开 tools.guard 查 stopEpoch/租约/revision，未知或过期控制默认拒绝，带 runId/attemptId/callId 审计，纳入ADR-0006准入 | 随RUN-01a；不改上游DSH或Claw策略 |
+| C1（属RUN-01a） | Corn自有Host插件 `corn-run-control`：公开 tools.guard 查 stopEpoch/租约/revision，未知或过期控制默认拒绝，带 runId/attemptId/callId 审计，纳入ADR-0006准入；停止必须按 ADR-0007 补遗的叶子优先顺序执行 | 随RUN-01a；不改上游DSH或Claw策略 |
 | RUN-01b | 单Worker、路由、RunCard、完成交付 | RUN-01a；同一竖向产品门禁签收 |
 | RUN-02 | 连续改向、结束竞争、冷恢复 | RUN-01b |
 | COMPUTER-01… | Browser/命令/Mac独立切片 | RUN-01a控制与仲裁；逐能力验证 |
