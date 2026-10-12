@@ -561,6 +561,15 @@ B4 已证明：重启后排队的 inbox 项不会自动开始。P3 把它显示�
 16. **`registry/create` 结果未知时的修复**：A 只在恰好一个精确候选时自动收养，否则报告孤儿；B 一律不收养，交由人工处理；C 按名称取最新的一个。**推荐 A**。C 可能收养错误的 agent。
 17. **开发环境的 DB 位置**：A 由 `CORN_DSH_HOME` 推导出同级的 `-data` 目录，可用 `CORN_DATA_DIR` 覆盖；B 固定为 `~/.corn-bot-dev/data`。**推荐 A**，每个 worktree 自动隔离。
 
+### 7.1 决策记录（2026-10-12）
+
+维护者确认：上面 17 项全部按推荐执行，即 1A、2A、3A、4A、5A、6B（默认 research）、7A、8B、9B、10A、11A、12A、13A、14A、15A、16A、17A。R1 的形态（15A）只定下范围，真实调用本身仍需维护者给出 Provider、模型 ID、请求上限和停止条件后单独授权。
+
+同日另两项 ADR-0007 相关决定：
+
+- **方案 C 探针已授权**：C1 `agent/pre-step` 停止闸门在父会话空闲时的 B6-idle 探针，headless、fake 模型、一次一个场景；同时统计模型请求与压缩请求。0 次泄漏才把 C 纳入 C1，原型只留在探针分支。
+- **仅泄漏请求时仍可进入 `cancelled`**：没有其它残留、只有泄漏的模型请求时，Run 可进入 `cancelled`，泄漏数记在停止审计里（与 ADR-0007 2026-10-12 补遗一致）。
+
 ## 8. 安全与运行约束（全部切片适用）
 
 - 不读 `~/.corn-bot-dev/model.env`、`~/.dsh`、`/Applications/DeepSeek Harness.app`；不发生付费调用；不记录密钥、cookie、`$events` clientId、Host 原文、提示词正文。
