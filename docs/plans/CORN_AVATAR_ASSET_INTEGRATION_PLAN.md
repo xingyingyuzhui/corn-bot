@@ -4,6 +4,8 @@
 
 **2026-10-12状态：02D-1静态头像、角色选择器和App图标已在PR #9合入main；02D-2动态组件尚未实现，Finder/Dock/App switcher人工验收及最终视觉验收待完成。** 素材包测试不代替App验收。当前顺序以[后续统一计划](CORN_BOT_FORWARD_PLAN.md)为准；下文的旧分支/先合#7指令仅保留历史背景，素材锁、渲染契约和验证范围继续有效。
 
+**2026-10-12维护者决策：** 动效行为以 DMG 0.68.1 引擎为参照并在 Corn TypeScript 中重写（边界见 §3A）；02D-2 拆为 02D-2a 动效引擎（v1 视觉，可立即开工）与 02D-2b 形变接入（依赖 Corn 原创 `corn-avatar-kit-v2`），见 §4；动画状态不改变业务状态，见 §5。
+
 ## 1. 锁定本轮输入
 
 源目录：`/Users/qin/DSH/Corn Bot/design-assets/corn-avatar-kit-v1`。交付包：`/Users/qin/DSH/Corn Bot/design-assets/corn-avatar-kit-v1.zip`。接入时将选定源文件和发布资产迁入 Git 仓库；开发、CI 和最终 App 均从仓库内读取。
@@ -25,7 +27,11 @@
 
 1. 先完成 PR #7（PR-02B）的 review 与合并。合并后，从同一 main 基线分别开 runtime R1–R3 修复、U1 固定提示与 PR-02D-1 分支，允许并行；runtime finding 关闭不是 02D-1 的开工前置条件，但仍是阶段验收条件。PR-02C 继续完成布局/交互门禁，不以新素材替代这些检查。
 2. **PR-02D-1：静态头像与 App 图标。** 迁入原创资产、锁定来源、确定角色默认映射、替换统一占位组件，并产出 macOS 图标。接入改变头像区域的视觉基线，需明确记录这项设计变化；布局尺寸仍按现有金标。
-3. **PR-02D-2：React 动画接入。** 基于同一原创几何实现动态/静态/上传图渲染、统一生命周期与状态 fixture，完成单元、视觉和负载验证。可在 02C 期间有序开发；M1 收尾必须包含 02C 和完整 02D 的证据。
+3. **PR-02D-2：React 动画接入。** 原计划为单个 PR：基于同一原创几何实现动态/静态/上传图渲染、统一生命周期与状态 fixture，完成单元、视觉和负载验证。2026-10-12 拆为下列 3a–3c；可在 02C 期间有序开发；M1 收尾必须包含 02C 和完整 02D（2a+2b）的证据。
+   - 3a. **PR-02D-2a：动效引擎。** 统一调度、生命周期、时间采样、可承载形变的帧契约、形变↔idle 过渡、静态路径与清理；沿用 v1 视觉，测试仅用虚拟时钟+JSDOM。现在即可开工，不等 v2 素材。
+   - 3b. **Corn avatar kit v2 素材包（仓库外设计工作）。** `design-assets/corn-avatar-kit-v2` 提供 Corn 原创形变目标，独立资产锁；v1 静态头像、16 角色与 App 图标不变。
+   - 3c. **PR-02D-2b：形变接入。** v2 定稿锁定且 02D-2a 合入后实施；第一批 5 种形变及视觉验收，第二批随后。
+   - Kit 研究锁由 `0248419` 升至 `5bb4379`（独立小代码 PR，由另一 agent 处理）。§3A 引用的 DMG 事实以 `5bb4379` 文档为准；02D-2a 合并时如该 PR 仍未合，PR 描述须注明所引用的提交。
 4. **PR-03A（M2）：真实事件驱动。** 在 PR-02C 门禁通过、PR-02D 接入完成和真实 Session/Run 适配具备后，连接 DSH/Claw 状态。
 5. **PR-09A（M8）：发布复查。** 再次核查资产来源、构建清单与签名/公证后的实际图标；M1 先验证未签名开发 `.app`。
 
@@ -55,17 +61,94 @@ PR-02D-1 仅做角色选择器，写明确标识的 fixture；头像上传保持
 
 macOS 图标采用上述 ICNS 路径（选项 A），本轮不新增 Icon Composer/Xcode 工具链，也不重做分层源图。约 824 的主体尺寸是候选 legacy 布局参数，不是 macOS 27 自动处理的保证；如新 `.app` 实测出现额外底板或异常尺寸，继续调整透明留白/边缘并复验，不能仅以 ICNS 成功生成宣告验收。设计依据：[Apple App icons](https://developer.apple.com/design/human-interface-guidelines/app-icons)。源 PNG 的锁定哈希保持不变，规范化输出另记哈希。
 
-## 4. PR-02D-2：动态组件与 App 级验收
+## 3A. DMG 参照与借用边界（2026-10-12 维护者决策）
 
-- 按主计划 §13.4 拆成 `AvatarRenderer`、`CornMotionAvatar`、`StaticAvatar`、`UploadedAvatar`、`motion-presets`、`motion-scheduler` 和 `useAvatarLifecycle`；复用原创素材几何与表情算法，接入 React 生命周期，统一调度。当前独立控制器每实例 RAF 的实现需要按 ADR-0003 适配，不能仅复制控制器就宣称完成架构要求。
-- `setState`/偏好变化更新现有实例，稳定 seed 来源为 Bot ID/持久偏好；同一 Bot 的多个可见实例拥有不同 SVG ID。`spin` 真正转一圈且不裁切，`bounce/burst` 受动效设置约束。
-- 隐藏、离屏、系统减少动态、App 设置关闭动画时采用静态渲染；StrictMode 双挂载、切 Bot、关闭详情、销毁窗口后清理 RAF、观察器和监听器。静态路径不加载动画运行时。
-- 在开发专用 fixture 路由展示 16 角色和 18 状态；正常 M1 UI 保留示例标记。5 群组素材只作素材预览，不扩展已推迟的群组功能。
-- 新增/迁入 avatar contract、shape、lifecycle 测试；在当前根级 `pnpm test`/typecheck/build 中实际纳入新 package 测试，防止只在独立包里通过。保留原 9 项测试覆盖，再补 React 与多使用点检查。
-- 固定 seed/虚拟时钟/DPR 做头像区域快照，先静态后时序；在两栏/三栏、窄窗、折叠列表与 20+ Bot 场景测帧耗时/内存和资源清理。性能基线以目标 Mac 实测记录。
-- 上传图、原名文本与邻近状态提示继续可用；动画表情不能替代可访问的错误或审批文本。
+事实来源：Kit `5bb4379` 的 `docs/avatar-state-audit.md`、`docs/avatar-reference.md`、`docs/avatar-state-catalog.md`（只读，`git show 5bb4379:<path>`）；Corn 现有动效起点为 v1 `src/avatar.ts`（姿态＋装饰叠加、无形变、时间纯函数 `sampleFrame`、每实例 RAF）。本节是 [ADR-0003 2026-10-12 增补](../adr/ADR-0003-avatar-engine.md#addendum-2026-10-12-dmg-behaviour-reference-borrowing-boundary-unified-scheduler) 的执行细则。
 
-**合并证据：** `pnpm check`、`pnpm build`、UI 资产审计、上述 React/视觉/负载检查，以及 `pnpm package:mac` / `pnpm smoke:packaged` 对新提交的结果；报告静态、fixture 动态与 packaged 图标各自状态，缺少的手工检查写明。独立素材包测试通过不直接勾选 M1 验收。
+**参照来源。** 行为基准是 DMG 0.68.1 安装包引擎（按时间采样；保留 5 颗 orbit/spawning 粒子与 standby 光晕；53 状态）。官网组件只作 idle 身体/眼睛**运动**参数参照（姿态幅度/频率、眨眼与注视节奏），不取其静态尺寸或 presentation 常量。同一状态不混用两来源；与 DMG 不同之处一律记为“Corn 选择”并写入下表或对应 PR。官网的节点复用（orbit 只剩 3 颗、spawning 隐藏两粒、standby 光晕被隐藏）和按帧采样墨迹（60 FPS 无墨迹）不复现。
+
+| 借用并以 Corn TS 重写 | 不借用（保持 Corn 原创） |
+| --- | --- |
+| 状态语义；时序/相位、缓动曲线；形变结构（哪些状态完整形变并隐藏眼睛、休息相位恢复眼睛、形变→idle 恢复）；粒子/环数量；墨迹时间采样（预计算路径、最多点数、抬笔按时间擦除）；<48px compact 行为；`overflow: visible` 规则与按显示尺寸适配 viewBox | Kit/Grok 源文件、压缩代码、SVG path 数据、素材；精确形变几何（笔杆尺寸、位移范围、基础角、描边宽、环半径等）；DMG clips 关键帧数据；身体、眼睛、表情与配色。复制代码/几何属于另一项边界变更，本决策未授权 |
+
+| DMG 状态 / 形变 | 结构（借用） | 时序与曲线（借用） |
+| --- | --- | --- |
+| writing / pencil | 主体缩成笔尖＋笔杆，完整形变隐藏眼睛；落笔书写→抬笔返回；可见墨迹 | 2500ms 周期，前 68% 落笔、后 32% 抬笔；墨迹为预计算路径按状态时间取样，最多 64 点，抬笔按时间擦除，不随 RAF 追加 |
+| thinking / dots | 主体变中心点＋左右两点，隐藏眼睛 | 左右点轮流抬升、缩放、变淡 |
+| searching → radar | 主体＋3 层扩散环 | 每轮 1300ms，三环错相，透明度随扩散衰减 |
+| progress（DMG `loading` 同形变） | 主体＋淡色轨道＋进度弧；不是永久 100% 圆环 | 形变 2500ms、休息 1500ms 循环；休息相位恢复眼睛 |
+| alerting / bang | 直立提醒条＋主体缩成圆点，隐藏眼睛；不得用 writing 或静态感叹号替代 | 2.2s 周期衰减抖动 |
+| orbit（DMG `waiting` 同形变） | 主体＋5 颗轨道点，深度改变半径/透明度 | 持续循环 |
+| spawning / gather | 5 粒子向主体聚拢、逐颗消失；单帧可见数随阶段变化 | 展示 2000ms、休息 1500ms，粒子错相；休息恢复眼睛 |
+| sending / send | 主粒子＋尾随小粒子＋淡出环；某帧只见一点属正常阶段 | 1500ms，各元素有不同出现窗口 |
+| receiving / receive | 外侧点收拢到主体，再出现接收环；不与 sending 强制镜像 | 1700ms；入射方向按 seed 变化，不固定 |
+| uploading / dock | 两点依次进入再环绕主体 | 首点约 0.2s、次点约 1.5s 起，入场段约 0.9s |
+| dictating / wave | 中央主体＋左右 4 节点 | 幅度由时间函数驱动，不代表真实麦克风音量 |
+| powering-down / standby | 缩小主体＋淡色呼吸光晕，入场有收缩环 | 持续呼吸；名称不表示组件自行销毁 |
+
+通用规则：完整形变相位隐藏眼睛，形变→idle 后恢复两眼并清除形变节点；DMG 小于 48px 启用 compact，影响 idle 等片段调度，**不**减少形变粒子数；头像 SVG 与紧邻父级保持 overflow 可见，形变缩放/viewBox 随显示尺寸调整，不导出大尺寸帧再缩小或固定覆盖 viewBox。DMG 的 `next/hold`（waking 1.6s→idle、finished/failed/approving 片段后→idle、blocked 120s→drowsy）不进入引擎，见 §5。
+
+**Corn 18 状态对照。** 契约词表不变（ADR-0003 §2）；无形变状态的 DMG clips 是关键帧数据，Corn 按片段语义自写姿态，属 Corn 选择。
+
+| Corn 状态 | DMG 参照 | 接入 | Corn 选择 / 偏离 |
+| --- | --- | --- | --- |
+| idle | 官网 idle 身体/眼睛运动参数（不用 DMG idle clips） | 2a | <48px 简化 idle 运动沿用 DMG compact 尺寸规则，记为 Corn 选择 |
+| sleeping | sleeping：sleepy，无形变 | 2a | v1 `standby` 装饰属偏离，2b 视觉验收时定去留 |
+| waking | waking：surprised；DMG 1.6s 自回 idle | 2a | 不继承自回，由展示层 TTL 决定 |
+| listening | listening：calm，无形变 | 2a | v1 `wave` 装饰属偏离，须与 dictating 形变可区分 |
+| thinking | thinking 形变 | 2b 第一批 | 形变为三粒玉米粒（v2） |
+| searching | radar 形变 | 2b 第一批 | v1 与 thinking 共用 `dots` 是缺陷；2a 帧契约先区分为 radar，视觉在 2b |
+| working | Working_A–F 片段组，无形变 | 2a | v1 `progress` 装饰属偏离，须与 progress 形变可区分 |
+| dictating | dictating / wave | 2b 第二批 | — |
+| writing | writing / pencil | 2b 第一批 | 玉米身体缩成笔尖＋原创笔杆（v2） |
+| sending / receiving / uploading | send / receive / dock | 2b 第二批 | — |
+| alerting | alerting / bang | 2b 第一批 | 审批阻塞时持续到结算，由展示层维持 |
+| happy / celebrate | Done_A / Rotation_A＋happy | 2a | 短态，TTL 在展示层 |
+| confused | Blocked_A，无形变 | 2a | v1 `alert` 装饰属偏离，不得触发 alerting 形变 |
+| progress | progress / loading | 2b 第一批 | — |
+| powering-down | powering-down / standby 光晕 | 2b 第二批 | — |
+| （无对应值） | orbit / waiting、spawning | 2b 第二批 | 18 态契约中没有；须在该 PR 先定契约（新增 Corn 状态或从现有状态显式映射），未定前不出货 |
+
+## 4. PR-02D-2：动态组件与 App 级验收（2026-10-12 拆为 02D-2a / 02D-2b）
+
+原单 PR 要求保留并分配到下面两个 PR：按主计划 §13.4 拆成 `AvatarRenderer`、`CornMotionAvatar`、`StaticAvatar`、`UploadedAvatar`、`motion-presets`、`motion-scheduler` 和 `useAvatarLifecycle`，复用原创素材几何与表情算法；当前独立控制器每实例 RAF 的实现需要按 ADR-0003 适配，不能仅复制控制器就宣称完成架构要求。
+
+### 4.1 PR-02D-2a：动效引擎（v1 视觉，可立即开工）
+
+| 模块 | 实施内容 |
+| --- | --- |
+| `motion-scheduler.ts` | 全局唯一调度器：N 个实例共 1 个 RAF；注册即订阅，0 订阅取消 RAF；共享一个 `IntersectionObserver`、一个 `visibilitychange` 与一个 reduced-motion 监听。时钟可注入（产品为单调时钟，测试为虚拟时钟） |
+| 采样器（`motion-presets.ts`，必要时拆 `motion-sampler.ts`） | 帧 = 纯函数（状态、`now − stateEpoch`、seed、显示尺寸、过渡信息）。不累计 dt、不按帧积分、不追帧；长间隔/后台恢复直接按当前时间采样。主计划 §13.4/§13.6 的“封顶 dt”“隐藏后重置时间相位”对动画时钟不再适用（不追帧的目的由直接采样达成），仅可用于调度器自身簿记。时序表每项注明 DMG 参照值或“Corn 选择” |
+| 帧契约 | 在 v1 `AvatarFrame`（姿态＋表情＋装饰）上增加形变字段：形变类型、权重 0–1、相位、眼睛可见性、抽象部件（粒子/环/笔杆/墨迹点）数量与位置，以及按显示尺寸所需的绘制范围。2a 中 searching 已标为 radar，与 thinking 区分 |
+| 形变↔idle 过渡 | 进入/退出均为时间纯函数（记录过渡起点与上一状态在该时刻的采样）；完整形变隐藏眼睛，回 idle 恢复眼睛并移除形变节点/属性。2a 用测试专用占位形变验证契约，不进入产品视觉 |
+| 墨迹 | 每周期由 seed 预计算路径，按状态时间取样，最多 64 点（DMG 参照），抬笔相位按时间擦除；同一时刻在任何帧率下结果相同 |
+| `useAvatarLifecycle.ts`、`AvatarRenderer`、`StaticAvatar` | 隐藏、离屏、系统减少动态、`animatedAvatars=false` 走静态路径，不加载动画运行时、不建 RAF；`setState`/偏好变化更新现有实例而不重建运行时；StrictMode 双挂载、切 Bot、关闭详情、销毁窗口后 RAF/observer/listener 归零 |
+| compact 与裁切 | <48px 走 compact 分支（14px 必须命中），保留眼睛方向，不减少形变粒子数；SVG `overflow: visible`，紧邻父级不得 `overflow: hidden`，viewBox 按显示尺寸适配 |
+| 无自主状态切换 | 引擎 API 没有 next/hold，不设会改变状态的定时器；状态只由 props 输入（§5） |
+
+其余沿用原 §4：稳定 seed 来源为 Bot ID/持久偏好；同一 Bot 的多个可见实例拥有不同 SVG ID；`spin` 真正转一圈且不裁切，`bounce/burst` 受动效设置约束。开发专用 fixture 路由展示 16 角色和 18 状态（形变状态在 2a 显示 v1 视觉并标注“形变待 2b”）；正常 M1 UI 保留示例标记；5 群组素材只作预览。新增/迁入 avatar contract、shape、lifecycle、scheduler、sampler 测试，纳入根级 `pnpm test`/typecheck/build；保留原 9 项测试覆盖。上传图、原名文本与邻近状态提示继续可用；动画表情不能替代可访问的错误或审批文本。
+
+2a 的测试只用虚拟时钟＋JSDOM（RAF/observer/媒体查询均为可计数的 stub），不跑 GUI、Electron 或 packaged smoke。
+
+### 4.2 PR-02D-2b：形变接入（依赖 v2 素材与 02D-2a）
+
+- **素材：** 仓库外 `/Users/qin/DSH/Corn Bot/design-assets/corn-avatar-kit-v2` 提供 Corn 原创形变目标（writing：玉米身体缩成笔尖＋原创笔杆；thinking：三粒玉米粒；searching：玉米周围的 radar 环；progress；alerting；第二批随后）。v2 单独资产锁（建议 `design/corn-assets/ASSET_LOCK-v2.json`，PROVENANCE 增补 v2 段），按 §1 方式迁入仓库；v1 锁、静态头像、16 角色和 App 图标不变。
+- **第一批：** writing、thinking、searching（radar）、progress、alerting。**第二批：** orbit/waiting、spawning、sending、receiving、uploading、dictating/wave、powering-down 光晕；其中 orbit/waiting、spawning 需先按 §3A 定契约。
+- v1 装饰偏离（sleeping `standby`、listening/waking `wave`、working `progress`、confused `alert`）在本 PR 定去留并记为 Corn 选择，不得与形变外观混淆。
+- 视觉验收：与 Kit 画廊对比轮廓，确认形态明显不同（ADR-0003 Consequences）；固定 seed/虚拟时钟/DPR 做头像区域快照，先静态后时序；在两栏/三栏、窄窗、折叠列表与 20+ Bot 场景测帧耗时/内存和资源清理，性能基线以目标 Mac 实测记录。GUI 部分在 smoke 暂停期间保持 pending。
+
+### 4.3 02D-2 验收门禁（2026-10-12 增补）
+
+| 门禁 | 方法 | 归属 |
+| --- | --- | --- |
+| 同一时刻帧一致：30/60/120 FPS 与不规则 delta（含长间隔、后台 Tab）结果相同，墨迹亦然 | 虚拟时钟逐字段比较帧与序列化 SVG | 2a |
+| 全部使用尺寸 14/24/30/32/36/48/52/60px＋144px fixture；14px 走 compact | JSDOM 尺寸模拟（2a）；区域截图（2b，GUI pending）。30px 仅为尺寸矩阵，账户头像语义不变 | 2a + 2b |
+| 形变→idle 恢复两眼、无残留节点/属性 | DOM 断言：2a 占位形变，2b 真实形变 | 2a + 2b |
+| 粒子/笔杆/环不裁切：SVG overflow 可见、紧邻父级无 `overflow: hidden`、viewBox 按显示尺寸 | 计算样式与祖先检查（2a）；视觉复核（2b，GUI pending） | 2a + 2b |
+| N 个实例只有 1 个 RAF | RAF stub 计数 | 2a |
+| 卸载、切 Bot、StrictMode 双挂载、窗口销毁后 RAF/observer/listener 归零 | stub 计数；真实窗口销毁部分 GUI pending | 2a |
+
+**合并证据：** 2a 为 `pnpm check`、`pnpm build`、UI 资产审计及上表 2a 项；2b 另加 v2 资产锁核对、React/视觉/负载检查，以及 `pnpm package:mac` / `pnpm smoke:packaged` 对新提交的结果。报告静态、fixture 动态与 packaged 图标各自状态，未运行的 GUI/视觉项写明 pending，不记为通过。独立素材包测试通过不直接勾选 M1 验收。
 
 ## 5. PR-03A：真实业务映射
 
@@ -73,9 +156,11 @@ macOS 图标采用上述 ICNS 路径（选项 A），本轮不新增 Icon Compos
 
 `session.prompt` accepted 只表示入队；只有真实完成事实触发 `happy/celebrate`。Host 断线保留可靠投影并显示离线信息，不触发成功；未知推理/工具细节显示可证明的状态。该层不改变 Gate 权限、PTC 禁用决策或 Runtime 隔离边界。
 
+**动画状态 ≠ 任务状态（2026-10-12 决策 6）。** 引擎不自行改变业务状态；DMG 的自动回 idle（finished/failed/approving 片段结束后、waking 1.6s）与 blocked 120s→drowsy 不用于有业务含义的状态。失败、审批和后台任务的呈现只由本 reducer 根据真实事件驱动并保持到对应事实结算；happy/celebrate 等短态由展示层 TTL（`AVATAR_BEHAVIOR_MAPPING` 规则 4，假时钟测试）到期回落，不由引擎自转。
+
 ## 6. 文档收尾
 
-同步主计划、M1 PR checklist、ADR-0003、`design/design-spec.md`、UI coverage 和开发 runbook；在 M1 证据中列出本次头像区域的主动视觉变化与仍未接通的业务状态。PR-09A 核查最终产物仅含选定 Corn 资产与代码，不含 Kit 提取资源、设计演示画廊或外部绝对路径依赖。
+同步主计划、M1 PR checklist、ADR-0003、`design/design-spec.md`、UI coverage 和开发 runbook；在 M1 证据中列出本次头像区域的主动视觉变化与仍未接通的业务状态。PR-09A 核查最终产物仅含选定 Corn 资产与代码，不含 Kit 提取资源、设计演示画廊或外部绝对路径依赖；v1/v2 两份资产锁分别核对。
 
 ## 7. 开工决策补充（2026-10-11）
 
