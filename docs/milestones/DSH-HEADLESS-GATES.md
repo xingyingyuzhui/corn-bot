@@ -33,6 +33,7 @@
 | B4 | SIGKILL mid-stream and mid-tool, restart, read-only reconcile (§5.2-6) | `… b4-restart-reconcile.mjs` | real Host (unsandboxed for a real tool process), fake model | **passed** | synthetic `turn/end interrupted` on both Sessions; in-flight bash marked error ("outcome unknown"); 0 replays; queued item **not** auto-started. **Foreground bash orphaned to PID 1** (§2.4) |
 | B5 | steer / updateQueue (§5.2-2) | `… b5-steer-queue.mjs` | real Host, fake model | **passed** | two steers plus queued item edited then promoted, all claimed at the next step in order `rev:1, rev:2, rev:3e`; original text never sent; single Turn `completed` (§2.5) |
 | B6 | Run-level stop via DSH APIs only (ADR-0007 trigger "targeted stop") | `… b6-run-level-stop.mjs [-- --jobs-first \| --leaf-first] [--recancel]` | real Host (unsandboxed), fake model, real `sleep` job trees | **conditional** (leaf-first clean; parent-first reactivates the parent) | see §6 |
+| B6-idle | U2 Option C: probe-only `agent/pre-step` stop fence | `… b6-idle-pre-step-fence.mjs -- --variant <v> --arm <control\|gate\|gate-append> [--pressure]` | real Host (unsandboxed) + probe-only Host plugin, fake model, real `sleep` job trees | **conditional yes** (0 parent model and 0 compaction requests in every gated run; notices are consumed) | see §7 |
 | — | Model isolation (§5.2-7) | — | — | **pending** (gate not re-run) | U1 is now implemented in [PR #27](https://github.com/xingyingyuzhui/corn-bot/pull/27) and its session-model real-Host smoke passed; "needs U1" no longer applies |
 | — | C1 fencing (`corn-run-control` denies further dispatch), Outbox exactly-once (§5.2-5), governance negatives beyond A2 (§5.2-8) | — | — | **pending** | C1 and the Outbox do not exist yet; not in this brief |
 
@@ -292,3 +293,91 @@ The tests also pin that these stay denied:
 - Every B6 run ended with no DSH Host alive, no `sleep 53.*` process and `corn-host.lock` absent.
 - Homes from failed runs were released with `seed-home.mjs release`; failing expectations retain a home by design. The leaf-first home was removed on pass.
 - Development runs exposed a probe bug: the probe stopped the Host, then queried it. That bug was fixed before these runs, and no DSH Host failure was involved.
+
+## 7. Option C pre-step stop fence (B6-idle)
+
+**Run 2026-10-12 on `test/dsh-stop-pre-step-probe` (base `origin/main` `781ae4e`), with the probe uncommitted at the time.** The committed probe is the same code after `biome` formatting. Maintainer-authorised probe of Option C from the [U2 draft](U2-STOP-SETTLEMENT-DRAFT.md) §4/§6. Same constraints as §6: headless, fake loopback model only, scrubbed env, one real Host at a time, unsandboxed Host (`lsof`: 37–55 samples per run, **0 non-loopback endpoints**). Reports: `.artifacts/gates/b6-idle-fence-<variant>-<arm>[-pressure].json` (not committed).
+
+### 7.1 Probe
+
+- **Prototype fence (PROBE-ONLY, not product code):** `scripts/gates/support/corn-stop-fence-probe/host.js`. It registers one `agent/pre-step` listener shaped like DSH's `archived-session-gate`. The listener returns `{kind: 'reject'}` for a fenced Session and for any Session whose `origin: subagent` / `parentSession` lineage reaches a fenced one; otherwise it calls `next()`. Routes `/api/corn-stop-fence-probe/{fence,lift,state}` arm it, lift it, and read every pre-step it saw (Session, Turn, step, claimed message sources, decision) plus the live `agent/pre-step` listener order. It refuses to load outside a gate home (Corn marker, purpose `dsh-headless-gate`).
+- **Admission (ADR-0006):** the plugin is one `insert` row (`name` = the file URL of `host.js`) in the run home's `cordis.patch.yml`, next to the fake provider rows. That file is a user layer that `createGovernedHost` passes through `verifyClawProfile` before spawn and `checkClawRuntime` after auth. Both admitted it, because it neither disables, replaces nor moves a Claw row. A product fence would need its own decision on how it ships (a Corn-owned package, not a file URL).
+- **Arms:**
+  - `control`: plugin loaded (prepended) but never fenced.
+  - `gate`: listener prepended; the parent is fenced at T0, before any stop call.
+  - `gate-append`: as `gate`, but registered in load order.
+- **Variants** (parent `developer`; foreground `research`, 40 chunks at 200 ms throughout):
+  - `idle-job`: the parent starts `bash-1`, then ends its Turn `completed` ("will report back"). Stop: `job.kill bash-1`.
+  - `idle-subagent`: the parent starts a background continuable child, which hangs mid-stream; the parent ends `completed`. Stop: `interruptByParent`.
+  - `idle-tree`: §6's setup (`bash-1`, child with `bash-2`, late `bash-3` behind the release gate), but the parent ends `completed` before T0. Stop leaf-first: release the late spawn, interrupt the child, job pass, wait for processes to go, then cancel the parent (a no-op while idle).
+  - `cancel-first` and `leaf-first`: §6's setup with the parent Turn still running, stopped parent-first or leaf-first.
+  - `--pressure` (on `idle-job`): the fake model's `contextWindow` is 100 000, which gives compaction-basic a 30 368-token threshold. The parent's last reply is about 200 KB, so its next step is over the threshold and has a summary range.
+- **After +10 s:** the fence is lifted (a new user prompt is a new Run), and one prompt goes to the parent.
+- **Fake model additions:** it records the job ids and counts of settlement notices in each upstream request (no text). It flags compaction requests by compaction-basic's instruction and answers them with the fixed reply. Compaction replaces the parent's marked prompt, so an unmarked agent request is attributed to the parent.
+
+### 7.2 Results
+
+All 13 reports passed their harness checks:
+- No marker process, running job or running Session at +2 s and +10 s.
+- Foreground `completed` 40/40.
+- The next prompt `completed`.
+- Cleanup clean, home removed.
+
+Times are ms after T0. "Woken Turns" are parent Turns that started after T0.
+
+| Variant | Arm | Parent model requests after T0 | Compaction requests | Woken parent Turns → end | Child | Notices in the next prompt's request |
+| --- | --- | --- | --- | --- | --- | --- |
+| idle-job | control | **1** (28) | 0 | 1 → `completed` | — | `bash-1` (from the woken Turn's transcript) |
+| idle-job | gate | **0** | 0 | 1 → **`blocked`** | — | none |
+| idle-subagent | control | **1** (62) | 0 | 1 → `completed` | `aborted` | 1 subagent notice (transcript) |
+| idle-subagent | gate | **0** | 0 | 1 → **`blocked`** | `aborted` | none |
+| idle-tree | control | **1** (207) | 0 | 1 → `aborted` by the final parent cancel (249), after its request | `aborted` | `bash-1` (pending, claimed with the prompt) + subagent (transcript) |
+| idle-tree | gate | **0** | 0 | 2 → **`blocked`, `blocked`** (one per notice) | its next step rejected at 91 → `blocked` | none |
+| cancel-first | control | **2** (206, 262) | 0 | 1 → `completed` (2 steps, one per notice) | `aborted` | `bash-1` + subagent (transcript) |
+| cancel-first | gate | **0** | 0 | 2 → **`blocked`, `blocked`** | rejected at 120 → `blocked` | none |
+| leaf-first | control | 0 | 0 | 0 | `aborted` | `bash-1` + subagent (pending `next-step`, claimed with the prompt) |
+| leaf-first | gate | 0 | 0 | 0 | `blocked`; 1 woken child Turn (its `bash-3` notice) → `blocked` | `bash-1` + subagent (same) |
+| idle-job `--pressure` | control | **1** (49) | **2** (23, 33) | 1 → `completed` | — | `bash-1` |
+| idle-job `--pressure` | gate | **0** | **0** | 1 → **`blocked`** | — | none; the prompt itself compacted (2 + 1 agent) |
+| idle-job `--pressure` | gate-append | **0** | **0** | 1 → **`blocked`** | — | none; same |
+
+Auxiliary (title) requests attributable to the parent after T0: 0 in every run. The `--pressure` gate arms were each run a second time to record the listener order at stop (an instrumentation addition, not a retry): 0 / 0 both times.
+
+### 7.3 Compaction ordering
+
+`agent/pre-step` is a Cordis waterfall, dispatched in `_hooks` array order and filtered by the Agent's scope. Listener order recorded at stop (33 listeners):
+- `gate` (prepended): `agent-loop` ×2 (prepend), **probe**, `session-reference`, … , boot-time preset `compaction-basic` ×3, … , then the per-Session instances (`agent-instructions`, `tool-skill`, `plan-mode`, **`compaction-basic`** at 27 and 32).
+- `gate-append`: the same, but the **probe at 21**: after the boot-time `compaction-basic` ×3 (15–17), and **before the per-Session `compaction-basic` (27, 32)**. Those per-Session instances register when each Session's preset composes, after boot. Only they act for the Session's Agent: no compaction request was made, and the woken Turn shows no `compaction/start`. In `control`, compaction runs (`compaction/start` → summary → `compaction/end` twice), then the agent request.
+- The two `agent-loop` listeners ahead of a prepended probe are registered per Agent with `prepend`. DSH's model-selection notice (`packages/core/agent/src/model-selection.ts` L113–126) is one such listener: it awaits `next()` and returns a `reject` unchanged, so it makes no request.
+- `systemPrompt.assemble` runs before the waterfall. No auxiliary request was seen from it.
+
+Finding: in this Host the fence precedes the acting compaction listener **in both arms**, because a boot-time plugin registers before any per-Session preset composition. That holds only while the fence is registered before the Session composes (a plugin reload would append it after). **`prepend: true` is the robust form**; it keeps the fence ahead of every listener except DSH's own prepended ones.
+
+### 7.4 Inbox notices
+
+- **Gate arms: a notice claimed by a rejected Turn is consumed.** It is not written as a `user/message`, not re-delivered, and absent from the next prompt's request (0 job ids, 0 subagent notices in `idle-job`, `idle-subagent`, `idle-tree`, `cancel-first`). It remains visible only as an `agent/inbox/spliced` event (source and summary) in the Session log. This matches `runtime-types.ts` (`agent/inbox/claimed`): on a rejected step "the claimed message ends here: it is neither discarded nor re-emitted as a user/message".
+- **Notices spliced as `next-step` while the parent Turn was running** (`leaf-first`, both arms) are never claimed by a step. They stay pending and are claimed together with the next user prompt (claim order `tool-jobs`, `subagent-settled`, `user`), so the model sees them then.
+- **Control:** a woken Turn writes its notice into the transcript (and makes the leaked request). In `idle-tree` the job notice spliced into the aborted woken Turn stayed pending and surfaced with the next prompt.
+- **Wording:** under the fence the child's own Turn ends `blocked`. Its settlement notice then reads "Background subagent … **declined the task**" instead of "was stopped before it finished" (`idle-tree`, `cancel-first`, `leaf-first` gate arms). Corn must not show that text as a refusal.
+
+### 7.5 Verdict
+
+**Does Option C give 0 leaked model requests and 0 compaction requests? CONDITIONAL YES.** In every gated run, across job settlement, subagent settlement, idle parent, parent-first and leaf-first, and compaction pressure, the parent made 0 model, 0 compaction and 0 auxiliary requests after T0. Every woken Turn ended `turn/start` → `turn/end blocked` with no `step/start`. The fence did not affect the foreground Session (40/40) or the next Run after the lift. In the controls the gap reproduced: 1–2 parent model requests, plus 2 compaction requests under pressure.
+
+Conditions:
+1. The fence is armed **before the first stop call** and covers the Run's lineage (the child's own next step is rejected too, which also settles it).
+2. The listener is **prepended** (§7.3). In this Host, registration order alone was enough, but it is not a contract.
+3. **Corn owns the settlement record.** Notices claimed by a rejected Turn are gone from the model's view. Corn must record the outcome itself (job roster, `subagent-settled` sender id, spliced events) and decide what the next prompt says. Pending `next-step` notices still surface with the next prompt.
+4. **Mapping:** one `blocked` Turn per notice delivered to an idle parent (up to 2 here). Inside a fenced Run it means "stopped", not an error. The child settlement text "declined the task" is an artifact of the fence.
+5. **Fence lifecycle:** lifted on Corn's next user prompt or Attempt. The fence is process-local, so a Host restart drops it (B4: pending items do not auto-start).
+
+Not covered: DSH `master` drift past `dsh-v0.2.0-rc.2`, concurrent Runs, a fence that is never lifted, a plugin reload while fenced, a real model, and the product packaging of the fence. Adopting C changes C1's scope and still needs a maintainer decision (U2 draft §4).
+
+### 7.6 Cleanup
+
+- Every run ended with no DSH Host alive, no `sleep 54.*` process and no `corn-host.lock`. Every home was removed on pass; only `template/` remains under `~/.corn-bot-dev/wt-dsh-gates/`.
+- Load1 at run end was 3.6–6.1.
+- Harness changes:
+  - `runGate` and `createRunHome` accept extra home-patch rows and a fake `contextWindow`.
+  - The fake model records notice ids and counts and flags compaction requests.
+  - `requestFacts` carries both.
