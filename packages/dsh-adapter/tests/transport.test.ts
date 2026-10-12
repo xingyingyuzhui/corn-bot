@@ -108,6 +108,43 @@ test('Claw routes are an exact allowlist; the Gate probe never surfaces audit ro
   }
 })
 
+test('projections and updateQueue use their exact endpoints and request shape', async () => {
+  const calls: Array<[string, Record<string, unknown>]> = []
+  const transport = {
+    async rpc(endpoint: string, args: Record<string, unknown>) {
+      calls.push([endpoint, args])
+      return { accepted: true }
+    },
+  } as unknown as HostTransport
+  const client = new SessionClient(transport)
+  await client.projections('corn-session')
+  await client.updateQueue({
+    sessionId: 'corn-session',
+    itemId: 'message-1',
+    action: { kind: 'steer' },
+  })
+  assert.deepEqual(calls, [
+    ['session/projections', { request: { sessionId: 'corn-session' } }],
+    [
+      'session/updateQueue',
+      {
+        request: {
+          sessionId: 'corn-session',
+          itemId: 'message-1',
+          action: { kind: 'steer' },
+        },
+      },
+    ],
+  ])
+  const real = new HostTransport({
+    origin: 'http://127.0.0.1:9',
+    headers: () => ({}),
+    url: (path) => new URL(path, 'http://127.0.0.1:9'),
+  })
+  for (const endpoint of ['settings/mutate', 'session/fork', 'session/rename'])
+    await assert.rejects(real.rpc(endpoint, {}), /not allowed/u)
+})
+
 test('duplicate prompt admission shares a single flight; different requests serialize per Session', async () => {
   let active = 0
   let maxActive = 0

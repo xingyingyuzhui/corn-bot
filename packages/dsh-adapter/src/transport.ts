@@ -19,6 +19,8 @@ const RPC_ENDPOINTS = new Set([
   'session/prompt',
   'session/cancel',
   'session/page',
+  'session/projections',
+  'session/updateQueue',
   'session/modelCatalog',
   'session/selectModel',
   '$events/result',
