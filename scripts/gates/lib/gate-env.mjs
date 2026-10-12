@@ -132,6 +132,11 @@ export class NetworkWatch {
         const pids = descendants(await processTable(), root).map(
           (row) => row.pid,
         )
+        // `lsof -p ''` drops the pid filter and lists every socket on the machine.
+        if (pids.length === 0) {
+          if (this.#running) this.#timer = setTimeout(schedule, 250)
+          return
+        }
         const { stdout } = await run(
           'lsof',
           ['-nP', '-a', '-p', pids.join(','), '-i'],
