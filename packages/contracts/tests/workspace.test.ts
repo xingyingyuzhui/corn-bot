@@ -425,9 +425,7 @@ test('the preload exposes every workspace channel and the change subscription', 
   assert.doesNotMatch(preload, /ipcRenderer\.(send|sendSync)\b/u)
 })
 
-test('the preload exposes the data status channel', {
-  todo: 'D2 wires dataStatus into the preload',
-}, async () => {
+test('the preload exposes the data status channel', async () => {
   const preload = await readFile(PRELOAD, 'utf8')
   assert.ok(preload.includes(`'${DATA_CHANNELS.status}'`))
   assert.match(preload, /\bdataStatus: /u)

@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict'
+import { homedir } from 'node:os'
 import { join } from 'node:path'
 import { test } from 'node:test'
 import { resolveAppPaths } from '../src/app-paths.ts'
@@ -64,4 +65,45 @@ test('packaged layout keeps data in userData and seeds from bundled resources', 
   )
   assert.equal(isolated.home, '/tmp/corn-a')
   assert.equal(isolated.artifacts, '/tmp/art')
+})
+
+test('packaged data lives in userData/corn-data unless CORN_DATA_DIR overrides it', () => {
+  const appPath = join(location.resourcesPath, 'app.asar')
+  const packaged = { ...location, appPath, isPackaged: true }
+  assert.equal(
+    resolveAppPaths(packaged, {}).data,
+    join(location.userData, 'corn-data'),
+  )
+  assert.equal(
+    resolveAppPaths(packaged, { CORN_DSH_HOME: '/tmp/corn-a' }).data,
+    join(location.userData, 'corn-data'),
+    'a smoke home override keeps data in the fresh userData',
+  )
+  assert.equal(
+    resolveAppPaths(packaged, { CORN_DATA_DIR: '/tmp/corn-data-x' }).data,
+    '/tmp/corn-data-x',
+  )
+})
+
+test('development data sits beside the DSH home, so each worktree home gets its own', () => {
+  const dev = { ...location, isPackaged: false }
+  assert.equal(
+    resolveAppPaths(dev, {}).data,
+    join(homedir(), '.corn-bot-dev', 'dsh-data'),
+  )
+  const wt = join(homedir(), '.corn-bot-dev', 'wt-p3-main-data')
+  assert.equal(resolveAppPaths(dev, { CORN_DSH_HOME: wt }).data, `${wt}-data`)
+  assert.equal(
+    resolveAppPaths(dev, { CORN_DSH_HOME: `${wt}/` }).data,
+    `${wt}-data`,
+    'a trailing slash never puts data inside the home',
+  )
+  assert.equal(
+    resolveAppPaths(dev, { CORN_DSH_HOME: wt, CORN_DATA_DIR: '/tmp/d' }).data,
+    '/tmp/d',
+  )
+  assert.equal(
+    resolveAppPaths(dev, { CORN_DSH_HOME: wt, CORN_DATA_DIR: '' }).data,
+    `${wt}-data`,
+  )
 })

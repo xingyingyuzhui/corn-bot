@@ -5,8 +5,11 @@ import { app, BrowserWindow, ipcMain } from 'electron'
 import type { RuntimeStatus } from '../../../packages/contracts/src/runtime.ts'
 import { ClawRegistryClient } from '../../../packages/dsh-adapter/src/claw-registry-client.ts'
 import { HostTransport } from '../../../packages/dsh-adapter/src/transport.ts'
+import { startServices, stopServices } from './app-lifecycle.ts'
 import { resolveAppPaths } from './app-paths.ts'
+import { CornData } from './data/open.ts'
 import { applyDevDockIcon } from './dock-icon.ts'
+import { registerDataIpc } from './ipc/data.ts'
 import { registerModelSettingsIpc } from './ipc/model-settings.ts'
 import { ModelSettingsService } from './model-settings/service.ts'
 import { redactHostDiagnostic } from './runtime/host-readiness.ts'
@@ -31,6 +34,7 @@ const paths = resolveAppPaths({
   resourcesPath: process.resourcesPath,
 })
 const { control, host: supervisor } = createAppRuntime(paths)
+const data = new CornData({ dir: paths.data, home: paths.home })
 const modelSettings = new ModelSettingsService({
   authority: () => (control.view.status === 'ready' ? control.auth : undefined),
   devOverride: () => supervisor.modelOverride,
@@ -101,6 +105,15 @@ async function runSmoke(window: BrowserWindow): Promise<void> {
   const sqlite = await probeSqlite()
   facts.sqlite = sqlite
   console.log(`Corn smoke sqlite: ${JSON.stringify(sqlite)}`)
+  facts.data = { status: data.status, homeCheck: data.homeCheck }
+  const dataView: unknown = await window.webContents.executeJavaScript(
+    'window.corn.dataStatus()',
+  )
+  facts.dataBridgeVerified =
+    typeof dataView === 'object' &&
+    dataView !== null &&
+    'status' in dataView &&
+    dataView.status === data.status
   facts.initialStatus = currentStatus()
   facts.lastFailure = control.lastFailure ?? null
   facts.clawReady = await clawReady()
@@ -164,6 +177,8 @@ async function runSmoke(window: BrowserWindow): Promise<void> {
       (facts.recoveringMs as number) < RECOVERY_VISIBLE_MS)
   const checks: Record<string, boolean> = {
     sqlite: sqliteProbePassed(sqlite),
+    data: data.status === 'ready' && data.homeCheck === 'matched',
+    dataBridgeVerified: facts.dataBridgeVerified === true,
     ready: control.view.status === 'ready',
     bridgeVerified: facts.bridgeVerified === true,
     clawReady: facts.clawReady === true,
@@ -202,6 +217,8 @@ async function runSmoke(window: BrowserWindow): Promise<void> {
       `Corn smoke failed: ${JSON.stringify({
         failedChecks,
         sqliteFailure: sqlite.failure,
+        dataStatus: data.status,
+        homeCheck: data.homeCheck,
         status: control.view.status,
         lastFailure: control.lastFailure ?? null,
         modelStatus: facts.modelStatus ?? null,
@@ -223,7 +240,7 @@ else {
     event.preventDefault()
     cleanup ??= (async () => {
       try {
-        await control.shutdown()
+        await stopServices(control, data)
       } catch (error) {
         console.error(
           `Corn shutdown failed: ${error instanceof Error ? error.name : 'unknown'}`,
@@ -238,6 +255,7 @@ else {
   app.on('window-all-closed', () => app.quit())
 
   void app.whenReady().then(async () => {
+    void data.open()
     applyDevDockIcon(app)
     const window = new BrowserWindow({
       width: 1024,
@@ -267,10 +285,12 @@ else {
       assertTrustedSender(event, window)
       return control.view
     })
+    registerDataIpc(ipcMain, window, data)
     registerModelSettingsIpc(ipcMain, window, modelSettings)
     await window.loadFile(paths.renderer)
     if (cleanup) return
-    await control.start()
+    await startServices(data, control, () => cleanup !== undefined)
+    if (cleanup) return
     if (process.env.CORN_DESKTOP_SMOKE === '1') {
       await untilStatus((s) => s === 'ready' || s === 'failed', 120_000)
       await runSmoke(window).catch((error: unknown) => {
