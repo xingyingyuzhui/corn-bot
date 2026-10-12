@@ -3,6 +3,7 @@ import { existsSync } from 'node:fs'
 import { createRequire } from 'node:module'
 import { dirname, join } from 'node:path'
 import { DSH_VERSION } from '../../../../packages/contracts/src/runtime.ts'
+import { DSH_PATCHES, type DshPatch, verifyDshPatches } from './dsh-patch.ts'
 import { HostAuth } from './host-auth.ts'
 import {
   formatReclaim,
@@ -126,6 +127,8 @@ export interface SupervisorOptions {
   ) => Promise<HostAuth>
   /** Test seam; production uses `STOP_TIMEOUTS`. */
   readonly stopTimeouts?: StopTimeouts
+  /** Test seam; production verifies the locked `DSH_PATCHES`. */
+  readonly dshPatches?: readonly DshPatch[]
   /** Test seam; production reads `ps`. A substituted `spawnHost` defaults to no table. */
   readonly processTable?: ProcessTable
   /** Test seam; production uses `DESCENDANT_POLL_MS`. */
@@ -215,6 +218,7 @@ export class DshHostSupervisor {
   #modelOverride: ModelOverrideFacts | null = null
   readonly #admission: HostAdmission
   readonly #stopTimeouts: StopTimeouts
+  readonly #dshPatches: readonly DshPatch[]
   readonly #spawnHost: SpawnHost
   readonly #processTable: ProcessTable
   readonly #descendantPollMs: number
@@ -232,6 +236,7 @@ export class DshHostSupervisor {
     this.devModelOverrideFile = options.devModelOverrideFile
     this.profileTemplate = options.profileTemplate
     this.#stopTimeouts = options.stopTimeouts ?? STOP_TIMEOUTS
+    this.#dshPatches = options.dshPatches ?? DSH_PATCHES
     this.#spawnHost = options.spawnHost ?? spawn
     this.#processTable =
       options.processTable ??
@@ -283,6 +288,7 @@ export class DshHostSupervisor {
         'runtime_version_mismatch',
         'Installed DSH runtime differs from the locked version',
       )
+    await verifyDshPatches(DSH_INSTALL_ANCHOR, this.#dshPatches)
     try {
       await claimCornHome(this.home)
     } catch (error) {

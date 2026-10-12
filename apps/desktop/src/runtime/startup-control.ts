@@ -41,6 +41,8 @@ function failureMessage(code: RuntimeErrorCode): string {
       return 'Corn 运行时目录正被其他进程占用。'
     case 'runtime_version_mismatch':
       return '内置运行时版本与锁定版本不一致。'
+    case 'runtime_patch_mismatch':
+      return '内置运行时缺少锁定的补丁或补丁已被改动。'
     case 'claw_missing':
       return 'Corn profile 缺少 Claw 治理组件，需要修复 Corn profile。'
     case 'claw_version_mismatch':

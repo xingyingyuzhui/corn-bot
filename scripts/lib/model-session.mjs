@@ -90,7 +90,7 @@ export class ModelHarness {
       agentPreset: agent.dshPreset,
     })
     await this.registry.bind(agent, sessionId)
-    await this.sessions.selectModel({
+    await this.sessions.selectSessionModel({
       sessionId,
       provider: this.model.route,
       model: this.model.model,

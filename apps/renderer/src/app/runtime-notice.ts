@@ -46,6 +46,8 @@ export function errorCodeText(code: RuntimeErrorCode): string {
       return '运行时目录正被另一个进程使用'
     case 'runtime_version_mismatch':
       return '运行时版本与锁定版本不一致'
+    case 'runtime_patch_mismatch':
+      return '运行时补丁缺失或已被改动'
     case 'claw_missing':
       return '缺少 Claw 治理组件'
     case 'claw_version_mismatch':

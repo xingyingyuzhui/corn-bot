@@ -5,6 +5,7 @@ import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { build, Platform } from 'electron-builder'
 import { cornBuilderConfig } from '../apps/desktop/electron-builder.config.ts'
+import { verifyDshPatches } from '../apps/desktop/src/runtime/dsh-patch.ts'
 import { generateAppIcons } from './lib/app-icons.mjs'
 import { buildProfileTemplate } from './lib/profile-template-build.mjs'
 
@@ -64,6 +65,7 @@ const rootManifest = JSON.parse(
 for (const entry of ['dist', 'src', 'tests', 'tsconfig.build.json'])
   await rm(join(app, entry), { recursive: true, force: true })
 await rename(join(app, 'node_modules'), runtimeModules)
+await verifyDshPatches(join(runtimeModules, '@deepseek-ai/dsh/package.json'))
 await cp(join(root, 'apps/desktop/dist'), join(app, 'dist'), {
   recursive: true,
   filter: (source) => !source.endsWith('.map'),

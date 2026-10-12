@@ -113,7 +113,7 @@ test('every safe error code has its own wording and dedupe key', () => {
   const notices = RUNTIME_ERROR_CODES.map((code) =>
     runtimeNotice(failedWith(code)),
   )
-  assert.equal(new Set(notices.map((notice) => notice.text)).size, 11)
+  assert.equal(new Set(notices.map((notice) => notice.text)).size, 12)
   for (const [index, notice] of notices.entries()) {
     assert.equal(notice.key, `failed:${RUNTIME_ERROR_CODES[index]}`)
     assert.equal(notice.tone, 'error')

@@ -15,3 +15,5 @@ allowBuilds:
   protobufjs: false
 minimumReleaseAgeExclude:
   - '@types/node@24.19.2'
+patchedDependencies:
+  '@deepseek-ai/dsh-api-session-controller@0.2.0-rc.2': patches/@deepseek-ai__dsh-api-session-controller@0.2.0-rc.2.patch
