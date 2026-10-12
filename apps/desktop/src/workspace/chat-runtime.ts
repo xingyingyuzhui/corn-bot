@@ -1,4 +1,8 @@
 import type {
+  WorkspaceErrorCode,
+  WorkspaceResult,
+} from '../../../../packages/contracts/src/workspace.ts'
+import type {
   SessionClient,
   SessionPage,
 } from '../../../../packages/dsh-adapter/src/session-client.ts'
@@ -13,6 +17,12 @@ import {
   type StopReport,
   type StopVerification,
 } from './foreground-stop.ts'
+
+export const OK: WorkspaceResult<null> = { ok: true, value: null }
+export const fail = <T>(code: WorkspaceErrorCode): WorkspaceResult<T> => ({
+  ok: false,
+  error: { code },
+})
 
 /** One live Host generation, as `ChatService` needs it. W1 builds it per `ready`. */
 export interface ChatRuntime {

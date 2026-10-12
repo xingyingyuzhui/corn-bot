@@ -5,70 +5,37 @@ import type {
   ConversationView,
   MessageCommand,
   SendMessageCommand,
-  WorkspaceErrorCode,
   WorkspaceResult,
 } from '../../../../packages/contracts/src/workspace.ts'
 import { RemoteError } from '../../../../packages/dsh-adapter/src/remote-error.ts'
-import type { FollowHandlers } from '../../../../packages/dsh-adapter/src/session-follower.ts'
-import type { WireEvent } from '../../../../packages/dsh-adapter/src/session-wire.ts'
-import {
-  type AdmissionState,
-  type AdmissionTransition,
-  bodyChecksum,
-  findMessageAdmissionByClientId,
-  findSessionBindingBySessionId,
-  getBot,
-  getConversation,
-  getLiveSessionBinding,
-  getMainConversation,
-  getMessageAdmission,
-  getSessionBinding,
-  insertMessageAdmission,
-  isLocalDbError,
-  type LocalDb,
-  listOpenMessageAdmissions,
-  listUnsettledMessageAdmissions,
-  type MessageAdmissionRow,
-  type SessionBindingRow,
-  transitionMessageAdmission,
+import type {
+  AdmissionState,
+  MessageAdmissionRow,
 } from '../../../../packages/local-db/src/index.ts'
 import type { CornData } from '../data/open.ts'
 import type { ApprovalBroker } from './approval-broker.ts'
 import { type BotProvisioner, ProvisionerError } from './bot-provisioner.ts'
 import {
-  admissionView,
   classifyPromptError,
   messageIdFor,
   mintRequestId,
   parseSessionProbe,
-  requestIdFor,
   type SendFailure,
   type SessionProbe,
 } from './chat-admissions.ts'
+import { ChatFollower } from './chat-follow.ts'
+import { ChatLedger, type ChatTarget } from './chat-ledger.ts'
 import {
   CHAT_TIMING,
   type ChatAudit,
   type ChatRuntime,
   type ChatTiming,
+  fail,
   type Located,
   locateRequest,
+  OK,
 } from './chat-runtime.ts'
-import { ConversationFollow, type FollowStream } from './conversation-follow.ts'
-import {
-  type ApprovalOverlay,
-  type ApprovalRef,
-  opaqueItemIds,
-} from './conversation-items.ts'
-import {
-  type AdmissionObservation,
-  ConversationProjector,
-  type ProjectionUpdate,
-} from './conversation-projector.ts'
-import {
-  StaleTurnFence,
-  stopForegroundTree,
-  verifyForegroundTree,
-} from './foreground-stop.ts'
+import { ChatStopper } from './chat-stop.ts'
 
 /**
  * `ChatService`: the Main-side chat of each Bot's one main conversation
@@ -85,6 +52,10 @@ import {
  *   fence alike.
  * - Logs and audits carry closed codes and counts only: never message text,
  *   Host text, request ids or `$events` client ids.
+ *
+ * Admission rows live in `ChatLedger`, the follow in `ChatFollower`, the
+ * foreground stop and its stale-Turn fence in `ChatStopper`; this class owns
+ * Host generations, the per-Session lanes and the commands.
  */
 
 export interface ChatServiceOptions {
@@ -107,41 +78,6 @@ export interface ChatServiceOptions {
   readonly timing?: Partial<ChatTiming>
 }
 
-interface Target {
-  readonly db: LocalDb
-  readonly botId: string
-  readonly conversationId: string
-  readonly binding: SessionBindingRow
-  readonly sessionId: string
-}
-
-interface Followed {
-  readonly botId: string
-  readonly sessionId: string
-  readonly conversationId: string
-  readonly projector: ConversationProjector
-  follow: ConversationFollow | undefined
-  reopenFailures: number
-  admissionsDirty: boolean
-}
-
-const OK: WorkspaceResult<null> = { ok: true, value: null }
-const fail = <T>(code: WorkspaceErrorCode): WorkspaceResult<T> => ({
-  ok: false,
-  error: { code },
-})
-
-/** States the follow may settle as `observed` (the journal is the fact). */
-const OBSERVABLE: readonly AdmissionState[] = [
-  'sending',
-  'unknown',
-  'accepted',
-  'rejected',
-]
-
-const isProvisioned = (binding: SessionBindingRow): boolean =>
-  binding.stage === 'ready' || binding.stage === 'needs_model'
-
 const DEFAULT_TIME_ZONE = (() => {
   try {
     return Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC'
@@ -151,18 +87,16 @@ const DEFAULT_TIME_ZONE = (() => {
 })()
 
 export class ChatService {
-  readonly #data: ChatServiceOptions['data']
   readonly #provisioner: ChatServiceOptions['provisioner']
   readonly #approvals: ChatServiceOptions['approvals']
-  readonly #onView: ChatServiceOptions['onView']
-  readonly #onAudit: NonNullable<ChatServiceOptions['onAudit']>
   readonly #log: (line: string) => void
-  readonly #now: () => number
   readonly #newId: () => string
   readonly #sleep: (ms: number) => Promise<void>
-  readonly #schedule: NonNullable<ChatServiceOptions['schedule']>
   readonly #timeZone: string
   readonly #timing: ChatTiming
+  readonly #ledger: ChatLedger
+  readonly #follower: ChatFollower
+  readonly #stopper: ChatStopper
 
   #runtime: ChatRuntime | undefined
   /** Advances on every attach and detach; work of an older value stops. */
@@ -170,34 +104,54 @@ export class ChatService {
   /** The current generation's read-only recovery finished; follows may open. */
   #reconciled = false
   #disposed = false
-  #followed: Followed | undefined
-  /** A reopen waiting for the next Host generation. */
-  #parked: (() => void) | undefined
   readonly #lanes = new Map<string, Promise<unknown>>()
-  readonly #fences = new Map<string, StaleTurnFence>()
-  readonly #stopping = new Map<string, Promise<WorkspaceResult<null>>>()
   readonly #tasks = new Set<Promise<unknown>>()
 
   constructor(options: ChatServiceOptions) {
-    this.#data = options.data
     this.#provisioner = options.provisioner
     this.#approvals = options.approvals
-    this.#onView = options.onView
-    this.#onAudit = options.onAudit ?? (() => {})
     this.#log = options.log ?? ((line) => console.warn(line))
-    this.#now = options.now ?? Date.now
+    const now = options.now ?? Date.now
     this.#newId = options.newId ?? randomUUID
     this.#sleep =
       options.sleep ??
       ((ms) => new Promise<void>((resolve) => setTimeout(resolve, ms)))
-    this.#schedule =
-      options.schedule ??
-      ((fn, ms) => {
-        const timer = setTimeout(fn, ms)
-        return () => clearTimeout(timer)
-      })
     this.#timeZone = options.clientTimeZone ?? DEFAULT_TIME_ZONE
     this.#timing = { ...CHAT_TIMING, ...options.timing }
+    const runtime = () => this.#runtime
+    this.#ledger = new ChatLedger({
+      data: options.data,
+      now,
+      log: this.#log,
+      onChanged: (conversationId) =>
+        this.#follower.admissionsChanged(conversationId),
+    })
+    this.#stopper = new ChatStopper({
+      approvals: options.approvals,
+      runtime,
+      cursor: (sessionId) => this.#follower.cursor(sessionId),
+      onAudit: options.onAudit ?? (() => {}),
+      track: (task) => this.#track(task),
+      log: this.#log,
+      now,
+      sleep: this.#sleep,
+      timing: this.#timing,
+    })
+    this.#follower = new ChatFollower({
+      approvals: options.approvals,
+      ledger: this.#ledger,
+      runtime,
+      onEvents: (target, events) =>
+        this.#stopper.watch(target.botId, target.sessionId, events),
+      onView: options.onView,
+      schedule:
+        options.schedule ??
+        ((fn, ms) => {
+          const timer = setTimeout(fn, ms)
+          return () => clearTimeout(timer)
+        }),
+      timing: this.#timing,
+    })
   }
 
   // -------------------------------------------------------------------------
@@ -218,7 +172,7 @@ export class ChatService {
       this.#reconcileOpen(runtime, generation).finally(() => {
         if (generation !== this.#generation) return
         this.#reconciled = true
-        this.#resumeFollow()
+        this.#follower.resume()
       }),
     )
   }
@@ -231,28 +185,8 @@ export class ChatService {
     this.#runtime = undefined
     this.#generation += 1
     this.#reconciled = false
-    this.#parked = undefined
-    const db = this.#db()
-    if (db !== undefined) {
-      try {
-        db.write((tx) => {
-          for (const row of listOpenMessageAdmissions(tx))
-            if (row.state === 'sending')
-              transitionMessageAdmission(tx, row.requestId, 'unknown', {
-                now: this.#now(),
-                lastError: 'host_lost',
-              })
-        })
-      } catch {
-        this.#log('Corn chat: could not mark in-flight sends unknown')
-      }
-    }
-    const entry = this.#followed
-    if (entry === undefined) return
-    entry.follow?.stop()
-    entry.follow = undefined
-    this.#publish(entry.projector.rebaseline('disconnected'))
-    this.#refreshAdmissions(entry)
+    this.#ledger.markInFlightUnknown()
+    this.#follower.detach()
   }
 
   /** Stops following and drops queued reopen work; pending tasks finish. */
@@ -260,9 +194,7 @@ export class ChatService {
     this.#disposed = true
     this.#runtime = undefined
     this.#generation += 1
-    this.#parked = undefined
-    this.#followed?.follow?.stop()
-    this.#followed = undefined
+    this.#follower.dispose()
   }
 
   /** Resolves once every send, reconciliation and stop verification has settled. */
@@ -279,54 +211,36 @@ export class ChatService {
    * previous follow closes. `null` follows nothing.
    */
   select(botId: string | null): WorkspaceResult<null> {
-    const current = this.#followed
+    const current = this.#follower.current
     if (botId === null) {
-      this.#unfollow()
+      this.#follower.unfollow()
       return OK
     }
-    const target = this.#target(botId)
+    const target = this.#ledger.target(botId)
     if (!target.ok) {
-      this.#unfollow()
+      this.#follower.unfollow()
       return target
     }
     const { sessionId, conversationId } = target.value
     if (current?.botId === botId && current.sessionId === sessionId) return OK
-    this.#unfollow()
+    this.#follower.unfollow()
     if (current !== undefined && current.botId === botId)
       this.forgetSession(current.sessionId)
-    const entry: Followed = {
-      botId,
-      sessionId,
-      conversationId,
-      projector: new ConversationProjector({
-        botId,
-        mintId: opaqueItemIds(conversationId),
-        messageIdFor,
-        onAdmissionObserved: (observation) =>
-          this.#observed(entry, observation),
-        approvalOverlay: (ref) => this.#overlay(sessionId, ref),
-      }),
-      follow: undefined,
-      reopenFailures: 0,
-      admissionsDirty: false,
-    }
-    this.#followed = entry
-    this.#refreshAdmissions(entry)
-    if (this.#runtime !== undefined && this.#reconciled)
-      this.#startFollow(entry)
+    this.#follower.follow(
+      { botId, sessionId, conversationId },
+      this.#runtime !== undefined && this.#reconciled,
+    )
     return OK
   }
 
   /** The followed Bot's current view; `undefined` for any other Bot. */
   view(botId: string): ConversationView | undefined {
-    const entry = this.#followed
-    return entry?.botId === botId ? entry.projector.view() : undefined
+    return this.#follower.view(botId)
   }
 
   /** W1 routes the broker's `approvals` changes here. */
   approvalsChanged(sessionId: string): void {
-    const entry = this.#followed
-    if (entry?.sessionId === sessionId) this.#publish(entry.projector.refresh())
+    this.#follower.approvalsChanged(sessionId)
   }
 
   /**
@@ -334,29 +248,14 @@ export class ChatService {
    * of the current home, else `undefined` (the request fails closed).
    */
   botForSession(sessionId: string): string | undefined {
-    const available = this.#data.available()
-    if (!available.ok) return undefined
-    try {
-      return available.value.read((tx) => {
-        const binding = findSessionBindingBySessionId(tx, sessionId)
-        if (
-          binding === null ||
-          !isProvisioned(binding) ||
-          !this.#data.isBindingUsable(binding)
-        )
-          return undefined
-        return getConversation(tx, binding.conversationId)?.botId
-      })
-    } catch {
-      return undefined
-    }
+    return this.#ledger.botForSession(sessionId)
   }
 
   /** A binding retired: drop its follow, approvals and stop fence. */
   forgetSession(sessionId: string): void {
-    if (this.#followed?.sessionId === sessionId) this.#unfollow()
+    this.#follower.forget(sessionId)
     this.#approvals.forgetSession(sessionId)
-    this.#fences.delete(sessionId)
+    this.#stopper.lift(sessionId)
   }
 
   // -------------------------------------------------------------------------
@@ -371,34 +270,20 @@ export class ChatService {
   async sendMessage(
     command: SendMessageCommand,
   ): Promise<WorkspaceResult<string>> {
-    const resolved = this.#target(command.botId)
+    const resolved = this.#ledger.target(command.botId)
     if (!resolved.ok) return resolved
     const target = resolved.value
-    const repeat = this.#repeat(target, command)
+    const repeat = this.#ledger.repeat(target, command)
     if (repeat !== undefined) return repeat
     if (this.#runtime === undefined) return fail('runtime_not_ready')
     const requestId = mintRequestId(this.#newId())
-    try {
-      target.db.write((tx) =>
-        insertMessageAdmission(tx, {
-          requestId,
-          conversationId: target.conversationId,
-          bindingId: target.binding.bindingId,
-          clientId: command.clientId,
-          bodyText: command.text,
-          now: this.#now(),
-        }),
+    const admitted = this.#ledger.admit(target, command, requestId)
+    // A concurrent repeat resolves to the original message; only a new row is delivered.
+    if (admitted.ok && admitted.value === messageIdFor(requestId))
+      this.#track(
+        this.#lane(target.sessionId, () => this.#deliver(target, requestId)),
       )
-    } catch (error) {
-      if (isLocalDbError(error, 'constraint'))
-        return this.#repeat(target, command) ?? fail('conflict')
-      return fail('data_unavailable')
-    }
-    this.#admissionsChanged(target.conversationId)
-    this.#track(
-      this.#lane(target.sessionId, () => this.#deliver(target, requestId)),
-    )
-    return { ok: true, value: messageIdFor(requestId) as string }
+    return admitted
   }
 
   /**
@@ -407,7 +292,7 @@ export class ChatService {
    * Delivered or in-flight messages are left alone.
    */
   async resend(command: MessageCommand): Promise<WorkspaceResult<null>> {
-    const found = this.#admission(command)
+    const found = this.#ledger.admission(command)
     if (!found.ok) return found
     const { target, row } = found.value
     switch (row.state) {
@@ -441,7 +326,7 @@ export class ChatService {
    * `stale`.
    */
   async cancelQueued(command: MessageCommand): Promise<WorkspaceResult<null>> {
-    const found = this.#admission(command)
+    const found = this.#ledger.admission(command)
     if (!found.ok) return found
     const { target } = found.value
     return this.#lane(target.sessionId, () =>
@@ -455,34 +340,20 @@ export class ChatService {
    * Session starts is stale and cancelled at once.
    */
   cancelTurn(command: BotCommand): Promise<WorkspaceResult<null>> {
-    const resolved = this.#target(command.botId)
+    const resolved = this.#ledger.target(command.botId)
     if (!resolved.ok) return Promise.resolve(resolved)
     const runtime = this.#runtime
     if (runtime === undefined) return Promise.resolve(fail('runtime_not_ready'))
     const { sessionId, botId } = resolved.value
-    const running = this.#stopping.get(sessionId)
-    if (running !== undefined) return running
-    const stop = this.#stop(runtime, botId, sessionId).finally(() => {
-      this.#stopping.delete(sessionId)
-    })
-    this.#stopping.set(sessionId, stop)
-    return stop
+    return this.#stopper.stop(runtime, botId, sessionId)
   }
 
   /** One older history page of the followed conversation. */
   async loadEarlier(command: BotCommand): Promise<WorkspaceResult<null>> {
-    const resolved = this.#target(command.botId)
+    const resolved = this.#ledger.target(command.botId)
     if (!resolved.ok) return resolved
     if (this.#runtime === undefined) return fail('runtime_not_ready')
-    const entry = this.#followed
-    if (entry?.botId !== command.botId || entry.follow === undefined)
-      return fail('stale')
-    try {
-      const result = await entry.follow.loadEarlier()
-      return result === 'stale' ? fail('stale') : OK
-    } catch {
-      return fail('host_error')
-    }
+    return this.#follower.loadEarlier(command.botId)
   }
 
   // -------------------------------------------------------------------------
@@ -490,16 +361,16 @@ export class ChatService {
   // -------------------------------------------------------------------------
 
   /** Model alignment (11A), then the prompt with bounded same-generation retries. */
-  async #deliver(target: Target, requestId: string): Promise<void> {
+  async #deliver(target: ChatTarget, requestId: string): Promise<void> {
     const runtime = this.#runtime
     const generation = this.#generation
     if (runtime === undefined) {
-      this.#settleUnsent(target, requestId, 'runtime_not_ready')
+      this.#ledger.settleUnsent(target, requestId, 'runtime_not_ready')
       return
     }
     // A new user prompt ends the previous stop.
     this.#approvals.resumeSession(target.sessionId)
-    this.#fences.delete(target.sessionId)
+    this.#stopper.lift(target.sessionId)
     let probe: SessionProbe | null | undefined
     try {
       probe = parseSessionProbe(
@@ -509,20 +380,20 @@ export class ChatService {
       probe = undefined
     }
     if (probe === null) {
-      this.#settleUnsent(target, requestId, 'binding_broken')
+      this.#ledger.settleUnsent(target, requestId, 'binding_broken')
       return
     }
     const failure = await this.#align(target, probe?.modelSelection ?? null)
     if (failure !== undefined) {
-      this.#settleUnsent(target, requestId, failure)
+      this.#ledger.settleUnsent(target, requestId, failure)
       return
     }
     if (generation !== this.#generation) {
-      this.#settleUnsent(target, requestId, 'runtime_not_ready')
+      this.#ledger.settleUnsent(target, requestId, 'runtime_not_ready')
       return
     }
     for (let retry = 0; ; retry += 1) {
-      const sending = this.#move(target, requestId, 'sending', {
+      const sending = this.#ledger.move(target, requestId, 'sending', {
         from: ['pending', 'rejected', 'unknown'],
         countAttempt: true,
       })
@@ -536,11 +407,11 @@ export class ChatService {
           content: [{ type: 'text', text: sending.bodyText }],
           clientTimeZone: this.#timeZone,
         })
-        this.#move(target, requestId, 'accepted', { from: ['sending'] })
+        this.#ledger.move(target, requestId, 'accepted', { from: ['sending'] })
         return
       } catch (error) {
         const outcome = classifyPromptError(error)
-        this.#move(target, requestId, outcome.kind, {
+        this.#ledger.move(target, requestId, outcome.kind, {
           from: ['sending'],
           lastError: outcome.code,
         })
@@ -558,7 +429,7 @@ export class ChatService {
    * when DSH shows no trace of the request and it may go on the wire again.
    */
   async #awaitRetry(
-    target: Target,
+    target: ChatTarget,
     requestId: string,
     runtime: ChatRuntime,
     generation: number,
@@ -570,32 +441,32 @@ export class ChatService {
       retryDelaysMs[Math.min(retry, retryDelaysMs.length - 1)] ?? 0,
     )
     if (generation !== this.#generation) return false
-    const row = this.#read(target, requestId)
+    const row = this.#ledger.read(target, requestId)
     if (row?.state !== 'unknown') return false
-    return this.#applyLocated(
+    return this.#ledger.applyLocated(
       target,
       requestId,
       await this.#locate(runtime, target.sessionId, row),
     )
   }
 
-  async #resendInLane(target: Target, requestId: string): Promise<void> {
+  async #resendInLane(target: ChatTarget, requestId: string): Promise<void> {
     const runtime = this.#runtime
-    const row = this.#read(target, requestId)
+    const row = this.#ledger.read(target, requestId)
     if (runtime === undefined || row === null) return
     if (row.state === 'unknown') {
       const located = await this.#locate(runtime, target.sessionId, row)
-      if (!this.#applyLocated(target, requestId, located)) return
+      if (!this.#ledger.applyLocated(target, requestId, located)) return
     }
     if (row.state === 'rejected' || row.state === 'unknown')
       await this.#deliver(target, requestId)
   }
 
   async #withdrawInLane(
-    target: Target,
+    target: ChatTarget,
     requestId: string,
   ): Promise<WorkspaceResult<null>> {
-    const row = this.#read(target, requestId)
+    const row = this.#ledger.read(target, requestId)
     if (row === null) return fail('not_found')
     switch (row.state) {
       case 'withdrawn':
@@ -606,11 +477,7 @@ export class ChatService {
         return fail('unavailable')
       case 'pending':
       case 'rejected':
-        return this.#move(target, requestId, 'withdrawn', {
-          from: ['pending', 'rejected'],
-        }) === null
-          ? fail('stale')
-          : OK
+        return this.#withdraw(target, requestId, ['pending', 'rejected'])
       case 'accepted':
       case 'unknown':
         return this.#withdrawHeld(target, row)
@@ -623,7 +490,7 @@ export class ChatService {
 
   /** An `accepted`/`unknown` send: remove it from DSH's inbox when it is still there. */
   async #withdrawHeld(
-    target: Target,
+    target: ChatTarget,
     row: MessageAdmissionRow,
   ): Promise<WorkspaceResult<null>> {
     const runtime = this.#runtime
@@ -631,7 +498,7 @@ export class ChatService {
     const located = await this.#locate(runtime, target.sessionId, row)
     switch (located.kind) {
       case 'journal':
-        this.#applyLocated(target, row.requestId, located)
+        this.#ledger.applyLocated(target, row.requestId, located)
         return fail('stale')
       case 'inbox':
         try {
@@ -646,7 +513,7 @@ export class ChatService {
             error.code === 'session/queue-item-not-found'
           ) {
             // Claimed meanwhile: the journal now holds it.
-            this.#applyLocated(
+            this.#ledger.applyLocated(
               target,
               row.requestId,
               await this.#locate(runtime, target.sessionId, row),
@@ -655,18 +522,10 @@ export class ChatService {
           }
           return fail('host_error')
         }
-        return this.#move(target, row.requestId, 'withdrawn', {
-          from: ['accepted', 'unknown'],
-        }) === null
-          ? fail('stale')
-          : OK
+        return this.#withdraw(target, row.requestId, ['accepted', 'unknown'])
       case 'absent':
         if (row.state !== 'unknown') return fail('stale')
-        return this.#move(target, row.requestId, 'withdrawn', {
-          from: ['unknown'],
-        }) === null
-          ? fail('stale')
-          : OK
+        return this.#withdraw(target, row.requestId, ['unknown'])
       case 'missing':
         return fail('binding_broken')
       case 'unreadable':
@@ -678,9 +537,19 @@ export class ChatService {
     }
   }
 
+  #withdraw(
+    target: ChatTarget,
+    requestId: string,
+    from: readonly AdmissionState[],
+  ): WorkspaceResult<null> {
+    return this.#ledger.move(target, requestId, 'withdrawn', { from }) === null
+      ? fail('stale')
+      : OK
+  }
+
   /** Decision 11A through P1; a failure is the admission's closed code. */
   async #align(
-    target: Target,
+    target: ChatTarget,
     observed: ModelSelection | null,
   ): Promise<SendFailure | undefined> {
     try {
@@ -692,14 +561,6 @@ export class ChatService {
         ? 'binding_broken'
         : 'host_error'
     }
-  }
-
-  /** Only a never-sent (`pending`) admission is refused locally; others keep their state. */
-  #settleUnsent(target: Target, requestId: string, code: SendFailure): void {
-    this.#move(target, requestId, 'rejected', {
-      from: ['pending'],
-      lastError: code,
-    })
   }
 
   // -------------------------------------------------------------------------
@@ -718,32 +579,6 @@ export class ChatService {
     )
   }
 
-  /** Records what was found; `true` when DSH has no trace (a resend may go out). */
-  #applyLocated(target: Target, requestId: string, located: Located): boolean {
-    switch (located.kind) {
-      case 'journal':
-        this.#move(target, requestId, 'observed', {
-          from: ['sending', 'unknown', 'accepted', 'rejected'],
-          observedSeq: located.seq,
-        })
-        return false
-      case 'inbox':
-        this.#move(target, requestId, 'accepted', {
-          from: ['sending', 'unknown'],
-        })
-        return false
-      case 'absent':
-        return true
-      case 'missing':
-      case 'unreadable':
-        return false
-      default: {
-        const unreachable: never = located
-        throw new Error(`Unhandled location ${String(unreachable)}`)
-      }
-    }
-  }
-
   /**
    * Plan §3.7 read-only recovery. `pending` never reached the wire and is
    * refused as `not_sent`; `sending`/`unknown` are looked up and stay
@@ -753,32 +588,28 @@ export class ChatService {
     runtime: ChatRuntime,
     generation: number,
   ): Promise<void> {
-    const db = this.#db()
+    const db = this.#ledger.db()
     if (db === undefined) return
-    let rows: readonly MessageAdmissionRow[]
-    try {
-      rows = db.read((tx) => listOpenMessageAdmissions(tx))
-    } catch {
-      return
-    }
+    const rows = this.#ledger.listOpen(db)
+    if (rows === undefined) return
     const work: Promise<unknown>[] = []
     for (const row of rows) {
-      const target = this.#bindingTarget(db, row)
+      const target = this.#ledger.bindingTarget(db, row)
       if (target === undefined) continue
       work.push(
         this.#lane(target.sessionId, async () => {
           if (generation !== this.#generation) return
-          const current = this.#read(target, row.requestId)
+          const current = this.#ledger.read(target, row.requestId)
           if (current === null) return
           if (current.state === 'pending') {
-            this.#settleUnsent(target, row.requestId, 'not_sent')
+            this.#ledger.settleUnsent(target, row.requestId, 'not_sent')
             return
           }
           if (current.state !== 'sending' && current.state !== 'unknown') return
           const located = await this.#locate(runtime, target.sessionId, current)
           if (generation !== this.#generation) return
-          this.#applyLocated(target, row.requestId, located)
-          this.#move(target, row.requestId, 'unknown', {
+          this.#ledger.applyLocated(target, row.requestId, located)
+          this.#ledger.move(target, row.requestId, 'unknown', {
             from: ['sending'],
             lastError: 'host_lost',
           })
@@ -786,435 +617,6 @@ export class ChatService {
       )
     }
     await Promise.allSettled(work)
-  }
-
-  /** The send target of an admission's binding, when it is still live and usable. */
-  #bindingTarget(db: LocalDb, row: MessageAdmissionRow): Target | undefined {
-    try {
-      return db.read((tx) => {
-        const binding = getSessionBinding(tx, row.bindingId)
-        if (
-          binding === null ||
-          !isProvisioned(binding) ||
-          !this.#data.isBindingUsable(binding)
-        )
-          return undefined
-        const conversation = getConversation(tx, binding.conversationId)
-        if (conversation === null) return undefined
-        return {
-          db,
-          botId: conversation.botId,
-          conversationId: conversation.conversationId,
-          binding,
-          sessionId: binding.dshSessionId,
-        }
-      })
-    } catch {
-      return undefined
-    }
-  }
-
-  // -------------------------------------------------------------------------
-  // Stop
-  // -------------------------------------------------------------------------
-
-  async #stop(
-    runtime: ChatRuntime,
-    botId: string,
-    sessionId: string,
-  ): Promise<WorkspaceResult<null>> {
-    this.#approvals.stopTurn(sessionId)
-    const followed = this.#followed
-    this.#fences.set(
-      sessionId,
-      new StaleTurnFence(
-        followed?.sessionId === sessionId
-          ? followed.projector.cursor
-          : undefined,
-        this.#now(),
-      ),
-    )
-    const ports = { sessions: runtime.sessions, jobs: runtime.jobs }
-    const report = await stopForegroundTree(ports, sessionId, {
-      now: this.#now,
-      sleep: this.#sleep,
-      ...this.#timing.stop,
-    })
-    this.#audit({ kind: 'stop', botId, ...report })
-    this.#track(
-      this.#sleep(this.#timing.verifyDelayMs)
-        .then(() => verifyForegroundTree(ports, sessionId))
-        .then((verification) =>
-          this.#audit({ kind: 'stop-verify', botId, verification }),
-        ),
-    )
-    return report.parentCancel === 'failed' ? fail('host_error') : OK
-  }
-
-  /** The stale-Turn fallback on the followed stream: cancel at `turn/start`, count steps. */
-  #watchStale(entry: Followed, events: readonly WireEvent[]): void {
-    const fence = this.#fences.get(entry.sessionId)
-    if (fence === undefined) return
-    for (const signal of fence.observe(events)) {
-      switch (signal.kind) {
-        case 'stale-turn': {
-          this.#audit({
-            kind: 'stale-turn',
-            botId: entry.botId,
-            turn: signal.turn,
-          })
-          const runtime = this.#runtime
-          if (runtime === undefined) break
-          this.#track(
-            runtime.sessions.cancel(entry.sessionId).catch(() => {
-              this.#log('Corn chat: stale turn cancel failed')
-            }),
-          )
-          break
-        }
-        case 'leaked-request':
-          this.#audit({
-            kind: 'leaked-request',
-            botId: entry.botId,
-            turn: signal.turn,
-            total: fence.leakedRequests,
-          })
-          break
-        default: {
-          const unreachable: never = signal
-          throw new Error(`Unhandled stale signal ${String(unreachable)}`)
-        }
-      }
-    }
-  }
-
-  // -------------------------------------------------------------------------
-  // Follow
-  // -------------------------------------------------------------------------
-
-  #startFollow(entry: Followed): void {
-    const follow = new ConversationFollow({
-      projector: entry.projector,
-      openFollow: (handlers) => this.#openFollow(entry, handlers),
-      page: (request) => {
-        const runtime = this.#runtime
-        if (runtime === undefined)
-          return Promise.reject(
-            new RemoteError('corn/disconnected', 'Host is not ready'),
-          )
-        return runtime.sessions.page({ sessionId: entry.sessionId, ...request })
-      },
-      onView: (view) => this.#emitView(view),
-      scheduleReopen: (_reason, reopen) => this.#scheduleReopen(entry, reopen),
-    })
-    entry.follow = follow
-    follow.start()
-  }
-
-  /**
-   * Tees the follow: durable events reach the approval broker first (so the
-   * projection's approval overlay is current), then the projector, then the
-   * stale-Turn fence. An open that throws is reported asynchronously as a
-   * lost stream so the follow schedules its next try.
-   */
-  #openFollow(entry: Followed, handlers: FollowHandlers): FollowStream {
-    const tee: FollowHandlers = {
-      onSnapshot: (snapshot) => {
-        entry.reopenFailures = 0
-        this.#approvals.observe(entry.sessionId, snapshot.records)
-        handlers.onSnapshot(snapshot)
-        this.#watchStale(entry, snapshot.records)
-        this.#flushAdmissions(entry)
-      },
-      onEvent: (event) => {
-        this.#approvals.observe(entry.sessionId, [event])
-        handlers.onEvent(event)
-        this.#watchStale(entry, [event])
-        this.#flushAdmissions(entry)
-      },
-      onAssistantStream: (frame) => handlers.onAssistantStream?.(frame),
-      onGap: (gap) => handlers.onGap(gap),
-      onError: (error) => handlers.onError(error),
-    }
-    try {
-      const runtime = this.#runtime
-      if (runtime === undefined)
-        throw new RemoteError('corn/disconnected', 'Host is not ready')
-      return runtime.openFollow(entry.sessionId, tee)
-    } catch (error) {
-      let closed = false
-      queueMicrotask(() => {
-        if (!closed)
-          handlers.onError(
-            error instanceof Error ? error : new Error('Follow open failed'),
-          )
-      })
-      return {
-        close: () => {
-          closed = true
-        },
-      }
-    }
-  }
-
-  /** Bounded exponential backoff while the Host is up; otherwise wait for the next generation. */
-  #scheduleReopen(entry: Followed, reopen: () => void): () => void {
-    if (this.#followed !== entry) return () => {}
-    entry.reopenFailures += 1
-    const { reopenBaseMs, reopenMaxMs, reopenFailureLimit } = this.#timing
-    if (
-      this.#runtime === undefined ||
-      entry.reopenFailures > reopenFailureLimit
-    ) {
-      if (entry.reopenFailures > reopenFailureLimit)
-        this.#publish(entry.projector.fail())
-      this.#parked = reopen
-      return () => {
-        if (this.#parked === reopen) this.#parked = undefined
-      }
-    }
-    const delay = Math.min(
-      reopenBaseMs * 2 ** (entry.reopenFailures - 1),
-      reopenMaxMs,
-    )
-    return this.#schedule(reopen, delay)
-  }
-
-  /** After attach: start the selected follow or run its parked reopen. */
-  #resumeFollow(): void {
-    const entry = this.#followed
-    if (entry === undefined || this.#runtime === undefined) return
-    entry.reopenFailures = 0
-    if (entry.follow === undefined) {
-      this.#startFollow(entry)
-      return
-    }
-    const parked = this.#parked
-    this.#parked = undefined
-    parked?.()
-  }
-
-  #unfollow(): void {
-    const entry = this.#followed
-    this.#followed = undefined
-    this.#parked = undefined
-    entry?.follow?.stop()
-  }
-
-  // -------------------------------------------------------------------------
-  // Admissions and views
-  // -------------------------------------------------------------------------
-
-  /** `onAdmissionObserved`: runs inside the projector, so the view refresh is deferred. */
-  #observed(entry: Followed, observation: AdmissionObservation): void {
-    const db = this.#db()
-    if (db === undefined) return
-    try {
-      const moved = db.write((tx) => {
-        const row = getMessageAdmission(tx, observation.requestId)
-        if (
-          row === null ||
-          row.conversationId !== entry.conversationId ||
-          !OBSERVABLE.includes(row.state)
-        )
-          return false
-        transitionMessageAdmission(tx, row.requestId, 'observed', {
-          now: this.#now(),
-          observedSeq: observation.seq,
-        })
-        return true
-      })
-      if (moved) entry.admissionsDirty = true
-    } catch {
-      this.#log('Corn chat: could not record an observed send')
-    }
-  }
-
-  #flushAdmissions(entry: Followed): void {
-    if (!entry.admissionsDirty || this.#followed !== entry) return
-    entry.admissionsDirty = false
-    this.#refreshAdmissions(entry)
-  }
-
-  #admissionsChanged(conversationId: string): void {
-    const entry = this.#followed
-    if (entry?.conversationId === conversationId) this.#refreshAdmissions(entry)
-  }
-
-  #refreshAdmissions(entry: Followed): void {
-    const db = this.#db()
-    let rows: readonly MessageAdmissionRow[] = []
-    if (db !== undefined) {
-      try {
-        rows = db.read((tx) =>
-          listUnsettledMessageAdmissions(tx, entry.conversationId),
-        )
-      } catch {
-        rows = []
-      }
-    }
-    this.#publish(
-      entry.projector.setAdmissions(
-        rows.flatMap((row) => {
-          const view = admissionView(row)
-          return view === undefined ? [] : [view]
-        }),
-      ),
-    )
-  }
-
-  #overlay(sessionId: string, ref: ApprovalRef): ApprovalOverlay | undefined {
-    const card = this.#approvals
-      .cards(sessionId)
-      .find(
-        (candidate) =>
-          candidate.askedId === ref.approvalId ||
-          (ref.callId !== undefined && candidate.callId === ref.callId),
-      )
-    return card === undefined
-      ? undefined
-      : { handle: card.handle, status: card.status }
-  }
-
-  #publish(update: ProjectionUpdate): void {
-    if (update.view !== undefined) this.#emitView(update.view)
-  }
-
-  #emitView(view: ConversationView): void {
-    try {
-      this.#onView(view)
-    } catch {
-      // A failing listener must not break follow callbacks.
-    }
-  }
-
-  // -------------------------------------------------------------------------
-  // Lookup and persistence
-  // -------------------------------------------------------------------------
-
-  #db(): LocalDb | undefined {
-    const available = this.#data.available()
-    return available.ok ? available.value : undefined
-  }
-
-  /** The Bot's one main conversation and its usable live binding. */
-  #target(botId: string): WorkspaceResult<Target> {
-    const available = this.#data.available()
-    if (!available.ok) return available
-    const db = available.value
-    let result: WorkspaceResult<Target>
-    try {
-      result = db.read((tx): WorkspaceResult<Target> => {
-        const bot = getBot(tx, botId)
-        if (bot === null) return fail('not_found')
-        const conversation = getMainConversation(tx, botId)
-        const binding =
-          conversation === null
-            ? null
-            : getLiveSessionBinding(tx, conversation.conversationId)
-        if (conversation === null || binding === null)
-          return fail('binding_broken')
-        if (!isProvisioned(binding))
-          return fail(
-            bot.provisioning === 'creating' ? 'unavailable' : 'binding_broken',
-          )
-        if (!this.#data.isBindingUsable(binding)) return fail('binding_broken')
-        return {
-          ok: true,
-          value: {
-            db,
-            botId,
-            conversationId: conversation.conversationId,
-            binding,
-            sessionId: binding.dshSessionId,
-          },
-        }
-      })
-    } catch {
-      return fail('data_unavailable')
-    }
-    return result
-  }
-
-  /** A repeated `clientId`: the original message id, or `conflict` for other text. */
-  #repeat(
-    target: Target,
-    command: SendMessageCommand,
-  ): WorkspaceResult<string> | undefined {
-    const existing = target.db.read((tx) =>
-      findMessageAdmissionByClientId(
-        tx,
-        target.conversationId,
-        command.clientId,
-      ),
-    )
-    if (existing === null) return undefined
-    const messageId = messageIdFor(existing.requestId)
-    if (
-      messageId === undefined ||
-      existing.bodySha256 !== bodyChecksum(command.text)
-    )
-      return fail('conflict')
-    return { ok: true, value: messageId }
-  }
-
-  #admission(
-    command: MessageCommand,
-  ): WorkspaceResult<{ target: Target; row: MessageAdmissionRow }> {
-    const resolved = this.#target(command.botId)
-    if (!resolved.ok) return resolved
-    const requestId = requestIdFor(command.messageId)
-    if (requestId === undefined) return fail('not_found')
-    const row = this.#read(resolved.value, requestId)
-    if (row === null) return fail('not_found')
-    return { ok: true, value: { target: resolved.value, row } }
-  }
-
-  /** The admission when it belongs to the target's conversation. */
-  #read(target: Target, requestId: string): MessageAdmissionRow | null {
-    try {
-      const row = target.db.read((tx) => getMessageAdmission(tx, requestId))
-      return row?.conversationId === target.conversationId ? row : null
-    } catch {
-      return null
-    }
-  }
-
-  /**
-   * One guarded transition: applied only from the listed states, so racing
-   * paths (follow, prompt reply, detach) never fight. `null` when skipped or
-   * when the write failed (the caller then sends nothing).
-   */
-  #move(
-    target: Target,
-    requestId: string,
-    to: AdmissionState,
-    options: {
-      readonly from: readonly AdmissionState[]
-    } & Omit<AdmissionTransition, 'now'>,
-  ): MessageAdmissionRow | null {
-    const { from, ...transition } = options
-    let moved: MessageAdmissionRow | null
-    try {
-      moved = target.db.write((tx) => {
-        const row = getMessageAdmission(tx, requestId)
-        if (
-          row === null ||
-          row.conversationId !== target.conversationId ||
-          !from.includes(row.state)
-        )
-          return null
-        return transitionMessageAdmission(tx, requestId, to, {
-          ...transition,
-          now: this.#now(),
-        })
-      })
-    } catch {
-      this.#log(`Corn chat: admission write failed (${to})`)
-      return null
-    }
-    if (moved !== null) this.#admissionsChanged(target.conversationId)
-    return moved
   }
 
   // -------------------------------------------------------------------------
@@ -1239,13 +641,5 @@ export class ChatService {
     })
     this.#tasks.add(tracked)
     void tracked.finally(() => this.#tasks.delete(tracked))
-  }
-
-  #audit(entry: ChatAudit): void {
-    try {
-      this.#onAudit(entry)
-    } catch {
-      // Auditing must not break the stop path.
-    }
   }
 }
