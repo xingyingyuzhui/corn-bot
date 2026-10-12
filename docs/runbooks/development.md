@@ -52,11 +52,12 @@ Design work reads the private UI/UX research kit from a git-ignored checkout pin
 
 ```sh
 git clone https://github.com/xingyingyuzhui/grok-bot-ui-ux-kit.git .research/grok-bot-ui-ux-kit
-git -C .research/grok-bot-ui-ux-kit checkout 0248419b80dde84560409802afb98f38803df52c
+git -C .research/grok-bot-ui-ux-kit fetch origin
+git -C .research/grok-bot-ui-ux-kit checkout 5bb4379e9ec1158b9ec29c3c5f1e2cc6604be5af
 pnpm verify:ui-kit --strict
 ```
 
-Without a checkout, `pnpm verify:ui-kit` reports `skipped`, and `--strict` turns that into a failure. Never copy kit files into Corn; see `design/grok-kit/RIGHTS_REVIEW.md`.
+The `fetch` moves an existing checkout to a new pin. In a Corn worktree, set `CORN_UI_KIT_DIR` to a kit checkout at the pinned commit. Without a checkout, `pnpm verify:ui-kit` reports `skipped`, and `--strict` turns that into a failure. Never copy kit files into Corn; see `design/grok-kit/RIGHTS_REVIEW.md`.
 
 To verify the current sandboxed diagnostic app:
 

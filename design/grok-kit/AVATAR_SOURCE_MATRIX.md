@@ -1,8 +1,8 @@
 # Avatar source matrix
 
-Two separate avatar vocabularies exist in the pinned kit (`0248419`). They come from different sources, so their names, shapes and timings must not be mixed. Both are **research-only**: no redistribution licence exists for either implementation, its geometry or its timing tables (see [RIGHTS_REVIEW](RIGHTS_REVIEW.md)). The "Corn v1" column only says whether Corn's own contract (`packages/contracts/src/avatar.ts`, plan §13.3) has a state with the same name. A matching name does not mean Corn reuses the original's motion.
+Two separate avatar vocabularies exist in the pinned kit (first recorded at `0248419`; unchanged at `5bb4379`, which adds the per-state audit). They come from different sources, so their names, shapes and timings must not be mixed. Both are **research-only**: no redistribution licence exists for either implementation, its geometry or its timing tables (see [RIGHTS_REVIEW](RIGHTS_REVIEW.md), unchanged). The "Corn v1" column only says whether Corn's own contract (`packages/contracts/src/avatar.ts`, plan §13.3) has a state with the same name. A matching name does not mean Corn reuses the original's motion.
 
-Timing ranges are facts from `assets/avatar-motion/catalog.json`. They serve as comparison points for Corn's own timing contract and are not targets to reproduce.
+Timing ranges are facts from `assets/avatar-motion/catalog.json`. Since the maintainer decision of 2026-10-12 ([ADR-0003 addendum](../../docs/adr/ADR-0003-avatar-engine.md#addendum-2026-10-12-dmg-behaviour-reference-borrowing-boundary-unified-scheduler)), the DMG 0.68.1 engine below is Corn's behaviour reference: its state semantics, timings and phases, easing, morph structure and recovery are re-implemented in Corn TypeScript. Geometry, SVG paths, presentation constants, clip keyframes and source files are still never copied. This is a product decision, not a rights clearance. The website timings in the next table remain comparison points only.
 
 ## Website demo (2026-10-11, version unknown): 35 states, 25 shapes
 
@@ -52,7 +52,7 @@ Corn v1 has 18 states, all named in this set. Unknowns: the website build versio
 
 ## DMG 0.68.1 engine: 53 states
 
-Corn does not use the DMG engine. This table exists so that nobody passes a DMG-only state such as `failed`, `finished`, `waiting` or `streaming` into a website-vocabulary contract.
+Corn ships no DMG code, but re-implements this engine's behaviour as its reference ([ADR-0003 addendum](../../docs/adr/ADR-0003-avatar-engine.md#addendum-2026-10-12-dmg-behaviour-reference-borrowing-boundary-unified-scheduler)). The table also exists so that nobody passes a DMG-only state such as `failed`, `finished`, `waiting` or `streaming` into a website-vocabulary contract. The `then idle` / `then drowsy` hand-overs are DMG facts; Corn's engine does not inherit them for business-significant states.
 
 | State | In website set | Original clip, face and morph facts |
 | --- | --- | --- |

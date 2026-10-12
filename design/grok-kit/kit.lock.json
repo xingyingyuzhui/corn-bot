@@ -1,8 +1,8 @@
 {
   "schemaVersion": 1,
   "repository": "https://github.com/xingyingyuzhui/grok-bot-ui-ux-kit",
-  "commit": "0248419b80dde84560409802afb98f38803df52c",
-  "supersedes": "c51253833ca89e14cb3630832efe3a612d2afb3f",
+  "commit": "5bb4379e9ec1158b9ec29c3c5f1e2cc6604be5af",
+  "supersedes": "0248419b80dde84560409802afb98f38803df52c",
   "researchDir": ".research/grok-bot-ui-ux-kit",
   "copyDetectionMinBytes": 256,
   "requiredFiles": {
@@ -16,11 +16,14 @@
     "docs/component-spec.md": "4c69575b6e4c595fee5288eb4890c4e3593415be786eb7d594030c8850f70fea",
     "docs/provenance.md": "9c9f951d2d1d72e8b40d1b39ed2923859351fdbef67185f8cd0b45bbb6fcf87c",
     "docs/capture-plan.md": "04e318823c65660f94361a2847b00f9312d357c39e58b6367788c5b3898c7246",
-    "docs/avatar-animation.md": "6fdc7f07cf305b37765c147534ebdbc00e6b4b0ea0e697630563cb395db5b267",
+    "docs/avatar-animation.md": "52cb53609675a437ee0f0af365d5231599db276c8911232585e6714892016228",
     "docs/avatar-motion-validation.json": "364ca5c5e7ff3e07a18cb6ab0e19413497c69fe9d60f271d13f78d5cdd8f7f5b",
     "src/avatar.d.ts": "a106a440838b98008b39707c2d4c4adb87d64c252a4f74bf9464369356e10036",
     "src/composer.js": "4c195ee405ebf88ddb9422696f8d89a77341167522cb668dfef1b0922782a9e8",
     "assets/avatar-motion/catalog.json": "887ec2b2bab1a11d7e2d33e5d6a0ce2e7b288b2fa5581d1ed3cf41b85ce82680",
-    "tests/avatar.test.js": "736a66353a4cdbebc269c8875678d3bde0f15346ab2902310ece352dd3387be7"
+    "tests/avatar.test.js": "cd18e878c38e360959a14fa3d702886ac32476865b86e2f0582420ac34ce873b",
+    "docs/avatar-state-audit.md": "d5a1c7f107cb9fa80eed9074fc79cf354cf558b9ee1ae1d3410df03006d5309d",
+    "docs/avatar-reference.md": "7de5f3dac79302525847b5cb9a05a27b8b9e73038a5a2a46ca80a52b44ad3dd0",
+    "docs/avatar-state-catalog.md": "021706946d677a663e338cedaee2badfc2d794795f3349815030781f43cebbdf"
   }
 }
