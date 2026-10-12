@@ -141,7 +141,7 @@ test('projections and updateQueue use their exact endpoints and request shape', 
     headers: () => ({}),
     url: (path) => new URL(path, 'http://127.0.0.1:9'),
   })
-  for (const endpoint of ['settings/mutate', 'session/fork', 'session/rename'])
+  for (const endpoint of ['settings/update', 'session/fork', 'session/rename'])
     await assert.rejects(real.rpc(endpoint, {}), /not allowed/u)
 })
 
