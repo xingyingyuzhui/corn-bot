@@ -1,4 +1,4 @@
-import { RemoteError, record } from './remote-error.ts'
+import { ECHO_MISMATCH, RemoteError, record } from './remote-error.ts'
 import { parseEventRecords, type WireEvent } from './session-wire.ts'
 import type { HostTransport } from './transport.ts'
 
@@ -141,7 +141,8 @@ export class SessionClient {
       value.sessionId !== request.sessionId ||
       value.agentPreset !== request.agentPreset
     ) {
-      throw new Error(
+      throw new RemoteError(
+        ECHO_MISMATCH,
         'Session identity or preset differs from requested Claw binding',
       )
     }
@@ -166,17 +167,24 @@ export class SessionClient {
       }),
     )
     if (value.scope !== 'session')
-      throw new Error('Host did not apply a Session-only model selection')
+      throw new RemoteError(
+        ECHO_MISMATCH,
+        'Host did not apply a Session-only model selection',
+      )
     const selected = record(value.selected)
     const effort = selected.reasoningEffort
+    if (effort !== undefined && typeof effort !== 'string')
+      throw invalid('model selection')
     if (
       selected.provider !== request.provider ||
       selected.model !== request.model ||
-      (effort !== undefined && typeof effort !== 'string') ||
       (request.reasoningEffort !== undefined &&
         effort !== request.reasoningEffort)
     )
-      throw new Error('Host selected a different model than requested')
+      throw new RemoteError(
+        ECHO_MISMATCH,
+        'Host selected a different model than requested',
+      )
     return {
       provider: request.provider,
       model: request.model,

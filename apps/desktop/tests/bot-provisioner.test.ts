@@ -435,8 +435,9 @@ test('lost create with zero candidates stays needs_repair and does not re-create
   assert.equal(world.host.count('registry/create'), 2)
   const after = binding(world, outcome.botId)
   assert.equal(after.stage, 'planned')
-  // The checkpoint's updated_at is the attempt time; repair never rewrites it.
-  assert.equal(after.updatedAt, before.updatedAt)
+  assert.equal(after.lastError, 'claw_create_unknown')
+  assert.notEqual(before.clawCreateAttemptedAt, null)
+  assert.equal(after.clawCreateAttemptedAt, before.clawCreateAttemptedAt)
   assert.equal(
     world.db.read((tx) => getClawAgent(tx, outcome.botId)),
     null,
@@ -467,22 +468,103 @@ test('adoption compares the Claw-sanitized title', () => {
   assert.equal(sanitizeAgentTitle(long), 'x'.repeat(CLAW_TITLE_MAX - 1))
 })
 
-test('DSH preset conflict at session/create stops with binding_mismatch', async (t) => {
+test('adoption window opens at claw_create_attempted_at, not updated_at', async (t) => {
   const world = await setup(t)
-  world.host.fail(
-    'session/create',
-    { mode: 'reject', code: 'agent-preset/conflict' },
-    { mode: 'reject', code: 'agent-preset/conflict' },
+  world.host.fail('registry/create', LOST)
+  const outcome = await world.provisioner.create(draft())
+  const row = binding(world, outcome.botId)
+  // A later write to the row (far beyond the skew) must not close the window.
+  world.db.write((tx) =>
+    setSessionBindingStage(tx, row.bindingId, 'planned', {
+      now: T0 + 3_600_000,
+      lastError: 'claw_create_unknown',
+    }),
   )
+  const moved = binding(world, outcome.botId)
+  assert.equal(moved.clawCreateAttemptedAt, row.clawCreateAttemptedAt)
+  assert.ok(
+    moved.updatedAt - HOST_CLOCK_SKEW_MS > (moved.clawCreateAttemptedAt ?? 0),
+  )
+  assert.equal((await world.provisioner.repair(outcome.botId)).status, 'ready')
+  assert.equal(world.host.count('registry/create'), 1)
+})
+
+test('an unknown create without an attempt time is never adopted or re-created', async (t) => {
+  const world = await setup(t)
+  world.host.fail('registry/create', LOST)
+  const outcome = await world.provisioner.create(draft())
+  world.db.write((tx) =>
+    tx.run('UPDATE session_bindings SET claw_create_attempted_at = NULL'),
+  )
+  expectRepair(
+    await world.provisioner.repair(outcome.botId),
+    'claw_create_unknown',
+  )
+  assert.equal(world.host.count('registry/list'), 0)
+  assert.equal(world.host.count('registry/create'), 1)
+})
+
+test('the draft policy preset survives a restart before Claw answers', async (t) => {
+  for (const fault of [
+    { mode: 'reject', code: 'REGISTRY_WORKSPACE_EXISTS' } as const,
+    LOST,
+  ]) {
+    const world = await setup(t)
+    world.host.fail('registry/create', fault)
+    const outcome = await world.provisioner.create(
+      draft({ policyPreset: 'developer' }),
+    )
+    assert.equal(outcome.status, 'needs_repair')
+    assert.equal(bot(world, outcome.botId).policyPreset, 'developer')
+    assert.equal(
+      world.db.read((tx) => getClawAgent(tx, outcome.botId)),
+      null,
+    )
+
+    const repaired = await world.restart().repair(outcome.botId)
+    assert.equal(repaired.status, 'ready', fault.mode)
+    assert.equal(
+      world.db.read((tx) => getClawAgent(tx, outcome.botId))?.policyPreset,
+      'developer',
+    )
+    assert.deepEqual(world.host.bodies('registry/policy'), [
+      { agentId: 'wa_1', policy: { preset: 'developer' } },
+    ])
+  }
+})
+
+test('DSH preset conflict at session/create stops; repair calls nothing', async (t) => {
+  const world = await setup(t)
+  world.host.fail('session/create', {
+    mode: 'reject',
+    code: 'agent-preset/conflict',
+  })
   const outcome = await world.provisioner.create(draft())
   expectRepair(outcome, 'binding_mismatch')
   assert.equal(binding(world, outcome.botId).stage, 'preset_ensured')
+  const calls = world.host.calls.length
+  expectRepair(await world.restart().repair(outcome.botId), 'binding_mismatch')
+  assert.equal(world.host.calls.length, calls)
+  assert.equal(world.host.count('registry/session/bind'), 0)
+  assert.equal(world.host.sessions.size, 0)
+})
+
+test('a session/create echo mismatch is a binding_mismatch stop, not a retry', async (t) => {
+  const world = await setup(t)
+  world.host.createEchoPreset = 'wa-someone-else'
+  const outcome = await world.provisioner.create(draft())
+  expectRepair(outcome, 'binding_mismatch')
+  const row = binding(world, outcome.botId)
+  assert.equal(row.stage, 'preset_ensured')
+  assert.equal(row.lastError, 'binding_mismatch')
+  world.host.createEchoPreset = null
+  const calls = world.host.calls.length
   expectRepair(
     await world.provisioner.repair(outcome.botId),
     'binding_mismatch',
   )
-  assert.equal(world.host.count('registry/session/bind'), 0)
-  assert.equal(world.host.sessions.size, 0)
+  assert.equal(world.host.calls.length, calls)
+  assert.equal(world.host.bindings.size, 0)
 })
 
 test('a Session that already exists with another preset is never bound', async (t) => {
@@ -535,6 +617,12 @@ test('a Session bound to another agent stops and is never rebound', async (t) =>
   const outcome = await world.provisioner.create(draft())
   expectRepair(outcome, 'claw_bind_conflict')
   assert.equal(binding(world, outcome.botId).stage, 'verified')
+  const calls = world.host.calls.length
+  expectRepair(
+    await world.provisioner.repair(outcome.botId),
+    'claw_bind_conflict',
+  )
+  assert.equal(world.host.calls.length, calls)
 })
 
 test('create and repair of one Bot are serialized: no duplicate agent or Session', async (t) => {

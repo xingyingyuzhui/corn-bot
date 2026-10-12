@@ -30,6 +30,9 @@ import {
   withRaw,
 } from './helpers.ts'
 
+const LATEST = MIGRATIONS.length
+const NEXT = LATEST + 1
+
 const CORE_TABLES = [
   'bot_tags',
   'bots',
@@ -73,8 +76,8 @@ test('a fresh file migrates to the latest version with ledger, data id and 0600 
 
   assert.deepEqual(result.status === 'ready' && result.migration, {
     from: 0,
-    to: MIGRATIONS.length,
-    applied: ['core'],
+    to: LATEST,
+    applied: MIGRATIONS.map((migration) => migration.name),
     backupPath: null,
   })
   const settings = db.settings()
@@ -85,14 +88,12 @@ test('a fresh file migrates to the latest version with ledger, data id and 0600 
   )
   assert.deepEqual(
     ledger.map((row) => ({ ...row })),
-    [
-      {
-        version: 1,
-        name: 'core',
-        sha256: migrationChecksum(MIGRATIONS[0] as Migration),
-        applied_at: T0,
-      },
-    ],
+    MIGRATIONS.map((migration) => ({
+      version: migration.version,
+      name: migration.name,
+      sha256: migrationChecksum(migration),
+      applied_at: T0,
+    })),
   )
   assert.match(
     db.read((tx) => getMeta(tx, 'data_id')) ?? '',
@@ -150,15 +151,18 @@ test('reopening a current database does not migrate again or back up', async (t)
   const db = expectReady(result)
   t.after(() => db.close())
   assert.deepEqual(result.status === 'ready' && result.migration, {
-    from: 1,
-    to: 1,
+    from: LATEST,
+    to: LATEST,
     applied: [],
     backupPath: null,
   })
   const appliedAt = db.read((tx) =>
     tx.all('SELECT applied_at FROM schema_migrations').map((r) => r.applied_at),
   )
-  assert.deepEqual(appliedAt, [T0])
+  assert.deepEqual(
+    appliedAt,
+    MIGRATIONS.map(() => T0),
+  )
   assert.equal(existsSync(join(dir, 'backups')), false)
 })
 
@@ -186,16 +190,16 @@ test('an upgrade backs up first and applies pending migrations in one step', asy
   expectReady(await openLocalDb({ path, now: () => T0 })).close()
   const migrations = [
     ...MIGRATIONS,
-    extra(2, 'CREATE TABLE extra_two (x INTEGER NOT NULL) STRICT;'),
+    extra(NEXT, 'CREATE TABLE extra_next (x INTEGER NOT NULL) STRICT;'),
   ]
   const result = await openLocalDb({ path, migrations, now: () => T0 + 5 })
   const db = expectReady(result)
   t.after(() => db.close())
-  const backupPath = join(dir, 'backups', `corn-v1-${T0 + 5}.sqlite`)
+  const backupPath = join(dir, 'backups', `corn-v${LATEST}-${T0 + 5}.sqlite`)
   assert.deepEqual(result.status === 'ready' && result.migration, {
-    from: 1,
-    to: 2,
-    applied: ['extra_2'],
+    from: LATEST,
+    to: NEXT,
+    applied: [`extra_${NEXT}`],
     backupPath,
   })
   assert.equal(mode(backupPath), 0o600)
@@ -204,9 +208,9 @@ test('an upgrade backs up first and applies pending migrations in one step', asy
     withRaw(backupPath, (raw) => raw.pragma('user_version'), {
       readOnly: true,
     }),
-    1,
+    LATEST,
   )
-  assert.equal(db.settings().userVersion, 2)
+  assert.equal(db.settings().userVersion, NEXT)
 })
 
 test('a migration that throws midway rolls back; the backup exists and opens', async (t) => {
@@ -216,9 +220,9 @@ test('a migration that throws midway rolls back; the backup exists and opens', a
   const broken = [
     ...MIGRATIONS,
     extra(
-      2,
-      `CREATE TABLE extra_two (x INTEGER NOT NULL) STRICT;
-       INSERT INTO extra_two (x) VALUES (1);
+      NEXT,
+      `CREATE TABLE extra_next (x INTEGER NOT NULL) STRICT;
+       INSERT INTO extra_next (x) VALUES (1);
        INSERT INTO no_such_table (x) VALUES (1);`,
     ),
   ]
@@ -228,7 +232,7 @@ test('a migration that throws midway rolls back; the backup exists and opens', a
     migrations: broken,
     now: () => T0 + 7,
   })
-  const backupPath = join(dir, 'backups', `corn-v1-${T0 + 7}.sqlite`)
+  const backupPath = join(dir, 'backups', `corn-v${LATEST}-${T0 + 7}.sqlite`)
   assert.equal(result.status, 'migration_failed')
   assert.equal(
     result.status === 'migration_failed' && result.reason,
@@ -243,15 +247,18 @@ test('a migration that throws midway rolls back; the backup exists and opens', a
   withRaw(
     path,
     (raw) => {
-      assert.equal(raw.pragma('user_version'), 1)
-      assert.equal(raw.all('SELECT version FROM schema_migrations').length, 1)
+      assert.equal(raw.pragma('user_version'), LATEST)
+      assert.equal(
+        raw.all('SELECT version FROM schema_migrations').length,
+        LATEST,
+      )
     },
     { readOnly: true },
   )
   withRaw(
     backupPath,
     (raw) => {
-      assert.equal(raw.pragma('user_version'), 1)
+      assert.equal(raw.pragma('user_version'), LATEST)
       assert.equal(raw.pragma('application_id'), CORN_APPLICATION_ID)
       assert.equal(raw.pragma('quick_check'), 'ok')
     },
@@ -292,7 +299,7 @@ test(`only the newest ${BACKUPS_KEPT} backups are kept`, async (t) => {
   const now = () => clock
   expectReady(await openLocalDb({ path, now })).close()
   const migrations: Migration[] = [...MIGRATIONS]
-  for (let version = 2; version <= 6; version += 1) {
+  for (let version = NEXT; version <= LATEST + 5; version += 1) {
     clock += 1
     migrations.push(
       extra(version, `CREATE TABLE t${version} (x INTEGER) STRICT;`),
@@ -300,9 +307,9 @@ test(`only the newest ${BACKUPS_KEPT} backups are kept`, async (t) => {
     expectReady(await openLocalDb({ path, migrations, now })).close()
   }
   assert.deepEqual(readdirSync(join(dir, 'backups')).sort(), [
-    `corn-v3-${T0 + 3}.sqlite`,
-    `corn-v4-${T0 + 4}.sqlite`,
-    `corn-v5-${T0 + 5}.sqlite`,
+    `corn-v${LATEST + 2}-${T0 + 3}.sqlite`,
+    `corn-v${LATEST + 3}-${T0 + 4}.sqlite`,
+    `corn-v${LATEST + 4}-${T0 + 5}.sqlite`,
   ])
 })
 
@@ -310,7 +317,10 @@ test('an edited applied migration is refused as schema_tampered', async (t) => {
   const path = dbPath(tempDir(t))
   expectReady(await openLocalDb({ path })).close()
   const core = MIGRATIONS[0] as Migration
-  const edited = [{ ...core, sql: `${core.sql}\n-- edited` }]
+  const edited = [
+    { ...core, sql: `${core.sql}\n-- edited` },
+    ...MIGRATIONS.slice(1),
+  ]
   assert.deepEqual(await openLocalDb({ path, migrations: edited }), {
     status: 'schema_tampered',
     reason: 'checksum_mismatch',

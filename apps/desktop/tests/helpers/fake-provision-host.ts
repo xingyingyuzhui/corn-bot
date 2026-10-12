@@ -81,6 +81,8 @@ export class FakeProvisionHost {
   globalDefault: ModelSelection | null = MODEL_A
   /** Replaces the `selectModel` echo (wrong model) when set. */
   selectEcho: ModelSelection | null = null
+  /** Replaces the `session/create` echo's preset when set (Session still created). */
+  createEchoPreset: string | null = null
   #agentSeq = 0
 
   constructor(clock: { value: number }) {
@@ -335,7 +337,9 @@ export class FakeProvisionHost {
         }
         return {
           sessionId: request.sessionId,
-          agentPreset: this.sessions.get(request.sessionId)?.agentPreset,
+          agentPreset:
+            this.createEchoPreset ??
+            this.sessions.get(request.sessionId)?.agentPreset,
         }
       }
       case 'session/modelCatalog':
