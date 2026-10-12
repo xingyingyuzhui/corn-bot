@@ -1,0 +1,149 @@
+diff --git a/lib/index.js b/lib/index.js
+index 3b8507e0ca524eba88d52d62e288b1afd37eb3cc..1e6519ae55c0026fdcafd469469beb833a670d07 100644
+--- a/lib/index.js
++++ b/lib/index.js	
+@@ -718,6 +718,7 @@ var SessionCommandController = class {
+ 	* @returns the normalized selection installed for the Session, without waiting for default persistence.
+ 	*/
+ 	async selectModel(request) {
++		const scope = request.scope ?? "default";
+ 		const agent = await this.resolveAgent(request.sessionId);
+ 		return this.agents.serializeImageAdmission(agent, async () => {
+ 			try {
+@@ -733,10 +734,19 @@ var SessionCommandController = class {
+ 					...resolved.reasoningEffort === void 0 ? {} : { reasoningEffort: resolved.reasoningEffort }
+ 				};
+ 				this.agents.selectForNextRequest(agent, selected);
+-				this.ctx.agentDefaultModel.saveSelection(selected).catch((error) => {
+-					this.ctx.logger.warn(`session-controller: model selection changed for the Session but the default was not saved: ${String(error)}`);
+-				});
+-				return { selected: { ...selected } };
++				switch (scope) {
++					case "session": break;
++					case "default":
++						this.ctx.agentDefaultModel.saveSelection(selected).catch((error) => {
++							this.ctx.logger.warn(`session-controller: model selection changed for the Session but the default was not saved: ${String(error)}`);
++						});
++						break;
++					default: assertNever(scope, "model selection scope");
++				}
++				return {
++					selected: { ...selected },
++					scope
++				};
+ 			} catch (error) {
+ 				if (remoteErrorOf(error) !== void 0) throw error;
+ 				throw new RemoteError("session/model-unavailable", error instanceof Error ? error.message : String(error), {
+diff --git a/lib/typert.host.js b/lib/typert.host.js
+index 57b5a2b7c7544b73c1bded6abb3c938e5499b59b..f34c5323b14ad8a4a8a8667e9506d0aa14966539 100644
+--- a/lib/typert.host.js
++++ b/lib/typert.host.js	
+@@ -828,6 +828,7 @@ const _deepseek_ai_dsh_api_session_controller_session_search_result$schema = ()
+ let _deepseek_ai_dsh_api_session_controller_session_selectModel_parameter_0$schema$value
+ const _deepseek_ai_dsh_api_session_controller_session_selectModel_parameter_0$schema = () => (_deepseek_ai_dsh_api_session_controller_session_selectModel_parameter_0$schema$value ??= z.object({
+   'sessionId': z.intersection(z.string(), z.unknown()).readonly(),
++  'scope': z.union([z.literal("default"), z.literal("session")]).readonly().optional(),
+   'provider': z.string().readonly(),
+   'model': z.string().readonly(),
+   'reasoningEffort': z.string().readonly().optional(),
+@@ -839,6 +840,7 @@ const _deepseek_ai_dsh_api_session_controller_session_selectModel_result$schema
+   'model': z.string().readonly(),
+   'reasoningEffort': z.string().readonly().optional(),
+ }).readonly(),
++  'scope': z.union([z.literal("default"), z.literal("session")]).readonly(),
+ }))
+ let _deepseek_ai_dsh_api_session_controller_session_updateQueue_parameter_0$schema$value
+ const _deepseek_ai_dsh_api_session_controller_session_updateQueue_parameter_0$schema = () => (_deepseek_ai_dsh_api_session_controller_session_updateQueue_parameter_0$schema$value ??= z.object({
+diff --git a/lib/typert.remote-client.js b/lib/typert.remote-client.js
+index 4e6d18f61d7d2b454aff6c33a829b1734ed108c1..20969f6c9a67c76a5d8f4d2783cdab3f581aab06 100644
+--- a/lib/typert.remote-client.js
++++ b/lib/typert.remote-client.js	
+@@ -828,6 +828,7 @@ const _deepseek_ai_dsh_api_session_controller_session_search_result$schema = ()
+ let _deepseek_ai_dsh_api_session_controller_session_selectModel_parameter_0$schema$value
+ const _deepseek_ai_dsh_api_session_controller_session_selectModel_parameter_0$schema = () => (_deepseek_ai_dsh_api_session_controller_session_selectModel_parameter_0$schema$value ??= z.object({
+   'sessionId': z.intersection(z.string(), z.unknown()).readonly(),
++  'scope': z.union([z.literal("default"), z.literal("session")]).readonly().optional(),
+   'provider': z.string().readonly(),
+   'model': z.string().readonly(),
+   'reasoningEffort': z.string().readonly().optional(),
+@@ -839,6 +840,7 @@ const _deepseek_ai_dsh_api_session_controller_session_selectModel_result$schema
+   'model': z.string().readonly(),
+   'reasoningEffort': z.string().readonly().optional(),
+ }).readonly(),
++  'scope': z.union([z.literal("default"), z.literal("session")]).readonly(),
+ }))
+ let _deepseek_ai_dsh_api_session_controller_session_updateQueue_parameter_0$schema$value
+ const _deepseek_ai_dsh_api_session_controller_session_updateQueue_parameter_0$schema = () => (_deepseek_ai_dsh_api_session_controller_session_updateQueue_parameter_0$schema$value ??= z.object({
+diff --git a/lib/types/commands.js b/lib/types/commands.js
+index cd4e27cb4cecab9cecbdce5b6d37185cca1d280c..a82de2b057691372c937323053f81cd1ea2c7978 100644
+--- a/lib/types/commands.js
++++ b/lib/types/commands.js	
+@@ -138,11 +138,13 @@ export class SessionCommandController {
+         return { sessionId, ...(agentPreset === undefined ? {} : { agentPreset }) };
+     }
+     /**
+-     * Validate and install one Session-local model selection; save the default in the background.
+-     * @param request - Session identity and requested model selection.
+-     * @returns the normalized selection installed for the Session, without waiting for default persistence.
++     * Validate and install one Session-local model selection; unless `scope` is
++     * `session`, also save it as the default in the background.
++     * @param request - Session identity, requested model selection, and scope.
++     * @returns the normalized selection and applied scope, without waiting for default persistence.
+      */
+     async selectModel(request) {
++        const scope = request.scope ?? 'default';
+         const agent = await this.resolveAgent(request.sessionId);
+         return this.agents.serializeImageAdmission(agent, async () => {
+             try {
+@@ -162,10 +164,19 @@ export class SessionCommandController {
+                         : { reasoningEffort: resolved.reasoningEffort }),
+                 };
+                 this.agents.selectForNextRequest(agent, selected);
+-                void this.ctx.agentDefaultModel.saveSelection(selected).catch((error) => {
+-                    this.ctx.logger.warn(`session-controller: model selection changed for the Session but the default was not saved: ${String(error)}`);
+-                });
+-                return { selected: { ...selected } };
++                switch (scope) {
++                    case 'session':
++                        break;
++                    case 'default':
++                        void this.ctx.agentDefaultModel.saveSelection(selected).catch((error) => {
++                            this.ctx.logger.warn(`session-controller: model selection changed for the Session but the default was not saved: ${String(error)}`);
++                        });
++                        break;
++                    /* v8 ignore next 2 -- closed-union exhaustiveness guard */
++                    default:
++                        assertNever(scope, 'model selection scope');
++                }
++                return { selected: { ...selected }, scope };
+             }
+             catch (error) {
+                 if (remoteErrorOf(error) !== undefined)
+diff --git a/lib/types/types.d.ts b/lib/types/types.d.ts
+index 1ce67e417fb35bf7ec474878d80c271a1473d8c3..1b1448d709adaa5527e5aebde820677d8f75edb7 100644
+--- a/lib/types/types.d.ts
++++ b/lib/types/types.d.ts	
+@@ -287,13 +287,23 @@ export interface SessionCreateValue {
+     readonly sessionId: SessionId;
+     readonly agentPreset?: string;
+ }
++/**
++ * Where an accepted model selection applies.
++ * - `default`: this Session, and saved as the Agent default that new Sessions read.
++ * - `session`: this Session only; the Agent default and every other Session are unchanged.
++ */
++export type SessionModelSelectionScope = 'default' | 'session';
+ /** Session model-selection request. */
+ export interface SessionSelectModelRequest extends ModelSelection {
+     readonly sessionId: SessionId;
++    /** Selection scope; omitted means `default`. */
++    readonly scope?: SessionModelSelectionScope;
+ }
+ /** Accepted model selection after Host resolution. */
+ export interface SessionSelectModelValue {
+     readonly selected: ModelSelection;
++    /** Scope the Host applied to the selection. */
++    readonly scope: SessionModelSelectionScope;
+ }
+ /** Session rename request. */
+ export interface SessionRenameRequest {

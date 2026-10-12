@@ -5,9 +5,9 @@ Corn reads the research kit as a pinned, read-only design input. Nothing from it
 | Field | Value |
 | --- | --- |
 | Repository | `xingyingyuzhui/grok-bot-ui-ux-kit` (private research repository) |
-| Pinned commit | `0248419b80dde84560409802afb98f38803df52c` (2026-10-11, "Restore original website avatar motion and document reusable animation APIs") |
-| Superseded pin | `c51253833ca89e14cb3630832efe3a612d2afb3f`; one commit, 45 files changed |
-| Comparison | `https://github.com/xingyingyuzhui/grok-bot-ui-ux-kit/compare/c51253833ca89e14cb3630832efe3a612d2afb3f...0248419b80dde84560409802afb98f38803df52c` |
+| Pinned commit | `5bb4379e9ec1158b9ec29c3c5f1e2cc6604be5af` (2026-10-11, "Audit all avatar states and document cross-source motion differences") |
+| Superseded pin | `0248419b80dde84560409802afb98f38803df52c`; two commits, 25 files changed. The earlier pin `c51253833ca89e14cb3630832efe3a612d2afb3f` was superseded by `0248419` |
+| Comparison | `https://github.com/xingyingyuzhui/grok-bot-ui-ux-kit/compare/0248419b80dde84560409802afb98f38803df52c...5bb4379e9ec1158b9ec29c3c5f1e2cc6604be5af` |
 | Local checkout | `.research/grok-bot-ui-ux-kit` (git-ignored); override with `CORN_UI_KIT_DIR` |
 | Original application run | **No.** Grok Bot 0.68.1 was never launched or signed in to for this research |
 | Recorded | 2026-10-11 |
@@ -16,9 +16,11 @@ Corn reads the research kit as a pinned, read-only design input. Nothing from it
 
 ```sh
 git clone https://github.com/xingyingyuzhui/grok-bot-ui-ux-kit.git .research/grok-bot-ui-ux-kit
-git -C .research/grok-bot-ui-ux-kit checkout 0248419b80dde84560409802afb98f38803df52c
+git -C .research/grok-bot-ui-ux-kit checkout 5bb4379e9ec1158b9ec29c3c5f1e2cc6604be5af
 pnpm verify:ui-kit
 ```
+
+An existing checkout moves to a new pin with `git -C .research/grok-bot-ui-ux-kit fetch origin` followed by the same `checkout`. A Corn worktree has no `.research/` of its own; point `CORN_UI_KIT_DIR` at a kit checkout (or a `git worktree` of it) at the pinned commit.
 
 The repository is private, so CI has no checkout and reports `status: "skipped"` with a diagnostic. Use `--strict` or `CORN_UI_KIT_STRICT=1` where the checkout is required. With a checkout, the script fails on a different HEAD, a drifted pinned file, or any Corn file that is a byte-for-byte copy of a kit file (256 bytes or larger).
 
@@ -46,6 +48,7 @@ Pinned SHA-256 values are in `kit.lock.json`.
 | `docs/replication-checklist.md` | 83-item acceptance list (sections A–I), mapped in PR-02B |
 | `docs/capture-plan.md` | Facts still requiring live observation |
 | `docs/avatar-animation.md`, `src/avatar.d.ts`, `assets/avatar-motion/catalog.json`, `docs/avatar-motion-validation.json`, `tests/avatar.test.js` | Avatar state and timing vocabulary |
+| `docs/avatar-state-audit.md`, `docs/avatar-state-catalog.md`, `docs/avatar-reference.md` | Per-state DMG 0.68.1 behaviour audit (phases, timings, morph and recovery structure, compact sizes) and website-versus-DMG differences; behaviour reference for PR-02D, never geometry |
 | `src/composer.js` | Composer behaviour contract (to be rewritten in TypeScript, not copied) |
 
 ## Reference environment result

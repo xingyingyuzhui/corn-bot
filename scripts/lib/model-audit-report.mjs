@@ -143,6 +143,7 @@ export async function runAudit({
   body,
   labParent,
   timing,
+  spawnHost,
   handleSignals = false,
   log = console.log,
 }) {
@@ -184,6 +185,7 @@ export async function runAudit({
       label,
       parent: labParent,
       timing,
+      spawnHost,
       signal: controller.signal,
     })
     controller.signal.throwIfAborted()

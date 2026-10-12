@@ -7,6 +7,7 @@ import { setTimeout as delay } from 'node:timers/promises'
 import { fileURLToPath } from 'node:url'
 import { CLAW_ADMISSION } from '../apps/desktop/src/runtime/claw-runtime-check.ts'
 import { DshHostSupervisor } from '../apps/desktop/src/runtime/dsh-host-supervisor.ts'
+import { systemProcessTable } from '../apps/desktop/src/runtime/host-descendants.ts'
 import {
   assertIsolatedHome,
   defaultDevelopmentHome,
@@ -277,13 +278,14 @@ async function run(scenario) {
         children.push(child)
         return child
       },
+      processTable: systemProcessTable,
     }
     runtime = scenario.build
       ? scenario.build(home, seams)
       : createAppRuntime(
           {
             home,
-            modelEnvFile: join(home, 'no-model.env'),
+            devModelOverrideFile: undefined,
             profileTemplate: undefined,
           },
           seams,

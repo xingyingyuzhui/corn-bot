@@ -1,4 +1,5 @@
 import type { CornAvatarShape } from '@corn-bot/contracts/avatar'
+import type { AvatarMorph } from './motion-frame.ts'
 import type { CornAvatarVariant } from './variants.ts'
 
 /**
@@ -68,6 +69,8 @@ export interface AvatarFrame {
   readonly expression?: AvatarExpression
   readonly phase?: number
   readonly decoration?: AvatarDecoration
+  /** Motion frames only; still frames never carry a morph. */
+  readonly morph?: AvatarMorph
 }
 
 /**
@@ -364,6 +367,135 @@ function decoration(
   }
 }
 
+/** Resting body shrinks towards the figure centre as a morph takes over. */
+const MORPH_CORE_SHRINK = 0.42
+const CENTRE_X = 64
+const CENTRE_Y = 70
+const PENCIL_TIP_X = 92
+const PENCIL_TIP_Y = 105
+
+const unit = (value: number) => clamp(value, 0, 0, 1)
+
+function morphNodes(
+  morph: AvatarMorph,
+  color: string,
+  detail: AvatarDetail,
+): readonly SvgNode[] {
+  const weight = unit(morph.weight)
+  if (weight === 0) return []
+  const width = detail === 'compact' ? '5' : '3'
+  const line = { ...ink(color), 'stroke-width': width }
+  switch (morph.kind) {
+    case 'thinking':
+      return [
+        el(
+          'g',
+          { fill: color },
+          morph.sideDots.map((dot, index) =>
+            el('circle', {
+              cx: n(CENTRE_X + (index === 0 ? -30 : 30)),
+              cy: n(CENTRE_Y - clamp(dot.lift, 0, 0, 1) * 8),
+              r: n(5 * clamp(dot.scale, 1, 0.5, 1.5)),
+              opacity: n(unit(dot.opacity) * weight),
+            }),
+          ),
+        ),
+      ]
+    case 'radar':
+      return morph.rings.map((ring) =>
+        el('circle', {
+          cx: n(CENTRE_X),
+          cy: n(CENTRE_Y),
+          r: n(clamp(ring.radius, 0, 0, 64)),
+          fill: 'none',
+          stroke: color,
+          'stroke-opacity': n(unit(ring.opacity) * weight),
+          'stroke-width': width,
+        }),
+      )
+    case 'progress': {
+      const fill = unit(morph.fill)
+      const radius = 44
+      const angle = fill * Math.PI * 2
+      const track = el('circle', {
+        cx: n(CENTRE_X),
+        cy: n(CENTRE_Y),
+        r: String(radius),
+        fill: 'none',
+        stroke: color,
+        'stroke-opacity': n(0.15 * weight),
+        'stroke-width': width,
+      })
+      if (fill === 0) return [track]
+      const arc =
+        fill === 1
+          ? el('circle', {
+              cx: n(CENTRE_X),
+              cy: n(CENTRE_Y),
+              r: String(radius),
+              ...line,
+              opacity: n(weight),
+            })
+          : el('path', {
+              d: `M${n(CENTRE_X)} ${n(CENTRE_Y - radius)} A${radius} ${radius} 0 ${fill > 0.5 ? 1 : 0} 1 ${n(CENTRE_X + radius * Math.sin(angle))} ${n(CENTRE_Y - radius * Math.cos(angle))}`,
+              ...line,
+              opacity: n(weight),
+            })
+      return [track, arc]
+    }
+    case 'writing': {
+      const points = morph.ink.filter(
+        (point) => Number.isFinite(point.x) && Number.isFinite(point.y),
+      )
+      const penX = clamp(morph.pen.x, CENTRE_X, -64, 192)
+      const penY =
+        clamp(morph.pen.y, CENTRE_Y, -64, 192) -
+        clamp(morph.pen.lift, 0, 0, 1) * 8
+      return [
+        ...(points.length > 1
+          ? [
+              el('path', {
+                d: points
+                  .map(
+                    (point, index) =>
+                      `${index === 0 ? 'M' : 'L'}${n(point.x)} ${n(point.y)}`,
+                  )
+                  .join(' '),
+                ...line,
+                opacity: n(weight),
+              }),
+            ]
+          : []),
+        el(
+          'g',
+          {
+            transform: `translate(${n(penX - PENCIL_TIP_X)} ${n(penY - PENCIL_TIP_Y)})`,
+            opacity: n(weight),
+          },
+          decoration('pencil', 0, color),
+        ),
+      ]
+    }
+    case 'alerting':
+      return [
+        el(
+          'g',
+          {
+            transform: `translate(${n(clamp(morph.shake, 0, -1, 1) * 4)} 0)`,
+            opacity: n(weight),
+          },
+          decoration('alert', 0, color),
+        ),
+      ]
+    default: {
+      const unknown: never = morph
+      throw new RangeError(
+        `Unknown avatar morph: ${String((unknown as AvatarMorph).kind)}`,
+      )
+    }
+  }
+}
+
 const SEAMS =
   'M21 48 Q65 33 112 62 M19 79 Q67 62 111 94 M49 114 Q46 57 79 10 M79 119 Q89 70 102 23'
 
@@ -383,8 +515,12 @@ export function cornAvatarArtwork(options: ArtworkOptions): readonly SvgNode[] {
   const tilt = clamp(frame.tilt, 0, -720, 720) % 360
   const dx = clamp(frame.shiftX, 0, -8, 8)
   const dy = clamp(frame.shiftY, 0, -8, 8)
-  const scale = clamp(frame.scale, 1, 0.8, 1.12)
-  const openness = clamp(frame.eyeOpen, 1, 0, 1)
+  const morph = frame.morph
+  const morphWeight = morph ? unit(morph.weight) : 0
+  const scale =
+    clamp(frame.scale, 1, 0.8, 1.12) * (1 - MORPH_CORE_SHRINK * morphWeight)
+  const openness =
+    clamp(frame.eyeOpen, 1, 0, 1) * Math.max(0, 1 - 2 * morphWeight)
   const gazeX = clamp(frame.gazeX, 0, -3, 3)
   const gazeY = clamp(frame.gazeY, 0, -3, 3)
   const [leftX, leftY, rightX, rightY] = geo.eyes
@@ -425,10 +561,14 @@ export function cornAvatarArtwork(options: ArtworkOptions): readonly SvgNode[] {
       el('path', { d: geo.left, fill: variant.husk }),
       el('path', { d: geo.right, fill: variant.husk }),
       ...(geo.extra ? [el('path', { d: geo.extra, fill: variant.husk })] : []),
-      el('g', { transform: `translate(${n(gazeX)} ${n(gazeY)})` }, [
-        eye(leftX, leftY, openness, frame.expression, 0, variant.eye),
-        eye(rightX, rightY, openness, frame.expression, 1, variant.eye),
-      ]),
+      ...(morph?.eyesHidden
+        ? []
+        : [
+            el('g', { transform: `translate(${n(gazeX)} ${n(gazeY)})` }, [
+              eye(leftX, leftY, openness, frame.expression, 0, variant.eye),
+              eye(rightX, rightY, openness, frame.expression, 1, variant.eye),
+            ]),
+          ]),
     ],
   )
   return [
@@ -441,6 +581,7 @@ export function cornAvatarArtwork(options: ArtworkOptions): readonly SvgNode[] {
       : []),
     figure,
     ...decoration(frame.decoration, phase, variant.eye),
+    ...(morph ? morphNodes(morph, variant.eye, detail) : []),
   ]
 }
 

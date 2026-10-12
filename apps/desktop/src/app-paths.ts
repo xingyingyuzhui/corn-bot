@@ -1,5 +1,4 @@
 import { join, resolve } from 'node:path'
-import { defaultModelEnvFile } from './runtime/model-provider.ts'
 import { defaultDevelopmentHome } from './runtime/profile-bootstrap.ts'
 
 export interface AppPaths {
@@ -7,7 +6,12 @@ export interface AppPaths {
   readonly preload: string
   readonly artifacts: string
   readonly home: string
-  readonly modelEnvFile: string
+  /**
+   * Explicit development model override (`CORN_DEV_MODEL_ENV_FILE`), honoured
+   * only by unpackaged builds. Absent by default: the App boots keyless and is
+   * configured through Settings.
+   */
+  readonly devModelOverrideFile: string | undefined
   /** Packaged builds seed Corn's profile from this verified bundle; development uses DSH's template. */
   readonly profileTemplate: string | undefined
 }
@@ -32,7 +36,7 @@ export function resolveAppPaths(
       preload,
       artifacts: join(root, '.artifacts'),
       home: env.CORN_DSH_HOME ?? defaultDevelopmentHome(),
-      modelEnvFile: env.CORN_MODEL_ENV_FILE ?? defaultModelEnvFile(),
+      devModelOverrideFile: env.CORN_DEV_MODEL_ENV_FILE || undefined,
       profileTemplate: undefined,
     }
   }
@@ -41,8 +45,7 @@ export function resolveAppPaths(
     preload,
     artifacts: env.CORN_ARTIFACTS_DIR ?? join(location.userData, 'artifacts'),
     home: env.CORN_DSH_HOME ?? join(location.userData, 'dsh'),
-    modelEnvFile:
-      env.CORN_MODEL_ENV_FILE ?? join(location.userData, 'model.env'),
+    devModelOverrideFile: undefined,
     profileTemplate: join(location.resourcesPath, 'profile-template'),
   }
 }

@@ -6,6 +6,22 @@
     "tag": "dsh-v0.2.0-rc.2",
     "commit": "639ed015397290b3745d163aafe02ffee4aa3f84"
   },
+  "dshPatches": [
+    {
+      "id": "U1",
+      "package": "@deepseek-ai/dsh-api-session-controller",
+      "version": "0.2.0-rc.2",
+      "patch": "patches/@deepseek-ai__dsh-api-session-controller@0.2.0-rc.2.patch",
+      "sha256": "8873ba286b50882e1117d4ef5d0ba4e3cabd67b02ab47648f68d32da723e15dd",
+      "files": {
+        "lib/index.js": "5b03b914e75c478d3468282abc6c7aeaff74700e626f3dd4ac39f412e6a619ca",
+        "lib/typert.host.js": "87486ebe384e7b7a48b83c7e7650080e73f0728667b3e757d456e416ce644ecb",
+        "lib/typert.remote-client.js": "0db7024a567bab8b5d3c20e8f2ba41de25c643edbf3205982d8e728f7274fb50",
+        "lib/types/commands.js": "0cabcda35a2cdca441496373075e30ca026c363475e16d5ec198b678869a1055",
+        "lib/types/types.d.ts": "0712b98e04f68a17a913df7aafaa55f91f175fa4f58b84bcf4d4a45f0deb712f"
+      }
+    }
+  ],
   "claw": {
     "version": "0.3.0-rc.2",
     "release": "https://github.com/xingyingyuzhui/dsh-claw-suite/releases/tag/v0.3.0-rc.2",

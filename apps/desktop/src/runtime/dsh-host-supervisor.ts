@@ -3,7 +3,17 @@ import { existsSync } from 'node:fs'
 import { createRequire } from 'node:module'
 import { dirname, join } from 'node:path'
 import { DSH_VERSION } from '../../../../packages/contracts/src/runtime.ts'
+import { DSH_PATCHES, type DshPatch, verifyDshPatches } from './dsh-patch.ts'
 import { HostAuth } from './host-auth.ts'
+import {
+  formatReclaim,
+  HostDescendants,
+  NO_PROCESS_TABLE,
+  type ProcessTable,
+  type ReclaimReason,
+  type ReclaimReport,
+  systemProcessTable,
+} from './host-descendants.ts'
 import {
   parseReadinessLine,
   parseSkippedBundleLine,
@@ -11,6 +21,8 @@ import {
 } from './host-readiness.ts'
 import {
   type CornModelConfig,
+  type ModelOverrideFacts,
+  overrideFacts,
   resolveCornModelConfig,
 } from './model-provider.ts'
 import { acquireProcessLock } from './process-lock.ts'
@@ -35,6 +47,13 @@ export const DSH_INSTALL_ANCHOR = require.resolve(
 const cliEntry = join(dirname(DSH_INSTALL_ANCHOR), 'lib', 'bin.js')
 const READINESS_TIMEOUT_MS = 45_000
 const STOP_TIMEOUTS: StopTimeouts = { graceMs: 8_000, killMs: 5_000 }
+/** How stale the descendant record may be when the Host dies without a stop. */
+const DESCENDANT_POLL_MS = 2_000
+
+function logReclaim(report: ReclaimReport): void {
+  const line = formatReclaim(report)
+  if (line !== undefined) console.info(line)
+}
 
 export interface StopTimeouts {
   /** SIGTERM → SIGKILL. */
@@ -89,10 +108,14 @@ export interface SupervisorOptions {
   /** Chosen explicitly by every caller: the App's governed entry or a setup-only bootstrap. */
   readonly admission: HostAdmission
   readonly onFailure?: (message: string) => void
-  /** `undefined` resolves the private Corn model configuration at each start; `null` boots keyless. */
+  /** Explicit model for a script-driven smoke; absent or `null` boots keyless unless `devModelOverrideFile` is set. */
   readonly model?: CornModelConfig | null
-  /** Private model file the App selected; read lazily inside each start. */
-  readonly modelEnvFile?: string
+  /**
+   * Development-only override file, read lazily inside each start. The App
+   * passes one only for an unpackaged build started with an explicit path;
+   * production and the default development App boot keyless.
+   */
+  readonly devModelOverrideFile?: string | undefined
   /** Verified bundled profile used instead of DSH's online template on first start. */
   readonly profileTemplate?: string | undefined
   /** Test seam; production spawns the bundled DSH CLI. */
@@ -104,6 +127,14 @@ export interface SupervisorOptions {
   ) => Promise<HostAuth>
   /** Test seam; production uses `STOP_TIMEOUTS`. */
   readonly stopTimeouts?: StopTimeouts
+  /** Test seam; production verifies the locked `DSH_PATCHES`. */
+  readonly dshPatches?: readonly DshPatch[]
+  /** Test seam; production reads `ps`. A substituted `spawnHost` defaults to no table. */
+  readonly processTable?: ProcessTable
+  /** Test seam; production uses `DESCENDANT_POLL_MS`. */
+  readonly descendantPollMs?: number
+  /** Receives every descendant reclaim; production logs non-empty ones. */
+  readonly onReclaim?: (report: ReclaimReport) => void
 }
 
 async function seedProfile(template: string, profile: string): Promise<void> {
@@ -121,7 +152,7 @@ async function seedProfile(template: string, profile: string): Promise<void> {
 /** One spawned Host process; every startup step is bound to its lifetime. */
 class ChildLife {
   readonly child: ChildProcess
-  /** Aborted when the child exits or errors, or when a stop is requested. */
+  /** Aborted at the child's `exit` (not its pipe `close`) or error, or when a stop is requested. */
   readonly controller = new AbortController()
   /** The process is gone (`exit`, `close` or a failed spawn); its pipes may still be open. */
   readonly exited: Promise<void>
@@ -135,9 +166,16 @@ class ChildLife {
   reported = false
   readonly skippedBundles = new Set<string>()
   stderrPending = ''
+  /** Absent when the spawn published no pid. */
+  readonly descendants: HostDescendants | undefined
+  reclaimed: Promise<void> | undefined
 
-  constructor(child: ChildProcess) {
+  constructor(child: ChildProcess, table: ProcessTable) {
     this.child = child
+    this.descendants =
+      child.pid === undefined
+        ? undefined
+        : new HostDescendants(table, child.pid)
     let exited!: () => void
     this.exited = new Promise((resolve) => {
       exited = () => {
@@ -175,11 +213,16 @@ export class DshHostSupervisor {
   readonly home: string
   readonly onFailure: (message: string) => void
   readonly model: CornModelConfig | null | undefined
-  readonly modelEnvFile: string | undefined
+  readonly devModelOverrideFile: string | undefined
   readonly profileTemplate: string | undefined
+  #modelOverride: ModelOverrideFacts | null = null
   readonly #admission: HostAdmission
   readonly #stopTimeouts: StopTimeouts
+  readonly #dshPatches: readonly DshPatch[]
   readonly #spawnHost: SpawnHost
+  readonly #processTable: ProcessTable
+  readonly #descendantPollMs: number
+  readonly #onReclaim: (report: ReclaimReport) => void
   readonly #exchangeAuth: (
     launch: URL,
     signal: AbortSignal,
@@ -190,16 +233,27 @@ export class DshHostSupervisor {
     this.#admission = options.admission
     this.onFailure = options.onFailure ?? (() => {})
     this.model = options.model
-    this.modelEnvFile = options.modelEnvFile
+    this.devModelOverrideFile = options.devModelOverrideFile
     this.profileTemplate = options.profileTemplate
     this.#stopTimeouts = options.stopTimeouts ?? STOP_TIMEOUTS
+    this.#dshPatches = options.dshPatches ?? DSH_PATCHES
     this.#spawnHost = options.spawnHost ?? spawn
+    this.#processTable =
+      options.processTable ??
+      (options.spawnHost ? NO_PROCESS_TABLE : systemProcessTable)
+    this.#descendantPollMs = options.descendantPollMs ?? DESCENDANT_POLL_MS
+    this.#onReclaim = options.onReclaim ?? logReclaim
     this.#exchangeAuth = options.exchangeAuth ?? HostAuth.exchange
   }
 
   /** Main-only process ownership diagnostics; never exposed over Renderer IPC. */
   get processId(): number | undefined {
     return this.#life?.child.pid
+  }
+
+  /** What the current start injected for a model override; never carries the key. */
+  get modelOverride(): ModelOverrideFacts | null {
+    return this.#modelOverride
   }
 
   /** Main-only diagnostic: Host processes spawned by this supervisor. */
@@ -234,6 +288,7 @@ export class DshHostSupervisor {
         'runtime_version_mismatch',
         'Installed DSH runtime differs from the locked version',
       )
+    await verifyDshPatches(DSH_INSTALL_ANCHOR, this.#dshPatches)
     try {
       await claimCornHome(this.home)
     } catch (error) {
@@ -254,7 +309,9 @@ export class DshHostSupervisor {
     }
     try {
       this.#throwIfStopRequested()
+      this.#modelOverride = null
       const model = this.#resolveModel()
+      this.#modelOverride = model && overrideFacts(model)
       const patch = await writeIsolationPatch(this.home, model)
       const args = [cliEntry, CORN_PROFILE]
       const profile = join(this.home, 'profiles', CORN_PROFILE)
@@ -303,8 +360,12 @@ export class DshHostSupervisor {
       env: cornHostEnvironment(this.home, model),
       stdio: ['ignore', 'pipe', 'pipe'],
     })
-    const life = new ChildLife(child)
+    const life = new ChildLife(child, this.#processTable)
     this.#life = life
+    life.descendants?.watch(this.#descendantPollMs)
+    void life.exited.then(() => {
+      if (!life.stopping) void this.#reclaim(life, 'crash')
+    })
     child.on('error', (error) => {
       life.controller.abort(
         new RuntimeFailure(
@@ -314,13 +375,16 @@ export class DshHostSupervisor {
         ),
       )
     })
-    child.once('close', (code, signal) => {
+    // `exit` ends this generation even if a descendant keeps the pipes open; a later `close` only finds it reported.
+    const ended = (code: number | null, signal: NodeJS.Signals | null) => {
       const message = `DSH exited (${String(code ?? signal)}): ${this.#life === life ? this.#diagnostic : ''}`
       life.controller.abort(new RuntimeFailure('host_unavailable', message))
       if (!life.committed || life.stopping || life.reported) return
       life.reported = true
       this.onFailure(message)
-    })
+    }
+    child.once('exit', ended)
+    child.once('close', ended)
     child.stderr?.setEncoding('utf8').on('data', (chunk: string) => {
       if (this.#life !== life) return
       this.#diagnostic = redactHostDiagnostic(
@@ -399,13 +463,13 @@ export class DshHostSupervisor {
     })
   }
 
+  /** Never consults the process environment: only an explicit model or override file. */
   #resolveModel(): CornModelConfig | null {
     if (this.model !== undefined) return this.model
-    return resolveCornModelConfig(
-      this.modelEnvFile === undefined
-        ? process.env
-        : { ...process.env, CORN_MODEL_ENV_FILE: this.modelEnvFile },
-    )
+    if (this.devModelOverrideFile === undefined) return null
+    return resolveCornModelConfig({
+      CORN_MODEL_ENV_FILE: this.devModelOverrideFile,
+    })
   }
 
   /** Cancels any in-flight start (readiness, auth) before stopping its child. */
@@ -448,21 +512,44 @@ export class DshHostSupervisor {
     }
   }
 
-  /** TERM → grace → KILL → bounded wait for exit; a confirmed exit gets a bounded wait for its pipes. */
+  /**
+   * TERM → grace → KILL → bounded wait for exit; a confirmed exit then reclaims
+   * the Host's descendants and gets a bounded wait for its pipes. Each signal
+   * is preceded by a fresh descendant record while the tree is still intact.
+   */
   async #terminate(life: ChildLife): Promise<void> {
     const { child } = life
     const { graceMs, killMs } = this.#stopTimeouts
     if (!life.exitConfirmed) {
       if (!life.killed) {
+        await life.descendants?.refresh()
         child.kill('SIGTERM')
-        if (await settlesWithin(life.exited, graceMs)) return this.#drain(life)
+        if (await settlesWithin(life.exited, graceMs)) return this.#settle(life)
       }
       life.killed = true
+      await life.descendants?.refresh()
       child.kill('SIGKILL')
       if (!(await settlesWithin(life.exited, killMs)))
         throw new HostStopTimeoutError(child.pid)
     }
+    await this.#settle(life)
+  }
+
+  async #settle(life: ChildLife): Promise<void> {
+    await this.#reclaim(life, 'stop')
     await this.#drain(life)
+  }
+
+  /** Once per child, after its exit; a crash reclaim started earlier is reused by the stop. */
+  #reclaim(life: ChildLife, reason: ReclaimReason): Promise<void> {
+    const { descendants } = life
+    life.reclaimed ??= descendants
+      ? descendants
+          .reclaim(reason, this.#stopTimeouts.killMs)
+          .then(this.#onReclaim)
+          .catch(() => {})
+      : Promise.resolve()
+    return life.reclaimed
   }
 
   async #drain(life: ChildLife): Promise<void> {

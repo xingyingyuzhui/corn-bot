@@ -11,6 +11,7 @@ export function isTerminal(code: RuntimeErrorCode): boolean {
     case 'runtime_home_rejected':
     case 'runtime_home_locked':
     case 'runtime_version_mismatch':
+    case 'runtime_patch_mismatch':
     case 'claw_missing':
     case 'claw_version_mismatch':
     case 'claw_disabled':

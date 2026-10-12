@@ -8,6 +8,8 @@ export type RuntimeStatus =
 /**
  * Closed set of safe startup failure reasons. Each names a category only; the
  * Renderer never receives keys, cookies, launch URLs, stacks or raw config.
+ * `model_config_*` can only come from an explicit development model override;
+ * production model configuration is a model status, never a startup failure.
  */
 export const RUNTIME_ERROR_CODES = [
   'model_config_invalid',
@@ -16,6 +18,7 @@ export const RUNTIME_ERROR_CODES = [
   'runtime_home_rejected',
   'runtime_home_locked',
   'runtime_version_mismatch',
+  'runtime_patch_mismatch',
   'claw_missing',
   'claw_version_mismatch',
   'claw_disabled',

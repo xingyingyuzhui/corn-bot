@@ -1,7 +1,10 @@
 import assert from 'node:assert/strict'
 import { existsSync } from 'node:fs'
+import { readFile, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { test } from 'node:test'
+import { ModelSettingsService } from '../src/model-settings/service.ts'
+import { FakeModelHost } from './helpers/fake-model-host.ts'
 import {
   type HarnessOptions,
   RuntimeHarness,
@@ -31,13 +34,13 @@ function lockHeld(harness: RuntimeHarness): boolean {
 for (const [label, options, code] of [
   [
     'mode-600 file without a key',
-    { modelEnv: 'CORN_MODEL_PROVIDER=deepseek-official\nCORN_MODEL_ID=x\n' },
+    { devOverride: 'CORN_MODEL_PROVIDER=deepseek-official\nCORN_MODEL_ID=x\n' },
     'model_config_invalid',
   ],
   [
     'unknown provider',
     {
-      modelEnv:
+      devOverride:
         'CORN_MODEL_PROVIDER=openai\nCORN_MODEL_ID=x\nCORN_MODEL_API_KEY=fixture\n',
     },
     'model_config_invalid',
@@ -45,16 +48,16 @@ for (const [label, options, code] of [
   [
     'mode-644 file',
     {
-      modelEnv: 'CORN_MODEL_PROVIDER=deepseek-official\n',
-      modelEnvMode: 0o644,
+      devOverride: 'CORN_MODEL_PROVIDER=deepseek-official\n',
+      devOverrideMode: 0o644,
     },
     'model_config_permissions',
   ],
   [
     'unreadable file',
     {
-      modelEnv: 'CORN_MODEL_PROVIDER=deepseek-official\n',
-      modelEnvMode: 0o200,
+      devOverride: 'CORN_MODEL_PROVIDER=deepseek-official\n',
+      devOverrideMode: 0o200,
     },
     'model_config_unreadable',
   ],
@@ -93,7 +96,7 @@ test(
     })
     await withHarness(
       {
-        modelEnv:
+        devOverride:
           'CORN_MODEL_PROVIDER=xiaomi-token-plan-cn\nCORN_MODEL_ID=mimo-v2.6-flash\nCORN_MODEL_API_KEY=fixture-not-a-key\n',
       },
       async (harness) => {
@@ -102,6 +105,92 @@ test(
         const env = harness.children[0]?.env ?? {}
         assert.equal(env.XIAOMI_TOKEN_PLAN_CN_API_KEY, 'fixture-not-a-key')
         assert.equal(env.DEEPSEEK_API_KEY, undefined)
+      },
+    )
+  },
+)
+
+test(
+  'default start ignores CORN_MODEL_* and model.env: keyless Host reaches ready, model needs configuration',
+  TIMEOUT,
+  async () => {
+    const legacy = {
+      CORN_MODEL_PROVIDER: 'deepseek-official',
+      CORN_MODEL_ID: 'deepseek-flash',
+      CORN_MODEL_API_KEY: 'sk-corn-wp3-FAKE-0000',
+      DEEPSEEK_API_KEY: 'sk-corn-wp3-FAKE-0000',
+    }
+    const saved = Object.fromEntries(
+      Object.keys(legacy).map((key) => [key, process.env[key]]),
+    )
+    Object.assign(process.env, legacy)
+    try {
+      await withHarness({}, async (harness) => {
+        await writeFile(
+          join(harness.root, 'model.env'),
+          'CORN_MODEL_PROVIDER=xiaomi-token-plan-cn\nCORN_MODEL_ID=x\nCORN_MODEL_API_KEY=sk-corn-wp3-FAKE-0000\n',
+          { mode: 0o600 },
+        )
+        await harness.control.start()
+        assert.equal(harness.control.view.status, 'ready')
+        assert.equal(harness.runtime.host.modelOverride, null)
+        const child = harness.children[0]
+        assert.ok(child)
+        assert.doesNotMatch(JSON.stringify(child.env), /FAKE/u)
+        const patch = child.args[child.args.indexOf('--patch') + 1]
+        assert.ok(patch)
+        const rows = JSON.parse(await readFile(patch, 'utf8')) as Array<{
+          id: string
+        }>
+        assert.deepEqual(
+          rows.map((row) => row.id),
+          ['workspace-controller'],
+        )
+        assert.equal(existsSync(join(harness.home, '.env')), false)
+        const models = new ModelSettingsService({
+          authority: () =>
+            harness.control.view.status === 'ready'
+              ? harness.control.auth
+              : undefined,
+          devOverride: () => harness.runtime.host.modelOverride,
+          api: () => new FakeModelHost(),
+        })
+        const snapshot = await models.read()
+        assert.ok(snapshot.ok)
+        assert.deepEqual(snapshot.value.status, {
+          status: 'needs_configuration',
+          reason: 'credential_missing',
+          devOverride: false,
+        })
+      })
+    } finally {
+      for (const [key, value] of Object.entries(saved))
+        if (value === undefined) delete process.env[key]
+        else process.env[key] = value
+    }
+  },
+)
+
+test(
+  'an explicit development override is labelled and locks only its own route',
+  TIMEOUT,
+  async () => {
+    await withHarness(
+      {
+        devOverride:
+          'CORN_MODEL_PROVIDER=xiaomi-token-plan-cn\nCORN_MODEL_ID=mimo-v2.6-flash\nCORN_MODEL_API_KEY=fixture-not-a-key\n',
+      },
+      async (harness) => {
+        await harness.control.start()
+        assert.deepEqual(harness.runtime.host.modelOverride, {
+          route: 'xiaomi-token-plan-cn',
+          ref: 'XIAOMI_TOKEN_PLAN_CN_API_KEY',
+          lockedNamespaces: ['llm-pi-ai'],
+        })
+        assert.doesNotMatch(
+          JSON.stringify(harness.runtime.host.modelOverride),
+          /fixture-not-a-key/u,
+        )
       },
     )
   },
