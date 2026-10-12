@@ -32,3 +32,9 @@ Plan v1.3 §13 adds animated Bot avatars. The research kit recovered two working
 - PR-02D needs original visual design work, not porting. Reviewers compare silhouettes against the kit gallery to confirm the forms are clearly distinct.
 - `pnpm verify:ui-kit` blocks byte copies of kit files. Visual similarity and traced geometry still need human review in PR-02D.
 - PR-09A extends `scripts/audit-ui-assets.mjs` so that the packaged app contains no kit-derived code, geometry, fonts, images or audio.
+
+## Amendment 2026-10-12: DMG-timed behaviour
+
+Maintainer decision for PR-02D-2. The behaviour reference is the DMG 0.68.1 engine as audited in the research kit (`docs/avatar-state-audit.md`, `docs/avatar-state-catalog.md`, `docs/avatar-reference.md`). Decision point 3 is narrowed accordingly: Corn re-implements that behaviour in its own TypeScript, matching state semantics, cycle lengths and phases, morph structure and morph-to-rest recovery, ring and dot counts, time-based sampling, compact behaviour below 48 px and visible overflow. Examples are writing 2500 ms (68% pen down, 32% lift), searching as a 1300 ms radar with three staggered rings, progress 2500 ms shown and 1500 ms at rest with the eyes back, and alerting as a damped 2.2 s shake.
+
+Point 1 is unchanged: no kit or Grok source, minified code, SVG path data, asset or exact morph geometry enters Corn, and the Corn body and eyes stay Corn-original. Animation state is not task state. The engine renders only the state it is given and never moves on by itself; where DMG hands a state over to another after a hold, as `waking` does to `idle` after 1.6 s, Corn settles the pose inside the same state.

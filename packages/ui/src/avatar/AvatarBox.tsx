@@ -1,4 +1,4 @@
-import type { CSSProperties, ReactNode } from 'react'
+import type { CSSProperties, ReactNode, Ref } from 'react'
 import './avatar.css'
 
 export interface AvatarBoxProps {
@@ -6,6 +6,7 @@ export interface AvatarBoxProps {
   /** Without a label the avatar is decorative; the name stays real text nearby. */
   readonly label?: string | undefined
   readonly style?: CSSProperties
+  readonly ref?: Ref<HTMLSpanElement>
   readonly children: ReactNode
   readonly [data: `data-${string}`]: string | undefined
 }
@@ -15,6 +16,7 @@ export function AvatarBox({
   size,
   label,
   style,
+  ref,
   children,
   ...data
 }: AvatarBoxProps) {
@@ -22,6 +24,7 @@ export function AvatarBox({
   return label ? (
     <span
       {...data}
+      ref={ref}
       className="corn-avatar"
       style={sized}
       role="img"
@@ -30,7 +33,13 @@ export function AvatarBox({
       {children}
     </span>
   ) : (
-    <span {...data} className="corn-avatar" style={sized} aria-hidden="true">
+    <span
+      {...data}
+      ref={ref}
+      className="corn-avatar"
+      style={sized}
+      aria-hidden="true"
+    >
       {children}
     </span>
   )

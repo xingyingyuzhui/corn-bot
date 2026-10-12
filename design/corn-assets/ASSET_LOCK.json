@@ -186,18 +186,24 @@
     {
       "path": "packages/ui/src/avatar/artwork.ts",
       "from": "src/artwork.ts",
-      "note": "Geometry, eyes and decorations returned as an element tree; per-instance id prefix; compact detail for 24 px and below",
-      "sha256": "861e37c33b076246cacd224a187672d0bc7e44ba6b1a051c64e0c84a5d9e5913"
+      "note": "Geometry, eyes and decorations returned as an element tree; per-instance id prefix; compact detail for 24 px and below; optional morph layer on motion frames (PR-02D-2a)",
+      "sha256": "18840d2e1e624f2d241114191815a615dfff6bf385611f61a8f48fc953e50221"
     },
     {
       "path": "packages/ui/src/avatar/variants.ts",
       "from": "src/artwork.ts",
       "note": "CORN_VARIANTS catalog typed against packages/contracts/src/avatar.ts",
       "sha256": "2f39e2761591ecfbbca5ecb4c3fc3f14f24bf859cb59b6d88a4c53ebdbf701e0"
+    },
+    {
+      "path": "packages/ui/src/avatar/motion-presets.ts",
+      "from": "src/avatar.ts",
+      "note": "Resting poses sampled from state time; DMG-timed morph phases and blending are Corn-written (PR-02D-2a)",
+      "sha256": "4112a248e8c6c847a3c8a3c153aef974d8695ef4625738fca59e0d2d1e4f11eb"
     }
   ],
   "notMigrated": [
-    "src/avatar.ts and dist/avatar.js (motion controller; PR-02D-2 rewrites motion for React)",
+    "src/avatar.ts mountAvatar controller and dist/avatar.js (per-instance RAF replaced by the shared motion scheduler)",
     "dist/artwork.js",
     "assets/role-states/**, assets/states/**, assets/shapes/** (design review samples)",
     "assets/contact-sheet.svg, assets/contact-sheet.jpg, assets/gallery-preview.jpg, index.html, gallery.* (gallery)"

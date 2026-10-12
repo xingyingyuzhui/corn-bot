@@ -20,3 +20,15 @@
   inline-size: 100%;
   block-size: 100%;
 }
+
+/* Morph figures, trails and rings may extend past the artwork box. */
+.corn-avatar__art--motion {
+  overflow: visible;
+}
+
+.corn-avatar__image {
+  display: block;
+  inline-size: 100%;
+  block-size: 100%;
+  object-fit: contain;
+}
