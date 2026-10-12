@@ -213,7 +213,12 @@ export class StartupControl {
 
 export type AppRuntimeSeams = Pick<
   SupervisorOptions,
-  'spawnHost' | 'exchangeAuth' | 'stopTimeouts'
+  | 'spawnHost'
+  | 'exchangeAuth'
+  | 'stopTimeouts'
+  | 'processTable'
+  | 'descendantPollMs'
+  | 'onReclaim'
 > & { readonly schedule?: Schedule }
 
 export interface AppRuntime {

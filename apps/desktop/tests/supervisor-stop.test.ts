@@ -10,10 +10,13 @@ import {
   type HostAdmission,
 } from '../src/runtime/dsh-host-supervisor.ts'
 import { HostAuth } from '../src/runtime/host-auth.ts'
+import type { ReclaimReport } from '../src/runtime/host-descendants.ts'
 import { RuntimeFailure } from '../src/runtime/runtime-failure.ts'
 import {
   FakeChild,
   FakeHost,
+  FakeProcessTable,
+  OWN_GROUP,
   RuntimeHarness,
   within,
 } from './helpers/runtime-harness.ts'
@@ -62,6 +65,8 @@ function behave(child: FakeChild, behaviour: Behaviour): void {
 interface Fixture {
   readonly supervisor: DshHostSupervisor
   readonly children: FakeChild[]
+  readonly processes: FakeProcessTable
+  readonly reclaims: ReclaimReport[]
   lockHeld(): boolean
 }
 
@@ -83,10 +88,17 @@ async function withSupervisor(
   await writeFile(join(home, 'profiles', 'corn-dev', 'package.json'), '{}\n')
   const host = await FakeHost.start()
   const children: FakeChild[] = []
+  const processes = new FakeProcessTable()
+  const reclaims: ReclaimReport[] = []
   const supervisor = new DshHostSupervisor(home, {
     admission,
     model: null,
     stopTimeouts: BOUNDS,
+    processTable: processes,
+    descendantPollMs: 10,
+    onReclaim: (report) => {
+      reclaims.push(report)
+    },
     spawnHost: (_command, args, options) => {
       const child = new FakeChild(
         50_000 + children.length,
@@ -95,6 +107,7 @@ async function withSupervisor(
         host.port,
       )
       behave(child, behaviour)
+      processes.host(child)
       children.push(child)
       queueMicrotask(() => child.ready())
       return child as unknown as ChildProcess
@@ -105,6 +118,8 @@ async function withSupervisor(
     await run({
       supervisor,
       children,
+      processes,
+      reclaims,
       lockHeld: () => existsSync(join(home, 'corn-host.lock')),
     })
   } finally {
@@ -284,3 +299,171 @@ test(
     }
   },
 )
+
+/** A DSH tool shape: `bash` leads its own group (detached spawn or node-pty), `sleep` runs inside it. */
+function spawnTool(processes: FakeProcessTable, host: FakeChild) {
+  const bash = processes.spawn(host.pid, 'bash')
+  const sleep = processes.spawn(bash.pid, 'sleep', { ownGroup: false })
+  return { bash, sleep }
+}
+
+/** Two snapshots: the first refresh that saw the tree has completed. */
+async function recorded(processes: FakeProcessTable): Promise<void> {
+  await processes.nextSnapshot()
+  await processes.nextSnapshot()
+}
+
+async function until(check: () => boolean, label: string): Promise<void> {
+  await within(
+    (async () => {
+      while (!check()) await new Promise((resolve) => setTimeout(resolve, 5))
+    })(),
+    label,
+  )
+}
+
+test(
+  'the SIGKILL fallback reclaims tool processes outside the Host process group',
+  TIMEOUT,
+  async () => {
+    await withSupervisor(
+      'exits-on-kill',
+      async ({ supervisor, children, processes, reclaims, lockHeld }) => {
+        await within(supervisor.start(), 'start')
+        const host = children[0] as FakeChild
+        const { bash, sleep } = spawnTool(processes, host)
+        const helper = processes.spawn(host.pid, 'helper', { ownGroup: false })
+        await within(supervisor.stop(), 'stop')
+        assert.deepEqual(host.kills, ['SIGTERM', 'SIGKILL'])
+        assert.equal(processes.alive(bash.pid), false, 'bash orphaned')
+        assert.equal(processes.alive(sleep.pid), false, 'sleep orphaned')
+        assert.equal(processes.alive(helper.pid), false, 'helper orphaned')
+        assert.equal(processes.alive(process.pid), true)
+        assert.ok(
+          !processes.signals.some(([pid]) => pid === -OWN_GROUP),
+          'never signals the caller’s own process group',
+        )
+        assert.deepEqual(
+          reclaims.map(({ reason, signalled, groups, survivors, names }) => ({
+            reason,
+            signalled,
+            groups,
+            survivors,
+            names,
+          })),
+          [
+            {
+              reason: 'stop',
+              signalled: 3,
+              groups: 1,
+              survivors: 0,
+              names: ['bash', 'helper', 'sleep'],
+            },
+          ],
+        )
+        assert.equal(lockHeld(), false)
+      },
+    )
+  },
+)
+
+test(
+  'a Host crash reclaims the descendants recorded before it died',
+  TIMEOUT,
+  async () => {
+    await withSupervisor(
+      'exits-on-term',
+      async ({ supervisor, children, processes, reclaims }) => {
+        await within(supervisor.start(), 'start')
+        const host = children[0] as FakeChild
+        const { bash, sleep } = spawnTool(processes, host)
+        await recorded(processes)
+        host.exit(null, 'SIGKILL')
+        assert.equal(processes.rows.get(bash.pid)?.ppid, 1, 'reparented')
+        await until(
+          () => !processes.alive(bash.pid) && !processes.alive(sleep.pid),
+          'crash reclaim',
+        )
+        await within(supervisor.stop(), 'stop after crash')
+        assert.deepEqual(host.kills, [])
+        assert.deepEqual(
+          reclaims.map(({ reason, signalled }) => ({ reason, signalled })),
+          [{ reason: 'crash', signalled: 2 }],
+        )
+      },
+    )
+  },
+)
+
+test(
+  'a graceful stop reclaims a descendant that outlived the Host’s own teardown',
+  TIMEOUT,
+  async () => {
+    await withSupervisor(
+      'exits-on-term',
+      async ({ supervisor, children, processes, reclaims }) => {
+        await within(supervisor.start(), 'start')
+        const host = children[0] as FakeChild
+        const daemon = processes.spawn(host.pid, 'daemon')
+        await within(supervisor.stop(), 'stop')
+        assert.deepEqual(host.kills, ['SIGTERM'])
+        assert.equal(processes.alive(daemon.pid), false)
+        assert.equal(reclaims[0]?.signalled, 1)
+      },
+    )
+  },
+)
+
+test(
+  'a Host without descendants stops with no extra signals',
+  TIMEOUT,
+  async () => {
+    await withSupervisor(
+      'exits-on-term',
+      async ({ supervisor, processes, reclaims }) => {
+        await within(supervisor.start(), 'start')
+        await within(supervisor.stop(), 'stop')
+        assert.deepEqual(processes.signals, [])
+        assert.deepEqual(
+          reclaims.map(({ signalled, tracked }) => ({ signalled, tracked })),
+          [{ signalled: 0, tracked: 0 }],
+        )
+      },
+    )
+  },
+)
+
+test(
+  'an unconfirmed Host keeps its descendants until a later stop confirms its exit',
+  TIMEOUT,
+  async () => {
+    await withSupervisor(
+      'wedged',
+      async ({ supervisor, children, processes }) => {
+        await within(supervisor.start(), 'start')
+        const host = children[0] as FakeChild
+        const { bash } = spawnTool(processes, host)
+        assertStopTimeout(await rejection(supervisor.stop(), 'first stop'))
+        assert.equal(processes.alive(bash.pid), true)
+        host.exit(null, 'SIGKILL')
+        await within(supervisor.stop(), 'stop after exit')
+        assert.equal(processes.alive(bash.pid), false)
+      },
+    )
+  },
+)
+
+test('App shutdown reclaims the Host’s tool processes', TIMEOUT, async () => {
+  const harness = await RuntimeHarness.create()
+  try {
+    await within(harness.control.start(), 'start')
+    const host = harness.children[0] as FakeChild
+    const { bash, sleep } = spawnTool(harness.processes, host)
+    await within(harness.control.shutdown(), 'quit')
+    assert.equal(harness.processes.alive(bash.pid), false)
+    assert.equal(harness.processes.alive(sleep.pid), false)
+    assert.equal(harness.reclaims[0]?.reason, 'stop')
+  } finally {
+    await harness.dispose()
+  }
+})
