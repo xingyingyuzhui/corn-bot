@@ -23,11 +23,14 @@ const RPC_ENDPOINTS = new Set([
   'session/updateQueue',
   'session/modelCatalog',
   'session/selectModel',
+  'job/kill',
+  'subagents/interruptByParent',
   '$events/result',
 ])
 const STREAM_ENDPOINTS = new Set([
   'session/follow',
   'session/control',
+  'job/list',
   '$events',
 ])
 

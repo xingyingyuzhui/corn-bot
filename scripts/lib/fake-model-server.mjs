@@ -9,11 +9,12 @@ import { setTimeout as delay } from 'node:timers/promises'
  * number of assistant messages after that message. Requests without tools
  * (session titles and other auxiliary calls) get a short fixed reply.
  *
- * A step is `{ chunks?, chunkDelayMs?, firstDelayMs?, toolCall?, hang? }`:
- * text chunks are streamed, then an optional tool call, then the stream either
- * finishes or, with `hang`, stays open until the client closes it or
- * `releaseHangs()` is called. Only the marker set, tool names and timing are
- * recorded; prompt text is not retained.
+ * A step is `{ chunks?, chunkDelayMs?, firstDelayMs?, awaitRelease?, toolCall?, hang? }`:
+ * text chunks are streamed, then, with `awaitRelease: name`, the stream holds
+ * until `release(name)` (or the client closes it), then an optional tool
+ * call, then the stream either finishes or, with `hang`, stays open until the
+ * client closes it or `releaseHangs()` is called. Only the marker set, tool
+ * names and timing are recorded; prompt text is not retained.
  */
 export const FAKE_MODEL_KEY = 'sk-corn-gate-FAKE-0000'
 export const FAKE_PROVIDER = 'corn-gate-fake'
@@ -79,6 +80,17 @@ export async function startFakeModel({ scripts = {}, auxReply = 'ok' } = {}) {
   const requests = []
   const hangs = new Set()
   const sockets = new Set()
+  const releases = new Map()
+  const released = (name) => {
+    if (!releases.has(name)) {
+      let resolve
+      const promise = new Promise((done) => {
+        resolve = done
+      })
+      releases.set(name, { promise, resolve })
+    }
+    return releases.get(name)
+  }
 
   async function stream(response, row, steps, closed) {
     const id = `chatcmpl-${randomUUID()}`
@@ -103,6 +115,16 @@ export async function startFakeModel({ scripts = {}, auxReply = 'ok' } = {}) {
       if (step.chunkDelayMs) await delay(step.chunkDelayMs)
       if (!write(chunk(id, model, { content: text }))) return
       row.chunksSent++
+    }
+    if (step.awaitRelease) {
+      row.awaiting = step.awaitRelease
+      await new Promise((resolve) => {
+        released(step.awaitRelease).promise.then(resolve)
+        closed.onClose = resolve
+      })
+      row.awaiting = undefined
+      if (closed.value) return
+      row.releasedAt = Date.now()
     }
     if (step.toolCall) {
       const callId = `call_${randomUUID().replaceAll('-', '').slice(0, 20)}`
@@ -244,6 +266,10 @@ export async function startFakeModel({ scripts = {}, auxReply = 'ok' } = {}) {
   return {
     baseURL: `http://127.0.0.1:${port}/v1`,
     requests,
+    /** Lets every stream held on `awaitRelease: name` continue, now or later. */
+    release(name) {
+      released(name).resolve()
+    },
     /** Ends every hanging stream normally. */
     releaseHangs() {
       for (const entry of [...hangs]) {

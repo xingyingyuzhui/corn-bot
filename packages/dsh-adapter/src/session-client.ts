@@ -80,6 +80,25 @@ export class SessionClient {
     return this.transport.rpc('session/cancel', { request: { sessionId } })
   }
 
+  /**
+   * Interrupts a continuable child's current Turn on its parent's behalf;
+   * `session/cancel` refuses a child that is still owned by subagent routing.
+   */
+  async interruptChild(request: {
+    parentSessionId: string
+    childSessionId: string
+  }): Promise<void> {
+    const value = record(
+      await this.transport.rpc('subagents/interruptByParent', {
+        childSessionId: request.childSessionId,
+        parentSessionId: request.parentSessionId,
+        mode: 'continuable',
+      }),
+    )
+    if (value.accepted !== true)
+      throw new Error('Subagent interrupt was not accepted')
+  }
+
   /** Non-activating projection baseline at `asOfSeq`; `null` for an unknown Session. */
   projections(sessionId: string): Promise<unknown> {
     return this.transport.rpc('session/projections', { request: { sessionId } })
