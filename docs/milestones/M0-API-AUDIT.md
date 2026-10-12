@@ -2,7 +2,7 @@
 
 ## Status and evidence scope
 
-**M0 is not passed.** This document records source and published-artifact findings for the proposed integration. Live Host, Electron IPC, model execution, packaging, and Claw acceptance remain pending until separately recorded with reproducible results.
+This is the historical source/published-artifact audit, not the current acceptance ledger. Later live Host, Electron IPC, model and unsigned packaging results are recorded in [M0 evidence](M0-EVIDENCE.md). As of 2026-10-12, the reopened R1 joint checks and new lifecycle checks remain pending; signing/notarization are deferred. Use the [forward plan](../plans/CORN_BOT_FORWARD_PLAN.md) for current work order. The findings below retain their original source scope.
 
 - DSH version: `0.2.0-rc.2`.
 - Source tag: `dsh-v0.2.0-rc.2`.

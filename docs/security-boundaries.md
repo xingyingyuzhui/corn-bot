@@ -6,7 +6,7 @@ This document records requirements for the proposed M0 architecture. It does not
 
 Corn owns its application runtime, DSH home, `corn-dev` development profile, Bot bindings, Session data, and provider configuration. The application must work without an existing DSH or Node installation. Development bootstrap must not read, copy, mutate, install into, or launch against an existing user's DSH home, Desktop profile, provider credentials, or registered Bots.
 
-New model configuration is entered explicitly through Corn's settings flow. Provider credentials remain in the privileged configuration path and are stored using the selected protected credential mechanism. Corn does not derive its initial model configuration by copying settings from another application.
+New model configuration is entered explicitly through Corn's settings flow (Settings → 模型), which writes only through the official DSH settings and credentials services of Corn's own Host. Corn does not derive its initial model configuration by copying settings from another application, and the packaged profile template is keyless. `CORN_MODEL_*` variables and `model.env` are not a production configuration path: the App ignores them, and only an unpackaged development build honours an explicit `CORN_DEV_MODEL_ENV_FILE` override, which is labelled in the UI, read-only there, and locks only the settings it injects.
 
 Main owns runtime process identity and the launch channel. It resolves packaged executables and verified runtime assets explicitly. A startup URL from an unrelated process, arbitrary user-supplied endpoint, or unowned local server is not an accepted source of runtime authentication.
 
@@ -15,6 +15,8 @@ Main owns runtime process identity and the launch channel. It resolves packaged 
 Renderer runs with context isolation and receives a narrow preload API. IPC methods name Corn operations, accept validated operation-specific data, and authorize the requesting window/frame. Expose no arbitrary HTTP URL, RPC endpoint, filesystem path operation, SQL, process execution, or credential inspection method.
 
 Renderer may receive redacted model catalog and connection state, Session content, run progress, and the presentation data necessary to answer an active approval. It must not receive startup URLs containing tokens, authentication cookies, model secrets, credential storage paths, or raw launch output. Main validates every IPC request even when TypeScript declares its type.
+
+Renderer receives no stored credentials, startup secrets or read-back keys; a user-typed key may flow one-way to Main. This is the only credential exception: the key exists in a password input and in one write request over the restricted model-settings IPC, which Main passes to the official `credentials.set`. It is never read back, never kept in UI state beyond the input, drafts, LocalStorage, the database, logs or IPC replies; the input is cleared on close and on submit, and a failed write keeps only the non-secret fields and asks for the key again. Model-settings IPC exposes named operations with strict payloads (set/clear a provider key, save/remove a custom provider, choose the default model); Main derives credential refs, namespaces and paths itself, and replies carry only closed error codes and a redacted snapshot.
 
 Approvals are associated with the current event generation, its pending `eventId`, and the owned Bot/Session. Main rejects fabricated, unrelated, stale, or already withdrawn approval handles. A Renderer decision cannot select a free-form outcome or answer an arbitrary Host event.
 
@@ -32,7 +34,9 @@ Use an endpoint allowlist and public, pinned RC2 descriptors. Rejected authentic
 
 Startup tokens, cookies, provider keys, personal logs, and screenshots never enter Git, IPC logs, test fixtures, telemetry, crash exports, or diagnostic bundles. Avoid printing launch output verbatim: it can contain the authenticated URL. Redact at the producer boundary, not only in the display layer.
 
-Credential fields are write-oriented from the settings UI; replies report redacted status rather than echoing secrets. A credential value must not appear in a model request body assembled by Corn, a system prompt, or a Session message. Actual provider authentication remains the runtime/provider owner's responsibility.
+Credential fields are write-oriented from the settings UI; replies report redacted status rather than echoing secrets.
+
+Keys saved from Corn are stored by DSH's `credentials-local` provider as plaintext YAML in `<Corn home>/.credentials.yaml`, protected only by file permissions (file `0600`, home `0700`); the same file holds the Host's browser-login signing secret. It is not the macOS Keychain and it does not isolate keys from Agent tools or other processes running as the same user. Keys supplied by the launching environment win over stored keys and are read-only to Corn; a `.env` file in the Corn home is also a credential source. A credential value must not appear in a model request body assembled by Corn, a system prompt, or a Session message. Actual provider authentication remains the runtime/provider owner's responsibility.
 
 Tests use isolated fixture credentials and private runtime directories. Acceptance reports contain statuses, counters, event types, and bounded redacted metadata rather than authentic URLs or raw model conversations.
 
@@ -56,4 +60,4 @@ Session cancellation preserves inbox work and is not an atomic cancellation of a
 
 Bots operating the same macOS user session share the desktop and OS permissions. Corn and Claw govern operations routed through their managed execution path; they do not create OS isolation from same-user malicious processes, arbitrary third-party plugins, or activity outside Corn. Any stronger isolation requires a separate implemented design.
 
-M0 live checks must cover unauthorized HTTP/WS access, illegal origins, unauthorized IPC callers, token/cookie lifecycle, secret redaction, disconnect/restart recovery, approval withdrawal, preserved queue work, unavailable mandatory presets, and Gate denial with traceable audit. Packaging and credential-store behavior require platform evidence before being described as delivered.
+M0 live checks must cover unauthorized HTTP/WS access, illegal origins, unauthorized IPC callers, token/cookie lifecycle, secret redaction, disconnect/restart recovery, approval withdrawal, preserved queue work, unavailable mandatory presets, and Gate denial with traceable audit. Packaging and credential-store behavior require platform evidence before being described as delivered; the M2 model-settings evidence records the credential-store facts above.

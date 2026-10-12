@@ -30,17 +30,19 @@ const MESSAGES: Record<RuntimeStatus, string> = {
 function failureMessage(code: RuntimeErrorCode): string {
   switch (code) {
     case 'model_config_invalid':
-      return '模型配置不完整或服务商无效，请修正后重新启动 Corn Bot。'
+      return '开发测试模型覆盖配置不完整或服务商无效，请修正后重新启动。'
     case 'model_config_permissions':
-      return '模型配置文件权限不正确（需仅本人可读），请修正后重新启动。'
+      return '开发测试模型覆盖文件权限不正确（需仅本人可读），请修正后重新启动。'
     case 'model_config_unreadable':
-      return '无法读取模型配置文件，请检查后重新启动。'
+      return '无法读取开发测试模型覆盖文件，请检查后重新启动。'
     case 'runtime_home_rejected':
       return 'Corn 运行时目录不属于 Corn Bot，已拒绝使用。'
     case 'runtime_home_locked':
       return 'Corn 运行时目录正被其他进程占用。'
     case 'runtime_version_mismatch':
       return '内置运行时版本与锁定版本不一致。'
+    case 'runtime_patch_mismatch':
+      return '内置运行时缺少锁定的补丁或补丁已被改动。'
     case 'claw_missing':
       return 'Corn profile 缺少 Claw 治理组件，需要修复 Corn profile。'
     case 'claw_version_mismatch':
@@ -213,7 +215,12 @@ export class StartupControl {
 
 export type AppRuntimeSeams = Pick<
   SupervisorOptions,
-  'spawnHost' | 'exchangeAuth' | 'stopTimeouts'
+  | 'spawnHost'
+  | 'exchangeAuth'
+  | 'stopTimeouts'
+  | 'processTable'
+  | 'descendantPollMs'
+  | 'onReclaim'
 > & { readonly schedule?: Schedule }
 
 export interface AppRuntime {
@@ -223,13 +230,13 @@ export interface AppRuntime {
 
 /** The App's formal runtime: one governed supervisor and its startup control. */
 export function createAppRuntime(
-  paths: Pick<AppPaths, 'home' | 'modelEnvFile' | 'profileTemplate'>,
+  paths: Pick<AppPaths, 'home' | 'devModelOverrideFile' | 'profileTemplate'>,
   { schedule, ...hostSeams }: AppRuntimeSeams = {},
 ): AppRuntime {
   let control: StartupControl | undefined
   const host = createGovernedHost(paths.home, {
     ...hostSeams,
-    modelEnvFile: paths.modelEnvFile,
+    devModelOverrideFile: paths.devModelOverrideFile,
     profileTemplate: paths.profileTemplate,
     onFailure: () => control?.hostFailed(),
   })

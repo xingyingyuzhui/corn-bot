@@ -5,9 +5,12 @@ import {
   type RuntimeErrorCode,
   type RuntimeStatus,
 } from '@corn-bot/contracts'
+import type { ModelStatusView } from '@corn-bot/contracts/model-settings'
 import {
   type Announcement,
   type DataSource,
+  errorCodeText,
+  modelNotice,
   nextAnnouncement,
   PENDING_READING,
   type RuntimeReading,
@@ -17,6 +20,7 @@ import {
   sampleNotice,
   UNAVAILABLE_READING,
 } from '../src/app/runtime-notice.ts'
+import { modelStatusText } from '../src/features/settings/model-settings-controller.ts'
 import {
   parseRuntimeFixture,
   RUNTIME_FIXTURES,
@@ -39,20 +43,36 @@ const host = (
   view: { status, dshVersion: '0.2.0-rc.2', message },
 })
 
-/** Feeds readings in order and returns the text of every announcement made. */
+type Tick = RuntimeReading | readonly [RuntimeReading, ModelStatusView | null]
+
+/**
+ * Feeds readings (optionally paired with a model status) in order and returns
+ * the text of every announcement made.
+ */
 const spoken = (
-  readings: readonly RuntimeReading[],
+  ticks: readonly Tick[],
   source: DataSource = 'fixture',
   start: Announcement = SILENT,
 ) => {
   const said: string[] = []
-  readings.reduce((previous, reading) => {
-    const next = nextAnnouncement(previous, source, reading)
+  ticks.reduce((previous, tick) => {
+    const [reading, model] = 'kind' in tick ? [tick, null] : tick
+    const next = nextAnnouncement(previous, source, reading, model)
     if (next.count !== previous.count) said.push(next.text)
     return next
   }, start)
   return said
 }
+
+const modelView = (
+  status: ModelStatusView['status'],
+  reason: ModelStatusView['reason'],
+  devOverride = false,
+): ModelStatusView => ({ status, reason, devOverride })
+
+const NEEDS_KEY = modelView('needs_configuration', 'credential_missing')
+const AVAILABLE = modelView('available', 'configured')
+const CHECKING = modelView('checking', 'reading')
 
 const text = (reading: RuntimeReading) => runtimeNotice(reading).text
 
@@ -93,7 +113,7 @@ test('every safe error code has its own wording and dedupe key', () => {
   const notices = RUNTIME_ERROR_CODES.map((code) =>
     runtimeNotice(failedWith(code)),
   )
-  assert.equal(new Set(notices.map((notice) => notice.text)).size, 11)
+  assert.equal(new Set(notices.map((notice) => notice.text)).size, 12)
   for (const [index, notice] of notices.entries()) {
     assert.equal(notice.key, `failed:${RUNTIME_ERROR_CODES[index]}`)
     assert.equal(notice.tone, 'error')
@@ -144,11 +164,16 @@ test('a pending reading is never spoken', () => {
 })
 
 test('polling the same status stays silent even when unrelated fields change', () => {
-  const first = nextAnnouncement(SILENT, 'fixture', host('ready'))
-  const again = nextAnnouncement(first, 'fixture', {
-    kind: 'host',
-    view: { status: 'ready', dshVersion: '9.9.9', message: 'polled again' },
-  })
+  const first = nextAnnouncement(SILENT, 'fixture', host('ready'), null)
+  const again = nextAnnouncement(
+    first,
+    'fixture',
+    {
+      kind: 'host',
+      view: { status: 'ready', dshVersion: '9.9.9', message: 'polled again' },
+    },
+    null,
+  )
   assert.equal(again, first)
   assert.deepEqual(
     spoken([host('starting'), host('starting'), host('ready'), host('ready')]),
@@ -175,21 +200,135 @@ test('bridge unavailable is its own key between Host states', () => {
 })
 
 test('the sample source is spoken again only when the source changes', () => {
-  const fixture = nextAnnouncement(SILENT, 'fixture', host('ready'))
-  const live = nextAnnouncement(fixture, 'live', host('ready'))
+  const fixture = nextAnnouncement(SILENT, 'fixture', host('ready'), null)
+  const live = nextAnnouncement(fixture, 'live', host('ready'), null)
   assert.equal(live.count, fixture.count)
   assert.equal(live.source, 'live')
-  const back = nextAnnouncement(live, 'fixture', host('ready'))
+  const back = nextAnnouncement(live, 'fixture', host('ready'), null)
   assert.equal(back.text, SAMPLE_NOTICE)
   assert.equal(back.count, fixture.count + 1)
 })
 
 test('repeated text still counts as a new announcement', () => {
-  const failed = nextAnnouncement(SILENT, 'fixture', host('failed'))
-  const recovering = nextAnnouncement(failed, 'fixture', host('recovering'))
-  const again = nextAnnouncement(recovering, 'fixture', host('failed'))
+  const failed = nextAnnouncement(SILENT, 'fixture', host('failed'), null)
+  const recovering = nextAnnouncement(
+    failed,
+    'fixture',
+    host('recovering'),
+    null,
+  )
+  const again = nextAnnouncement(recovering, 'fixture', host('failed'), null)
   assert.equal(again.text, text(host('failed')))
   assert.equal(again.count, failed.count + 2)
+})
+
+test('model config codes name the development override, not production setup', () => {
+  for (const code of [
+    'model_config_invalid',
+    'model_config_permissions',
+    'model_config_unreadable',
+  ] as const)
+    assert.match(errorCodeText(code), /开发测试/u)
+})
+
+const modelText = (view: ModelStatusView) => modelStatusText(view)
+
+test('the model line exists only while the runtime is ready', () => {
+  assert.equal(modelNotice(host('ready'), null), null)
+  for (const status of STATUSES.filter((entry) => entry !== 'ready'))
+    assert.equal(modelNotice(host(status), NEEDS_KEY), null)
+  assert.equal(modelNotice(UNAVAILABLE_READING, NEEDS_KEY), null)
+  assert.equal(modelNotice(PENDING_READING, NEEDS_KEY), null)
+  const line = modelNotice(host('ready'), NEEDS_KEY)
+  assert.equal(line?.text, modelText(NEEDS_KEY))
+  assert.equal(line?.status, 'needs_configuration')
+  assert.notEqual(line?.text, text(host('ready')))
+})
+
+test('a model needing configuration is announced once after ready, joined with it', () => {
+  assert.deepEqual(
+    spoken([
+      [host('starting'), NEEDS_KEY],
+      [host('ready'), NEEDS_KEY],
+      [host('ready'), NEEDS_KEY],
+      [host('ready'), NEEDS_KEY],
+    ]),
+    [
+      `${SAMPLE_NOTICE}。${text(host('starting'))}`,
+      `${text(host('ready'))}。${modelText(NEEDS_KEY)}`,
+    ],
+  )
+})
+
+test('repeated model polls are silent and return the same announcement', () => {
+  const first = nextAnnouncement(SILENT, 'live', host('ready'), NEEDS_KEY)
+  const again = nextAnnouncement(first, 'live', host('ready'), {
+    ...NEEDS_KEY,
+  })
+  assert.equal(again, first)
+})
+
+test('checking is never spoken and does not re-arm the same status', () => {
+  assert.deepEqual(
+    spoken(
+      [
+        [host('ready'), CHECKING],
+        [host('ready'), NEEDS_KEY],
+        [host('ready'), CHECKING],
+        [host('ready'), NEEDS_KEY],
+      ],
+      'live',
+    ),
+    [text(host('ready')), modelText(NEEDS_KEY)],
+  )
+})
+
+test('a model that becomes available is announced once', () => {
+  assert.deepEqual(
+    spoken(
+      [
+        [host('ready'), NEEDS_KEY],
+        [host('ready'), AVAILABLE],
+        [host('ready'), AVAILABLE],
+      ],
+      'live',
+    ),
+    [`${text(host('ready'))}。${modelText(NEEDS_KEY)}`, modelText(AVAILABLE)],
+  )
+})
+
+test('a failed runtime suppresses the model line; the next ready speaks it again', () => {
+  const said = spoken(
+    [
+      [host('ready'), NEEDS_KEY],
+      [host('failed'), NEEDS_KEY],
+      [host('recovering'), NEEDS_KEY],
+      [host('ready'), NEEDS_KEY],
+    ],
+    'live',
+  )
+  assert.deepEqual(said, [
+    `${text(host('ready'))}。${modelText(NEEDS_KEY)}`,
+    text(host('failed')),
+    text(host('recovering')),
+    `${text(host('ready'))}。${modelText(NEEDS_KEY)}`,
+  ])
+  for (const line of said.slice(1, 3)) assert.doesNotMatch(line, /模型/u)
+})
+
+test('the dev override is part of the model key and the wording', () => {
+  const dev = modelView('available', 'configured', true)
+  assert.match(modelText(dev), /开发测试覆盖/u)
+  assert.deepEqual(
+    spoken(
+      [
+        [host('ready'), AVAILABLE],
+        [host('ready'), dev],
+      ],
+      'live',
+    ).slice(1),
+    [modelText(dev)],
+  )
 })
 
 test('runtime fixtures exist only on the dev server', () => {

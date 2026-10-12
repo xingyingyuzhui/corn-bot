@@ -22,6 +22,8 @@
     "smoke:cold": "node scripts/smoke-cold-start.mjs",
     "smoke:model": "node scripts/smoke-model.mjs",
     "smoke:model-lifecycle": "node scripts/smoke-model-lifecycle.mjs",
+    "smoke:session-model": "node scripts/smoke-session-model.mjs",
+    "smoke:model-settings": "node scripts/smoke-model-settings.mjs",
     "smoke:governance": "node scripts/smoke-governance.mjs",
     "smoke:governance-ptc": "node scripts/smoke-governance.mjs --ptc",
     "smoke:review-claw": "node scripts/smoke-review-claw.mjs",

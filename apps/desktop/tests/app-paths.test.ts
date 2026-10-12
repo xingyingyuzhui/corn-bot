@@ -14,6 +14,38 @@ test('development layout uses the repository and DSH online template', () => {
   assert.equal(paths.renderer, '/repo/apps/renderer/dist/index.html')
   assert.equal(paths.artifacts, '/repo/.artifacts')
   assert.equal(paths.profileTemplate, undefined)
+  assert.equal(paths.devModelOverrideFile, undefined)
+})
+
+test('only an unpackaged build honours the explicit development model override', () => {
+  const env = {
+    CORN_DEV_MODEL_ENV_FILE: '/tmp/corn-dev-model.env',
+    CORN_MODEL_ENV_FILE: '/tmp/legacy-model.env',
+  }
+  assert.equal(
+    resolveAppPaths({ ...location, isPackaged: false }, env)
+      .devModelOverrideFile,
+    '/tmp/corn-dev-model.env',
+  )
+  assert.equal(
+    resolveAppPaths(
+      { ...location, isPackaged: false },
+      { CORN_MODEL_ENV_FILE: '/tmp/legacy-model.env' },
+    ).devModelOverrideFile,
+    undefined,
+    'the retired production variable selects nothing',
+  )
+  assert.equal(
+    resolveAppPaths(
+      {
+        ...location,
+        appPath: join(location.resourcesPath, 'app.asar'),
+        isPackaged: true,
+      },
+      env,
+    ).devModelOverrideFile,
+    undefined,
+  )
 })
 
 test('packaged layout keeps data in userData and seeds from bundled resources', () => {
@@ -21,7 +53,7 @@ test('packaged layout keeps data in userData and seeds from bundled resources', 
   const paths = resolveAppPaths({ ...location, appPath, isPackaged: true }, {})
   assert.equal(paths.renderer, join(appPath, 'renderer/index.html'))
   assert.equal(paths.home, join(location.userData, 'dsh'))
-  assert.equal(paths.modelEnvFile, join(location.userData, 'model.env'))
+  assert.equal(paths.devModelOverrideFile, undefined)
   assert.equal(
     paths.profileTemplate,
     join(location.resourcesPath, 'profile-template'),

@@ -1,6 +1,6 @@
 # Corn Bot 右侧管理面板实施计划
 
-日期：2026-10-11（Asia/Shanghai）。状态：**待执行，未修改产品代码，未声明真实 Claw 配置接通。**
+日期：2026-10-11（Asia/Shanghai）；2026-10-12状态更新：**02E-1导航与共享编辑器已在PR #14合并，F2保存导航修复已在#17合并；仍为fixture。02E-2视觉、真实Claw管理接线待执行。** 当前顺序以[后续统一计划](CORN_BOT_FORWARD_PLAN.md)为准。下文旧基线、旧空页面和开分支顺序是原实施输入，不代表当前实现状态；接口和产品语义继续作为参考。
 
 模型配置后续修复采用[官方能力接入计划](CORN_MODEL_CONFIGURATION_FIX_PLAN.md)：全局 Provider/凭据/默认模型从 fixture 转为 DSH 权威事实，可在完整 M2 Bot 接线前独立交付；本计划 03B 的 Bot 模型仍依赖真实绑定，避免 `session.selectModel` 改全局默认。
 

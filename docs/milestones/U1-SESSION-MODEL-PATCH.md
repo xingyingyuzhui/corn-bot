@@ -1,0 +1,200 @@
+# U1: session-only model selection (pinned DSH patch)
+
+- Status: implemented in Corn behind a pinned patch; headless real-Host gate passed with a fake model (§5); upstream PR **drafted, not posted**
+- Authorisation: maintainer, 2026-10-12. This is the only authorised upstream change. No Claw policy or implementation change, no PTC change.
+- Context: [ADR-0007](https://github.com/xingyingyuzhui/corn-bot/blob/docs/p1-runtime-matrix/docs/adr/ADR-0007-execution-runtime.md) work item U1 and gate scenario 7 (model isolation); [MODEL-CONFIG-API-AUDIT §7](MODEL-CONFIG-API-AUDIT.md); [ADR-0001](../adr/ADR-0001-dsh-transport.md).
+
+## 1. Problem
+
+In DSH `dsh-v0.2.0-rc.2` (`639ed015`) the only public Remote for a Session model, `session.selectModel`, installs the selection for the Session and then saves it as the global Agent default in the background (`packages/api/session-controller/src/commands.ts` L170–175). `0.2.1-alpha.2` (`master@d7432673`) is unchanged. A Bot therefore cannot override its own Session model without moving the default for every new Session.
+
+The Session-local machinery already exists and is durable:
+
+- `ApiSessionAgentController.selectForNextRequest` (`agent.ts` L333–336) appends a durable `model/selection` event and sets the pending pick.
+- `selectionFor` (`agent.ts` L283–326) resolves `current` as: pending pick, else the logged `request/header` config, else the live global default. So a Session follows the default only until its log names a selection or a request (L294–310).
+- `installModelSelection` (`core/agent/src/model-selection.ts` L81–132), installed per Agent (`agent.ts` L323), snapshots `current` at prompt assembly, overrides the request provider/model/effort, and adds the switch notice when the assembled route differs from the last request header.
+- The `modelSelection` projection folds `model/selection` and `request/header`, so the pending pick survives a resume from the journal.
+- New Sessions take the default at creation (`agent.ts` L497–503).
+
+Only the default save has to be made optional.
+
+## 2. API
+
+An optional `scope` on the existing Remote. Existing callers are unchanged.
+
+```ts
+export type SessionModelSelectionScope = 'default' | 'session'
+
+export interface SessionSelectModelRequest extends ModelSelection {
+  readonly sessionId: SessionId
+  /** Selection scope; omitted means `default`. */
+  readonly scope?: SessionModelSelectionScope
+}
+
+export interface SessionSelectModelValue {
+  readonly selected: ModelSelection
+  /** Scope the Host applied to the selection. */
+  readonly scope: SessionModelSelectionScope
+}
+```
+
+- `default` or omitted: same as today. The selection applies to the Session and is saved as the default in the background.
+- `session`: the same validation and the same durable `model/selection` event, with no default save. Other Sessions, new Sessions and the default are untouched.
+- The reply echoes the applied scope. Typert request codecs are `z.object`, which strips unknown keys, so an unpatched Host would silently drop `scope` and save the default. The echo lets a caller detect that.
+
+Rejected alternatives: a new `session.selectSessionModel` Remote duplicates validation, serialization and error mapping for one boolean of behaviour. Select-then-restore races the default and is excluded by ADR-0001. A `persistDefault: boolean` flag reads worse at call sites and gives no room for a later scope.
+
+### Follow-global semantics (checked, documented, tested)
+
+A Session follows the live default only while its log names neither a `model/selection` nor a `request/header`. After either exists it keeps its own model. **No request returns a Session to following the default.** Selecting the current default with `scope: 'session'` is a snapshot, not a return to follow mode. A true "follow global again" needs a new durable event shape and a projection `stateVersion` bump. It is out of U1 scope and not needed by Corn: Bots either inherit at creation or pin a model.
+
+## 3. Upstream change
+
+Branch `u1/rc2-session-model` at `3e4508aeae918b38def6a8289a0399c2fce42b68`, on top of `dsh-v0.2.0-rc.2` (`639ed015`), in the cache clone `Corn Bot/.cache/dsh-u1/harness`. The official clone `/Users/qin/deepseek-harness` was only read.
+
+| File | Change (rc2 lines) |
+| --- | --- |
+| `packages/api/session-controller/src/types.ts` | `SessionModelSelectionScope` (+L298–304); `scope?` on the request (+L308–309); `scope` on the value (+L315–316) |
+| `packages/api/session-controller/src/commands.ts` | `selectModel`: JSDoc L147–151, `const scope` L153, exhaustive `switch (scope)` with `assertNever` replacing the unconditional save, reply `{ selected, scope }` (L173–187) |
+| `packages/api/session-controller/src/index.ts` | `@Remote('selectModel')` JSDoc (L278–280) |
+| `packages/api/session-controller/README.md`, `README.zh.md` | +2 lines each: scope and follow-global semantics |
+| `packages/extensions/tool-cordis/src/api-catalog.ts`, `docs/subsystems/session{,.zh}.md` | regenerated by `pnpm run gen-cordis-api` (freshness gate) |
+| `packages/api/session-controller/tests/session-models.host.spec.ts` | +5 tests in `describe('Session-scoped model selection')` |
+| `packages/client/ui-model-selection/tests/browser-plugin.client.spec.ts` | fake reply gains `scope: 'default'` (1 line) |
+
+Not touched: `agent.ts`, `model-selection.ts`, the projection, the client UI (it keeps the default scope).
+
+Source patches, kept in Corn for traceability:
+
+| Base | File | SHA-256 |
+| --- | --- | --- |
+| `dsh-v0.2.0-rc.2` | `patches/upstream/0001-session-controller-session-only-scope.dsh-v0.2.0-rc.2.patch` | `4aa16aaf6f60a9b0aa38edfc8962c282761185b367286b695f51f71b2b4b118e` |
+| `master` `0.2.1-alpha.2` | `patches/upstream/0001-session-controller-session-only-scope.master-0.2.1-alpha.2.patch` | `edb7c90efdbae14bafd0c65466662466259e8e894200107d89cd59cb8193e276` |
+
+### Upstream tests (affected files only, one at a time; no monorepo run)
+
+| File | rc2 | master |
+| --- | --- | --- |
+| `session-controller/tests/session-models.host.spec.ts` | 31 passed (26 existing + 5 new) | 31 passed |
+| `ui-model-selection/tests/browser-plugin.client.spec.ts` | 23 passed | 23 passed |
+
+The 5 new tests cover: a session scope leaves the default unsaved and another Session untouched, while an explicit `default` still saves; an omitted scope equals `default`; the system prompt variables, `agent/request` provider/model/effort and the `agent/pre-step` switch notice all use the session model, and it sticks after its request header when the default moves; a Session restored from the journal under a different default keeps the session model in the projection, `selectionFor`, the prompt and the request; and follow-global semantics. Also run: `tsc -b packages/api/session-controller/tsconfig.host.json`, oxlint on the changed files, and `pnpm run verify-cordis-api` (master).
+
+## 4. Corn integration
+
+The Host runs from the published `@deepseek-ai/*` packages under Corn's `node_modules` (dev: the pnpm store; packaged: the `pnpm deploy` hoisted tree in `Resources/node_modules`). The Corn profile holds only Claw packages. So the patch targets the **built files that ship**.
+
+- **Apply:** pnpm `patchedDependencies` in `pnpm-workspace.yaml`:
+  `'@deepseek-ai/dsh-api-session-controller@0.2.0-rc.2': patches/@deepseek-ai__dsh-api-session-controller@0.2.0-rc.2.patch`.
+  It was made with `pnpm patch` / `patch-commit`. `pnpm-lock.yaml` records `patch_hash`, which is the file's SHA-256. The dist patch changes `lib/index.js` (runtime `selectModel`), `lib/typert.host.js` (Host request/reply codecs: `scope` as `z.union([z.literal("default"), z.literal("session")])`, optional in the request and required in the reply, matching the generator's output for literal unions), `lib/typert.remote-client.js` (same codecs), `lib/types/commands.js` and `lib/types/types.d.ts`.
+- **Lock:** `runtime.lock.json` `dshPatches[0]`:
+  - id `U1`, package `@deepseek-ai/dsh-api-session-controller@0.2.0-rc.2`.
+  - Patch SHA-256 `8873ba286b50882e1117d4ef5d0ba4e3cabd67b02ab47648f68d32da723e15dd`.
+  - Post-patch SHA-256 of each changed file:
+
+    | File | SHA-256 |
+    | --- | --- |
+    | `lib/index.js` | `5b03b914…6a619ca` |
+    | `lib/typert.host.js` | `87486ebe…44ecb` |
+    | `lib/typert.remote-client.js` | `0db7024a…274fb50` |
+    | `lib/types/commands.js` | `0cabcda3…ce1055` |
+    | `lib/types/types.d.ts` | `0712b98e…eb712f` |
+
+  - `DSH_PATCHES` in `apps/desktop/src/runtime/dsh-patch.ts` mirrors the lock. A unit test keeps the lock, the mirror, the patch file hash and the `pnpm-workspace.yaml` / `pnpm-lock.yaml` entries equal.
+- **Verify (fail closed):** `verifyDshPatches` resolves every copy of the package reachable from the DSH CLI and from the `@deepseek-ai/dsh-base` and `@deepseek-ai/dsh-web-app` bundles, by real path as Node loads them. Each copy must match the name, version and every locked file hash. It runs:
+  - in `DshHostSupervisor.#start` right after the DSH version check, before the home is claimed or anything is spawned, so every governed or bootstrap start and every recovery runs it;
+  - in `pnpm verify:runtime`;
+  - in `pnpm package:mac` on the staged `pnpm deploy` tree, which catches a deploy that dropped the patch.
+
+  Failure is the new terminal `RuntimeErrorCode` `runtime_patch_mismatch`. The `never`-exhaustive switches in `runtime-failure.ts`, `startup-control.ts` (Main wording) and the Renderer `runtime-notice.ts` wording are updated, along with the runbook list.
+- **Adapter:** `SessionClient.selectSessionModel({ sessionId, provider, model, reasoningEffort? })` always sends `scope: 'session'`. It refuses a reply that does not echo `scope: 'session'` (for example from an unpatched Host) or that names another provider, model or effort. The global-writing `selectModel` adapter method is removed. `HostTransport` keeps `session/selectModel` on the RPC allowlist but now admits it **only** with `request.scope === 'session'`, so Corn code cannot write the global default through it. The global default stays on the official settings path. `scripts/lib/model-session.mjs` uses the session-only method.
+
+### Corn tests (lightweight, one file at a time)
+
+| File | Result |
+| --- | --- |
+| `apps/desktop/tests/dsh-patch.test.ts` (new) | 5/5 |
+| `packages/dsh-adapter/tests/session-model.test.ts` (new) | 3/3 |
+| `packages/dsh-adapter/tests/transport.test.ts` | 3/3 |
+| `apps/renderer/tests/runtime-notice.test.ts` | 14/14 |
+| `apps/desktop/tests/supervisor-stop.test.ts` | 7/7 |
+| `apps/desktop/tests/startup-control.test.ts` | 16/16 |
+| `apps/desktop/tests/claw-admission.test.ts` | 50/50 |
+| `apps/desktop/tests/isolation.test.ts` | 4/4 |
+| `apps/desktop/tests/host-boundary.test.ts` | 4/4 |
+
+Also run: `tsc --noEmit`, `biome check .`, `pnpm verify:runtime`. No Electron, GUI or packaged app was run, and no real provider was called.
+
+## 5. Real-Host gate (passed with a fake model, 2026-10-12)
+
+Entry point: `pnpm smoke:session-model` (`scripts/smoke-session-model.mjs`). It is headless and free. A loopback OpenAI-compatible stub (`scripts/lib/fake-model-server.mjs`, identical to the headless-gates copy) serves two models, `corn-gate-model` (the default) and `corn-gate-model-alt`. The provider route is a home patch, and the fake key sits in the home `.env`.
+
+The governed Host (Claw admission and the U1 patch check included) runs in a fresh Corn-owned home under `~/.corn-bot-dev/wt-dsh-u1/`, seeded from a verified profile template (`CORN_PROFILE_TEMPLATE`, otherwise built first). It runs under `sandbox-exec` with only loopback outbound allowed; a probe first confirms a public connect gets `EPERM`. Its spawn environment is scrubbed of `KEY|TOKEN|SECRET|PASSW|CREDENTIAL|AUTH|COOKIE|PROXY` names and must be within `cornHostEnvironment`'s allowlist. The home is removed after a pass and kept for diagnosis after a failure. The script writes `.artifacts/u1-session-model-gate.json` (ids, model names and counts only).
+
+Run once, at `5dfc2f5` plus this script, with `env -i PATH HOME TMPDIR LANG` and the verified gate template: **5/5 PASS**, 13.5 s, 6 fake-model requests.
+
+| Claim | Evidence |
+| --- | --- |
+| 1. Global default unchanged | `modelCatalog().default` is `corn-gate-model` before the switch, 3 s after `selectSessionModel(alt)` (reply `scope: 'session'`), and again after the restart |
+| 2. Current Session uses the new model | Session 1's turn before the switch: header `corn-gate-model`, 0 notices. After the switch: request header `corn-gate-model-alt`, model on the wire to the stub `corn-gate-model-alt` only, exactly 1 `model-selection` notice |
+| 3. Another Session unaffected | Session 2's turn after the switch: header and wire `corn-gate-model`, 0 notices |
+| 4. Survives a Host restart | After `host.stop()` / `host.start()` (same home, re-admitted): `model/selection` for the alt model is in the journal; the next turn's header and wire are `corn-gate-model-alt`, with 0 new notices |
+| Host environment | Both Host spawns got exactly `DSH_HOME DSH_TELEMETRY_DISABLED HOME LANG PATH TMPDIR`; every stub request carried the fake bearer |
+
+After the run, `ps` found no DSH Host, stub, `sandbox-exec` or smoke process, and the run home and run root were gone. Not covered: a real provider; scenario 7 of ADR-0007 against the Bot UI (M2 wiring).
+
+### Packaged dependency tree
+
+`package:mac`'s deploy step was reproduced alone: `pnpm --filter @corn-bot/desktop deploy --prod --legacy --config.node-linker=hoisted` into a temp dir, with scripts ignored, the workspace state restored, and no `pnpm build`, electron-builder or app launch. The tree holds one copy of `@deepseek-ai/dsh-api-session-controller`. `verifyDshPatches` passed on it, and `lib/index.js` hashes to the locked `5b03b914…`, so `pnpm deploy` carries the patch. The temp tree was removed. A full `package:mac` run and the packaged app were not exercised.
+
+## 6. Upstream PR draft (do not post without maintainer confirmation)
+
+- Repository: `deepseek-ai/deepseek-harness`, base `master` (`0.2.1-alpha.2`, `d743267388`).
+- Local branch: `u1/session-model-scope` at `b10d3d5bd54e4c5e4ff74165e2fe80e65840ae12` in `Corn Bot/.cache/dsh-u1/harness`. Not pushed.
+- Title: `feat(session-controller): session-only scope for session.selectModel`
+
+Body:
+
+```markdown
+## Motivation
+
+`session.selectModel` always saves the accepted selection as the global Agent default (in the background), so an embedding client cannot give one Session its own model without changing the model every new Session starts with. Hosts that run several agents side by side (one Session per bot) need a Session-only switch.
+
+## Changes
+
+- API: `SessionSelectModelRequest` gains optional `scope: 'default' | 'session'` (omitted = `default`, today's behaviour). `SessionSelectModelValue` gains `scope`, echoing what the Host applied.
+- `scope: 'session'` runs the same validation and appends the same durable `model/selection` event, but does not call `agentDefaultModel.saveSelection`. Other Sessions, new Sessions and the default are unchanged. No persistence format change.
+- Behaviour for existing callers: none (the web UI keeps the default scope).
+- Docs: session-controller README (en/zh) documents the scope and the existing follow-the-default rule: a Session follows the live default only until its log names a selection or a request. API catalog regenerated.
+
+## Testing
+
+- `pnpm vitest run packages/api/session-controller/tests/session-models.host.spec.ts`: 5 new cases (no default save, other Session untouched, explicit `default` still saves, omitted scope = `default`, request config, prompt variables and switch notice use the Session model, restore from the journal under a different default, follow-the-default semantics).
+
+  <details>
+  <summary>Proof</summary>
+
+  Test Files 1 passed (1), Tests 31 passed (31)
+
+  </details>
+
+- `pnpm vitest run packages/client/ui-model-selection/tests/browser-plugin.client.spec.ts`: fake reply carries `scope`.
+
+  <details>
+  <summary>Proof</summary>
+
+  Test Files 1 passed (1), Tests 23 passed (23)
+
+  </details>
+
+- `pnpm run verify-cordis-api`, `tsc -b packages/api/session-controller/tsconfig.host.json`, oxlint on the changed files: clean.
+```
+
+## 7. Risks
+
+- **rc2 vs alpha.2:** the cherry-pick onto `master` was clean. `commands.ts`, `agent.ts`, `model-selection.ts`, the projection and the spec are identical between the two lines; only line offsets in `types.ts`, `index.ts`, docs and the catalog moved. alpha.2 changes other `index.ts` Remotes, and its published dist was not inspected, so the next DSH bump must re-port the **dist** patch and re-hash it.
+- **Hand-mirrored dist:** the Typert codecs in `typert.host.js` / `typert.remote-client.js` are generated by the full monorepo build, which was not run. The patch mirrors the generator's literal-union shape by hand. The headless gate (§5) shows the patched Host codec admits `scope` and echoes it; the browser client codec (`typert.remote-client.js`) is not exercised by Corn.
+- **Unpatched Host hazard:** Typert strips the unknown `scope` key, so an unpatched Host saves the default. Mitigations: startup admission refuses an unpatched install; the adapter refuses replies without `scope: 'session'`; the transport refuses unscoped calls.
+- **pnpm deploy:** the deploy step alone was shown to carry the patch (§5). A full `package:mac` and the packaged app were not run; `package:mac` still fails at the staged-tree verification if a later pnpm drops the patch.
+- **Maintenance burden:** the patch pins `0.2.0-rc.2` exactly. Any DSH upgrade fails `runtime_patch_mismatch` or `pnpm install` until the patch is re-ported. If upstream rejects U1, keeping a self-maintained patch needs its own decision (ADR-0007).
+- **Follow-global** cannot be restored once a Session has a selection or a request. This is documented; it is not a regression.
