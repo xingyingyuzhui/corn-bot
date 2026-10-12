@@ -7,10 +7,12 @@ import {
   integerColumn,
   nullableTextColumn,
   requireId,
+  requireOne,
   requireText,
   requireTimestamp,
   textColumn,
 } from '../rows.ts'
+import { POLICY_PRESETS, type PolicyPreset } from './agents.ts'
 import {
   type ModelChoice,
   modelChoiceColumns,
@@ -29,6 +31,12 @@ export interface BotRow {
   readonly sortKey: string
   /** `null` = follow the global default model. */
   readonly modelOverride: ModelChoice | null
+  /**
+   * Claw policy preset chosen at creation (decision 6B), kept from step 0 so
+   * a restart before `claw_agents` exists does not lose it. `null` only for
+   * rows created before migration 0002 without a Claw agent.
+   */
+  readonly policyPreset: PolicyPreset | null
   readonly provisioning: BotProvisioning
   readonly revision: number
   readonly createdAt: number
@@ -41,6 +49,8 @@ export interface NewBot {
   readonly avatarVariant: string | null
   readonly sortKey: string
   readonly modelOverride: ModelChoice | null
+  /** Omitted: `null` (unknown). */
+  readonly policyPreset?: PolicyPreset
   readonly now: number
 }
 
@@ -52,9 +62,10 @@ export interface BotWriteOptions {
 
 const COLUMNS = `bot_id, display_name, avatar_variant, pinned, hidden, sort_key,
   model_override_provider, model_override_model, model_override_effort,
-  provisioning, revision, created_at, updated_at`
+  policy_preset, provisioning, revision, created_at, updated_at`
 
 export function parseBotRow(row: SqlRow): BotRow {
+  const policyPreset = nullableTextColumn(row, 'bots', 'policy_preset')
   return {
     botId: textColumn(row, 'bots', 'bot_id'),
     displayName: textColumn(row, 'bots', 'display_name'),
@@ -63,6 +74,10 @@ export function parseBotRow(row: SqlRow): BotRow {
     hidden: flagColumn(row, 'bots', 'hidden'),
     sortKey: textColumn(row, 'bots', 'sort_key'),
     modelOverride: modelChoiceColumns(row, 'bots', 'model_override'),
+    policyPreset:
+      policyPreset === null
+        ? null
+        : enumColumn(POLICY_PRESETS, row, 'bots', 'policy_preset'),
     provisioning: enumColumn(BOT_PROVISIONING, row, 'bots', 'provisioning'),
     revision: integerColumn(row, 'bots', 'revision'),
     createdAt: integerColumn(row, 'bots', 'created_at'),
@@ -76,15 +91,19 @@ export function insertBot(tx: SqlExecutor, bot: NewBot): BotRow {
   tx.run(
     `INSERT INTO bots (bot_id, display_name, avatar_variant, sort_key,
        model_override_provider, model_override_model, model_override_effort,
-       provisioning, created_at, updated_at)
+       policy_preset, provisioning, created_at, updated_at)
      VALUES (:botId, :displayName, :avatarVariant, :sortKey,
-       :provider, :model, :effort, 'creating', :now, :now)`,
+       :provider, :model, :effort, :policyPreset, 'creating', :now, :now)`,
     {
       botId: requireId(bot.botId, 'botId'),
       displayName: requireText(bot.displayName, 'displayName'),
       avatarVariant: bot.avatarVariant,
       sortKey: bot.sortKey,
       ...override,
+      policyPreset:
+        bot.policyPreset === undefined
+          ? null
+          : requireOne(POLICY_PRESETS, bot.policyPreset, 'policyPreset'),
       now,
     },
   )
