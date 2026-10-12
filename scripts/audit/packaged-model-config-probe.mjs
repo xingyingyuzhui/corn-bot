@@ -1,85 +1,89 @@
 import assert from 'node:assert/strict'
-import { spawn } from 'node:child_process'
-import { randomUUID } from 'node:crypto'
-import { mkdtemp, readFile, rm } from 'node:fs/promises'
-import { homedir } from 'node:os'
+import { createHash, randomUUID } from 'node:crypto'
+import { lstat, readdir, readFile } from 'node:fs/promises'
 import { join } from 'node:path'
+import { fileURLToPath } from 'node:url'
 import { HostAuth } from '../../apps/desktop/src/runtime/host-auth.ts'
-import { parseReadinessLine } from '../../apps/desktop/src/runtime/host-readiness.ts'
+import { TEMPLATE_MANIFEST } from '../../apps/desktop/src/runtime/profile-template.ts'
 import {
-  CORN_PROFILE,
-  claimCornHome,
-  cornHostEnvironment,
-  writeIsolationPatch,
-} from '../../apps/desktop/src/runtime/profile-bootstrap.ts'
-import { materializeProfile } from '../../apps/desktop/src/runtime/profile-template.ts'
+  AuditRefusal,
+  refuseExternalHome,
+  verifyRuntimeVersions,
+} from '../lib/model-audit-fixtures.mjs'
+import { finishAudit, runAudit } from '../lib/model-audit-report.mjs'
 
 // Run: node scripts/audit/packaged-model-config-probe.mjs "<path>/Corn Bot.app"
-// Read-only: boots the app's bundled runtime keyless from its bundled profile
-// template in a fresh Corn-owned temp home, reads the model-configuration
-// Remotes, and deletes the home. Nothing is written through the Host.
-const app = process.argv[2]
-assert.ok(app?.endsWith('.app'), 'Pass the packaged Corn Bot.app path')
+// Read-only against the app: boots its bundled runtime keyless from its bundled
+// profile template in an audit-owned temp lab, reads the model-configuration
+// Remotes and destroys the lab. Nothing is written through the Host, and the
+// app tree is fingerprinted before and after to prove it was not modified.
+let app
+try {
+  ;[app] = refuseExternalHome(process.argv.slice(2), process.env, {
+    positional: 1,
+  })
+  if (!app.endsWith('.app'))
+    throw new AuditRefusal(
+      'Refusing a non-app argument: pass the packaged Corn Bot.app path',
+    )
+} catch (error) {
+  if (!(error instanceof AuditRefusal)) throw error
+  console.error(error.message)
+  process.exit(2)
+}
+
+const REPORT = fileURLToPath(
+  new URL('../../.artifacts/packaged-model-config-probe.json', import.meta.url),
+)
 const resources = join(app, 'Contents', 'Resources')
 const cli = join(resources, 'node_modules', '@deepseek-ai', 'dsh')
-assert.equal(
-  JSON.parse(await readFile(join(cli, 'package.json'), 'utf8')).version,
-  '0.2.0-rc.2',
-)
-const parent = join(homedir(), '.corn-bot-dev', 'wt-model-audit')
-const home = await mkdtemp(join(parent, 'packaged-'))
-let child
-let exited
-try {
-  await claimCornHome(home)
-  await materializeProfile(
-    join(resources, 'profile-template'),
-    join(home, 'profiles', CORN_PROFILE),
-  )
-  const patch = await writeIsolationPatch(home, null)
-  child = spawn(
-    join(app, 'Contents', 'MacOS', 'Corn Bot'),
-    [
-      join(cli, 'lib', 'bin.js'),
-      CORN_PROFILE,
-      '--patch',
-      patch,
-      '--no-open',
-      '--port',
-      '0',
-    ],
-    {
-      cwd: home,
-      env: { ...cornHostEnvironment(home, null), ELECTRON_RUN_AS_NODE: '1' },
-      stdio: ['ignore', 'pipe', 'pipe'],
-    },
-  )
-  exited = new Promise((resolve) => child.once('close', resolve))
-  const launch = await new Promise((resolve, reject) => {
-    let pending = ''
-    const timer = setTimeout(
-      () => reject(new Error('Packaged Host readiness deadline exceeded')),
-      45_000,
-    )
-    child.once('close', () => {
-      clearTimeout(timer)
-      reject(new Error('Packaged Host exited before readiness'))
-    })
-    child.stdout.setEncoding('utf8').on('data', (chunk) => {
-      pending += chunk
-      const lines = pending.split(/\r?\n/u)
-      pending = lines.pop() || ''
-      for (const line of lines) {
-        const url = parseReadinessLine(line)
-        if (url) {
-          clearTimeout(timer)
-          resolve(url)
-        }
-      }
-    })
-    child.stderr.resume()
+const template = join(resources, 'profile-template')
+
+/** Path, type, mode, size and mtime of every entry in the app bundle. */
+async function fingerprintApp() {
+  const hash = createHash('sha256')
+  let entries = 0
+  async function walk(directory) {
+    for (const name of (await readdir(directory)).sort()) {
+      const path = join(directory, name)
+      const info = await lstat(path)
+      entries++
+      hash.update(
+        `${path.slice(app.length)}\0${info.mode}\0${info.size}\0${info.mtimeMs}\n`,
+      )
+      if (info.isDirectory()) await walk(path)
+    }
+  }
+  await walk(app)
+  return { digest: hash.digest('hex'), entries }
+}
+
+async function probe(lab, audit) {
+  const before = await fingerprintApp()
+  await lab.seedProfile(template)
+  const versions = await verifyRuntimeVersions({
+    profile: lab.profile,
+    dshManifest: join(cli, 'package.json'),
   })
-  const auth = await HostAuth.exchange(launch)
+  const manifest = JSON.parse(
+    await readFile(join(template, TEMPLATE_MANIFEST), 'utf8'),
+  )
+  assert.equal(manifest.dshVersion, versions.dsh)
+  assert.equal(manifest.clawVersion, versions.claw)
+  audit.facts.versions = versions
+  audit.pass('runtime-versions', {
+    dsh: versions.dsh,
+    claw: versions.claw,
+    clawComponents: versions.clawComponents,
+    templateManifestMatches: true,
+  })
+
+  const host = await lab.startHost({
+    command: join(app, 'Contents', 'MacOS', 'Corn Bot'),
+    args: [join(cli, 'lib', 'bin.js')],
+    electron: true,
+  })
+  const auth = await HostAuth.exchange(host.launch)
   const rpc = async (endpoint, args) => {
     const response = await fetch(auth.url(`/api/${endpoint}`), {
       method: 'POST',
@@ -91,7 +95,7 @@ try {
         payload: { args },
       }),
       redirect: 'error',
-      signal: AbortSignal.timeout(30_000),
+      signal: AbortSignal.any([AbortSignal.timeout(30_000), audit.signal]),
     })
     const result = (await response.json()).result
     assert.equal(result.ok, true, `${endpoint} failed`)
@@ -103,42 +107,72 @@ try {
   )
   const configurable = await rpc('llm/listConfigurableProviders', {})
   const catalog = await rpc('session/modelCatalog', {})
-  console.log(
-    JSON.stringify(
-      {
-        runtime: 'packaged Corn Bot.app bundled DSH 0.2.0-rc.2',
-        settings: {
-          writable: settings.writable,
-          namespaces: settings.namespaces.length,
-          agentDefaultModel: {
-            autoGenerate: defaultModel.autoGenerate,
-            value: defaultModel.value,
-            revision: defaultModel.revision,
-          },
-        },
-        credentials: await rpc('credentials/describe', {
-          refs: ['DEEPSEEK_API_KEY'],
-        }),
-        llm: {
-          listProviders: await rpc('llm/listProviders', {}),
-          configurable: configurable.length,
-          configurableNamespaces: [
-            ...new Set(configurable.map((row) => row.settingsNs)),
-          ],
-        },
-        modelCatalog: {
-          default: catalog.default,
-          routableProviders: catalog.routableProviders,
-        },
+  const observed = {
+    runtime: `packaged Corn Bot.app bundled DSH ${versions.dsh}, Claw ${versions.claw}`,
+    settings: {
+      writable: settings.writable,
+      namespaces: settings.namespaces.length,
+      agentDefaultModel: {
+        autoGenerate: defaultModel.autoGenerate,
+        value: defaultModel.value,
+        revision: defaultModel.revision,
       },
-      null,
-      2,
-    ),
-  )
-} finally {
-  if (child && child.exitCode === null && child.signalCode === null) {
-    child.kill('SIGTERM')
-    await exited
+    },
+    credentials: await rpc('credentials/describe', {
+      refs: ['DEEPSEEK_API_KEY'],
+    }),
+    llm: {
+      listProviders: await rpc('llm/listProviders', {}),
+      configurable: configurable.length,
+      configurableNamespaces: [
+        ...new Set(configurable.map((row) => row.settingsNs)),
+      ],
+    },
+    modelCatalog: {
+      default: catalog.default,
+      routableProviders: catalog.routableProviders,
+    },
   }
-  await rm(home, { recursive: true, force: true })
+  audit.record('packaged read-only probe', { observed })
+  audit.pass('packaged-read', {
+    namespaces: observed.settings.namespaces,
+    configurableProviders: observed.llm.configurable,
+    defaultModel: `${catalog.default.provider}/${catalog.default.model}`,
+  })
+  await host.stop()
+
+  const after = await fingerprintApp()
+  assert.deepEqual(after, before, 'the app bundle changed during the probe')
+  audit.pass('app-unmodified', { entries: after.entries })
 }
+
+const report = await runAudit({
+  label: 'packaged',
+  reportPath: REPORT,
+  required: ['runtime-versions', 'packaged-read', 'app-unmodified'],
+  handleSignals: true,
+  body: probe,
+})
+console.log(
+  JSON.stringify(
+    {
+      status: report.status,
+      durationMs: report.durationMs,
+      versions: report.facts?.versions,
+      observed: report.evidence?.find(
+        (row) => row.step === 'packaged read-only probe',
+      )?.observed,
+      capabilities: Object.fromEntries(
+        Object.entries(report.capabilities).map(([name, row]) => [
+          name,
+          row.status,
+        ]),
+      ),
+      cleanup: report.cleanup,
+      problems: report.problems,
+    },
+    null,
+    2,
+  ),
+)
+finishAudit(report)

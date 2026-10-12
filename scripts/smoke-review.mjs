@@ -20,6 +20,12 @@ const SUITES = [
       'gate-disabled-by-profile-patch',
       'registry-replaced-by-noop-plugin',
       'recovery-revalidates-after-gate-removed',
+      'gate-isolated-by-profile-patch',
+      'gate-isolated-by-home-patch',
+      'gate-remounted-in-isolating-group',
+      'runtime-check-detects-isolated-gate',
+      'gate-replaced-by-noop-plugin',
+      'recovery-revalidates-gate-capability',
     ],
   },
   {

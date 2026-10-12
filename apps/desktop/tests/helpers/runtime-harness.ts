@@ -12,9 +12,11 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { PassThrough } from 'node:stream'
 import { CLAW_VERSION } from '../../../../packages/contracts/src/runtime.ts'
+import type { StopTimeouts } from '../../src/runtime/dsh-host-supervisor.ts'
 import { HostAuth } from '../../src/runtime/host-auth.ts'
 import {
   type AppRuntime,
+  type AppRuntimeSeams,
   createAppRuntime,
 } from '../../src/runtime/startup-control.ts'
 
@@ -87,6 +89,9 @@ export class FakeChild extends EventEmitter {
   readonly kills: string[] = []
   exitCode: number | null = null
   signalCode: NodeJS.Signals | null = null
+  /** Records signals without exiting, like a wedged process. */
+  ignoreSignals = false
+  #closed = false
   readonly #port: number
 
   constructor(
@@ -110,30 +115,97 @@ export class FakeChild extends EventEmitter {
 
   kill(signal: NodeJS.Signals = 'SIGTERM'): boolean {
     this.kills.push(signal)
-    queueMicrotask(() => this.exit(null, signal))
+    if (!this.ignoreSignals) queueMicrotask(() => this.exit(null, signal))
     return true
   }
 
   exit(code: number | null, signal: NodeJS.Signals | null = null): void {
+    this.exitOnly(code, signal)
+    if (this.#closed) return
+    this.#closed = true
+    this.emit('close', this.exitCode, this.signalCode)
+  }
+
+  /** Process exit while a descendant still holds the stdio pipes: no `close`. */
+  exitOnly(code: number | null, signal: NodeJS.Signals | null = null): void {
     if (this.exitCode !== null || this.signalCode !== null) return
     this.exitCode = code
     this.signalCode = signal
     this.emit('exit', code, signal)
-    this.emit('close', code, signal)
   }
 }
 
 export type RegistryMode = 'ok' | 'missing' | 'invalid'
 
-/** Loopback stand-in for the Host's token exchange and Claw Registry route. */
+/** How the fake Host answers the Claw Gate audit route (`registerJsonRoute` envelope when mounted). */
+export type GateMode =
+  | 'ok'
+  | 'missing'
+  | 'error'
+  | 'not-json'
+  | 'not-ok'
+  | 'no-items'
+  | 'items-not-array'
+  | 'over-limit'
+  | 'hang'
+
+const GATE_ROUTE = '/api/dsh-claw/gate/audit'
+
+function gateAnswer(mode: Exclude<GateMode, 'hang'>): {
+  readonly status: number
+  readonly type: string
+  readonly body: string
+} {
+  const json = (status: number, value: unknown) => ({
+    status,
+    type: 'application/json; charset=utf-8',
+    body: JSON.stringify(value),
+  })
+  switch (mode) {
+    case 'ok':
+      return json(200, { ok: true, items: [] })
+    case 'missing':
+      return { status: 404, type: 'text/plain', body: 'Not Found' }
+    case 'error':
+      return json(500, { ok: false, error: 'fixture failure' })
+    case 'not-json':
+      return { status: 200, type: 'text/html', body: '<html></html>' }
+    case 'not-ok':
+      return json(200, { ok: false, items: [] })
+    case 'no-items':
+      return json(200, { ok: true })
+    case 'items-not-array':
+      return json(200, { ok: true, items: { length: 0 } })
+    case 'over-limit':
+      return json(200, { ok: true, items: [{}, {}] })
+    default: {
+      const unreachable: never = mode
+      throw new Error(`Unknown Gate mode ${String(unreachable)}`)
+    }
+  }
+}
+
+async function readBody(request: IncomingMessage): Promise<unknown> {
+  let text = ''
+  for await (const chunk of request) text += String(chunk)
+  return text === '' ? undefined : JSON.parse(text)
+}
+
+/** Loopback stand-in for the Host's token exchange and Claw Registry and Gate routes. */
 export class FakeHost {
   registry: RegistryMode = 'ok'
   gateRegistry = false
   registryCalls = 0
+  gate: GateMode = 'ok'
+  gateCalls = 0
+  readonly gateBodies: unknown[] = []
   readonly #server: Server
   readonly #gates: Array<Deferred<void>> = []
   readonly #arrivals: Array<Deferred<void>> = []
   #arrived = 0
+  readonly #gateHolds: Array<Deferred<void>> = []
+  readonly #gateArrivals: Array<Deferred<void>> = []
+  #gateArrived = 0
 
   private constructor(server: Server) {
     this.#server = server
@@ -162,6 +234,41 @@ export class FakeHost {
 
   openRegistry(): void {
     this.#gates.shift()?.resolve()
+  }
+
+  /** Resolves when the next (in call order) Gate audit request reaches the Host. */
+  gateArrived(): Promise<void> {
+    const index = this.#gateArrived++
+    this.#gateArrivals[index] ??= deferred()
+    return within(
+      (this.#gateArrivals[index] as Deferred<void>).promise,
+      `Gate audit request #${index + 1}`,
+    )
+  }
+
+  /** Lets every held (`hang`) Gate request answer as mounted. */
+  releaseGate(): void {
+    for (const hold of this.#gateHolds.splice(0)) hold.resolve()
+  }
+
+  async #handleGate(
+    request: IncomingMessage,
+    response: ServerResponse,
+  ): Promise<void> {
+    const index = this.gateCalls++
+    this.gateBodies.push(await readBody(request))
+    this.#gateArrivals[index] ??= deferred()
+    ;(this.#gateArrivals[index] as Deferred<void>).resolve()
+    let mode = this.gate
+    if (mode === 'hang') {
+      const hold = deferred()
+      this.#gateHolds.push(hold)
+      await hold.promise
+      mode = 'ok'
+    }
+    const answer = gateAnswer(mode)
+    response.writeHead(answer.status, { 'content-type': answer.type })
+    response.end(answer.body)
   }
 
   async handle(
@@ -204,12 +311,21 @@ export class FakeHost {
       }
       return
     }
+    if (
+      request.method === 'POST' &&
+      request.url === GATE_ROUTE &&
+      request.headers.cookie === 'dsh-auth-fixture=cookie'
+    ) {
+      await this.#handleGate(request, response)
+      return
+    }
     response.writeHead(404)
     response.end()
   }
 
   async close(): Promise<void> {
     for (const gate of this.#gates.splice(0)) gate.resolve()
+    this.releaseGate()
     this.#server.closeAllConnections()
     await new Promise<void>((resolve) => this.#server.close(() => resolve()))
   }
@@ -222,6 +338,8 @@ export interface ClawProfileOptions {
   readonly bundles?: readonly string[]
   readonly profilePatch?: string
   readonly suitePatch?: string
+  /** A profile-local bundle package listed after the suite, with this patch layer. */
+  readonly extraBundle?: { readonly name: string; readonly patch: string }
 }
 
 async function writeJson(path: string, value: unknown): Promise<void> {
@@ -235,16 +353,30 @@ export async function writeClawProfile(
 ): Promise<void> {
   const modules = join(profile, 'node_modules')
   await mkdir(modules, { recursive: true })
+  const extra = options.extraBundle
   await writeJson(join(profile, 'package.json'), {
     name: 'dsh-profile-corn-dev',
     private: true,
     dependencies: { 'dsh-claw-suite': CLAW_VERSION },
     dsh: {
       profile: {
-        bundles: options.bundles ?? [...WEB_BUNDLES, 'dsh-claw-suite'],
+        bundles: options.bundles ?? [
+          ...WEB_BUNDLES,
+          'dsh-claw-suite',
+          ...(extra ? [extra.name] : []),
+        ],
       },
     },
   })
+  if (extra) {
+    await mkdir(join(modules, extra.name), { recursive: true })
+    await writeJson(join(modules, extra.name, 'package.json'), {
+      name: extra.name,
+      version: '1.0.0',
+      dsh: { bundle: { patch: './cordis.patch.yml' } },
+    })
+    await writeFile(join(modules, extra.name, 'cordis.patch.yml'), extra.patch)
+  }
   await writeFile(
     join(profile, 'cordis.patch.yml'),
     options.profilePatch ?? '[]\n',
@@ -295,6 +427,9 @@ export interface HarnessOptions {
   readonly autoReady?: boolean
   readonly gateExchange?: boolean
   readonly profileTemplate?: string
+  /** Every spawned child ignores SIGTERM and SIGKILL. */
+  readonly wedgedChildren?: boolean
+  readonly stopTimeouts?: StopTimeouts
 }
 
 interface ScheduledRecovery {
@@ -371,43 +506,50 @@ export class RuntimeHarness {
             : this.devOverrideFile,
         profileTemplate: this.#options.profileTemplate,
       },
-      {
-        spawnHost: (_command, args, options: SpawnOptions) => {
-          const child = new FakeChild(
-            40_000 + this.children.length,
-            args,
-            options.env ?? {},
-            this.host.port,
-          )
-          const index = this.children.length
-          this.children.push(child)
-          this.#childArrivals[index] ??= deferred()
-          ;(this.#childArrivals[index] as Deferred<FakeChild>).resolve(child)
-          if (this.#options.autoReady !== false)
-            queueMicrotask(() => child.ready())
-          return child as unknown as ChildProcess
-        },
-        exchangeAuth: async (launch, signal) => {
-          const exchange = { signal, gate: deferred() }
-          const index = this.exchanges.length
-          this.exchanges.push(exchange)
-          this.#exchangeArrivals[index] ??= deferred()
-          ;(this.#exchangeArrivals[index] as Deferred<Exchange>).resolve(
-            exchange,
-          )
-          if (this.#options.gateExchange)
-            await Promise.race([exchange.gate.promise, aborted(signal)])
-          return HostAuth.exchange(launch, signal)
-        },
-        schedule: (run, delayMs) => {
-          const entry = { run, delayMs, cancelled: false }
-          this.schedules.push(entry)
-          return () => {
-            entry.cancelled = true
-          }
-        },
-      },
+      this.seams(),
     )
+  }
+
+  /** The faked process, auth and timer seams `build` hands to the App runtime. */
+  seams(): Required<Omit<AppRuntimeSeams, 'stopTimeouts'>> & AppRuntimeSeams {
+    return {
+      spawnHost: (_command, args, options: SpawnOptions) => {
+        const child = new FakeChild(
+          40_000 + this.children.length,
+          args,
+          options.env ?? {},
+          this.host.port,
+        )
+        child.ignoreSignals = this.#options.wedgedChildren === true
+        const index = this.children.length
+        this.children.push(child)
+        this.#childArrivals[index] ??= deferred()
+        ;(this.#childArrivals[index] as Deferred<FakeChild>).resolve(child)
+        if (this.#options.autoReady !== false)
+          queueMicrotask(() => child.ready())
+        return child as unknown as ChildProcess
+      },
+      exchangeAuth: async (launch, signal) => {
+        const exchange = { signal, gate: deferred() }
+        const index = this.exchanges.length
+        this.exchanges.push(exchange)
+        this.#exchangeArrivals[index] ??= deferred()
+        ;(this.#exchangeArrivals[index] as Deferred<Exchange>).resolve(exchange)
+        if (this.#options.gateExchange)
+          await Promise.race([exchange.gate.promise, aborted(signal)])
+        return HostAuth.exchange(launch, signal)
+      },
+      ...(this.#options.stopTimeouts
+        ? { stopTimeouts: this.#options.stopTimeouts }
+        : {}),
+      schedule: (run, delayMs) => {
+        const entry = { run, delayMs, cancelled: false }
+        this.schedules.push(entry)
+        return () => {
+          entry.cancelled = true
+        }
+      },
+    }
   }
 
   get control(): AppRuntime['control'] {

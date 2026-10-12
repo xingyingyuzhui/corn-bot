@@ -13,8 +13,16 @@ import { redactHostDiagnostic } from './runtime/host-readiness.ts'
 import { createAppRuntime } from './runtime/startup-control.ts'
 import { assertTrustedSender } from './security/ipc-allowlist.ts'
 import { probeLayout, probeRecoveringNotice } from './smoke/layout-probe.ts'
+import {
+  applyAppPresentation,
+  presentationWindowOptions,
+  presentWindow,
+  windowPresentation,
+} from './window-presentation.ts'
 
 app.setName('Corn Bot')
+const presentation = windowPresentation(process.env)
+applyAppPresentation(app, presentation)
 const paths = resolveAppPaths({
   isPackaged: app.isPackaged,
   appPath: app.getAppPath(),
@@ -208,6 +216,7 @@ else {
       titleBarStyle: 'hiddenInset',
       trafficLightPosition: { x: 11, y: 12 },
       backgroundColor: '#fcfcfc',
+      ...presentationWindowOptions(presentation),
       webPreferences: {
         preload: paths.preload,
         nodeIntegration: false,
@@ -215,6 +224,7 @@ else {
         sandbox: true,
       },
     })
+    presentWindow(window, presentation)
     window.webContents.setWindowOpenHandler(() => ({ action: 'deny' }))
     window.webContents.on('will-navigate', (event) => event.preventDefault())
     window.webContents.on('will-attach-webview', (event) =>

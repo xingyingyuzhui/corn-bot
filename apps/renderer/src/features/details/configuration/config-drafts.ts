@@ -1,12 +1,30 @@
+import type {
+  BotEditorController,
+  DraftSaveResult,
+} from '../../bot-editor/bot-editor-controller.ts'
 import type { ConfigSubpage } from '../details-navigation.ts'
 
 /** A mounted configuration editor, as the unsaved-changes prompt sees it. */
 export interface ConfigDraftHandle {
   readonly botId: string
   readonly page: ConfigSubpage
-  /** Resolves `false` when the write failed; the draft is kept. */
-  save(): Promise<boolean>
-  discard(): void
+  /** Only `saved` and `unchanged` mean the draft on screen is stored. */
+  save(): Promise<DraftSaveResult>
+  /** Waits for a write already sent, then drops what is left. */
+  discard(): Promise<void>
+}
+
+/** The handle a subpage registers for its editor. */
+export function configDraftHandle<D>(
+  page: ConfigSubpage,
+  controller: BotEditorController<D>,
+): ConfigDraftHandle {
+  return {
+    botId: controller.botId,
+    page,
+    save: () => controller.saveDraft(),
+    discard: () => controller.discard(),
+  }
 }
 
 /** Mounted editors by Bot and page; the prompt saves through these. */
@@ -27,25 +45,92 @@ export class ConfigDraftRegistry {
 
 export type UnsavedChoice = 'save' | 'discard' | 'cancel'
 
+/** How the prompt ended; only `saved` and `discarded` let the held action run. */
+export type UnsavedSettlement =
+  | 'saved'
+  | 'discarded'
+  | 'cancelled'
+  | 'failed'
+  | 'unsaved'
+  | 'missing'
+
 /**
- * Whether the held navigation may go ahead. A failed save keeps the draft
- * and stays; with no editor left there is nothing to keep.
+ * Carries out the choice. Saving leaves only once the draft on screen is
+ * stored; a failed or incomplete save keeps it and stays. The prompt only
+ * opens for a dirty page, so a missing editor is never taken as saved;
+ * discarding still leaves, as asked.
  */
 export async function settleUnsaved(
   choice: UnsavedChoice,
   handle: ConfigDraftHandle | undefined,
-): Promise<boolean> {
+): Promise<UnsavedSettlement> {
   switch (choice) {
     case 'save':
-      return handle ? handle.save() : true
+      return handle ? settlementOf(await handle.save()) : 'missing'
     case 'discard':
-      handle?.discard()
-      return true
+      await handle?.discard()
+      return 'discarded'
     case 'cancel':
-      return false
+      return 'cancelled'
     default: {
       const unreachable: never = choice
       throw new Error(`Unknown choice ${String(unreachable)}`)
+    }
+  }
+}
+
+function settlementOf(result: DraftSaveResult): UnsavedSettlement {
+  switch (result) {
+    case 'saved':
+    case 'unchanged':
+      return 'saved'
+    case 'unsaved':
+      return 'unsaved'
+    case 'failed':
+      return 'failed'
+    default: {
+      const unreachable: never = result
+      throw new Error(`Unknown save result ${String(unreachable)}`)
+    }
+  }
+}
+
+export function leavesAfter(settlement: UnsavedSettlement): boolean {
+  switch (settlement) {
+    case 'saved':
+    case 'discarded':
+      return true
+    case 'cancelled':
+    case 'failed':
+    case 'unsaved':
+    case 'missing':
+      return false
+    default: {
+      const unreachable: never = settlement
+      throw new Error(`Unknown settlement ${String(unreachable)}`)
+    }
+  }
+}
+
+/** The notice after the prompt; a failed save shows its errors on the page. */
+export function settlementNotice(
+  settlement: UnsavedSettlement,
+  page: string,
+): string | null {
+  switch (settlement) {
+    case 'saved':
+      return `“${page}”已保存`
+    case 'unsaved':
+      return `“${page}”还有保存期间的新修改没有保存，请再次保存`
+    case 'missing':
+      return `没有找到“${page}”的编辑内容，修改没有保存`
+    case 'discarded':
+    case 'cancelled':
+    case 'failed':
+      return null
+    default: {
+      const unreachable: never = settlement
+      throw new Error(`Unknown settlement ${String(unreachable)}`)
     }
   }
 }

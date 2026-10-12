@@ -45,6 +45,17 @@ const MODEL_SETTINGS_ENDPOINTS = [
 ]
 for (const endpoint of MODEL_SETTINGS_ENDPOINTS) RPC_ENDPOINTS.add(endpoint)
 
+/** Exact Claw Fetch routes (under `/api/dsh-claw/`) Main may call; Gate audit is a Main-only probe. */
+const CLAW_ROUTES = new Set([
+  'registry/list',
+  'registry/create',
+  'registry/preset/ensure',
+  'registry/session/bind',
+  'registry/session/state',
+  'gate/audit',
+] as const)
+export type ClawRoute = typeof CLAW_ROUTES extends Set<infer T> ? T : never
+
 export class HostTransport {
   readonly authority: HostAuthority
 
@@ -101,7 +112,6 @@ export class HostTransport {
     )
   }
 
-  /** Claw routes are exact authenticated Fetch routes, not Typert Remote methods. */
   async registry(
     action:
       | 'list'
@@ -112,19 +122,27 @@ export class HostTransport {
     body: Record<string, unknown>,
     options: { readonly signal?: AbortSignal } = {},
   ): Promise<Record<string, unknown>> {
-    const response = await fetch(
-      this.authority.url(`/api/dsh-claw/registry/${action}`),
-      {
-        method: 'POST',
-        headers: {
-          ...this.authority.headers(),
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify(body),
-        redirect: 'error',
-        signal: options.signal ?? AbortSignal.timeout(30_000),
+    return this.claw(`registry/${action}`, body, options)
+  }
+
+  /** Claw routes are exact authenticated Fetch routes, not Typert Remote methods. */
+  async claw(
+    route: ClawRoute,
+    body: Record<string, unknown>,
+    options: { readonly signal?: AbortSignal } = {},
+  ): Promise<Record<string, unknown>> {
+    if (!CLAW_ROUTES.has(route))
+      throw new RemoteError('corn/endpoint-denied', 'Claw route is not allowed')
+    const response = await fetch(this.authority.url(`/api/dsh-claw/${route}`), {
+      method: 'POST',
+      headers: {
+        ...this.authority.headers(),
+        'Content-Type': 'application/json',
       },
-    )
+      body: JSON.stringify(body),
+      redirect: 'error',
+      signal: options.signal ?? AbortSignal.timeout(30_000),
+    })
     const result = record(await response.json())
     if (!response.ok || result.ok !== true) {
       throw new RemoteError(
@@ -133,7 +151,7 @@ export class HostTransport {
           : `corn/http-${response.status}`,
         typeof result.error === 'string'
           ? result.error
-          : 'Claw Registry rejected the request',
+          : 'Claw rejected the request',
       )
     }
     return result

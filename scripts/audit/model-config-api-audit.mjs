@@ -1,45 +1,52 @@
 import assert from 'node:assert/strict'
-import { spawn } from 'node:child_process'
 import { randomUUID } from 'node:crypto'
-import { mkdir, readdir, readFile, rm, stat, writeFile } from 'node:fs/promises'
-import { createServer } from 'node:http'
-import { createRequire } from 'node:module'
-import { dirname, join } from 'node:path'
+import { mkdir, readFile, rm, stat, writeFile } from 'node:fs/promises'
+import { join } from 'node:path'
 import { setTimeout as delay } from 'node:timers/promises'
 import { fileURLToPath } from 'node:url'
 import { HostAuth } from '../../apps/desktop/src/runtime/host-auth.ts'
-import { parseReadinessLine } from '../../apps/desktop/src/runtime/host-readiness.ts'
-import { acquireProcessLock } from '../../apps/desktop/src/runtime/process-lock.ts'
 import {
-  assertIsolatedHome,
-  CORN_PROFILE,
-  cornHostEnvironment,
-} from '../../apps/desktop/src/runtime/profile-bootstrap.ts'
+  probeDiscoveryCancellation,
+  startDiscoveryStub,
+} from '../lib/model-audit-cancellation.mjs'
+import {
+  AuditRefusal,
+  FAKE,
+  refuseExternalHome,
+  verifyRuntimeVersions,
+} from '../lib/model-audit-fixtures.mjs'
+import {
+  finishAudit,
+  runAudit,
+  scanForFakeKeys,
+} from '../lib/model-audit-report.mjs'
+import { buildProfileTemplate } from '../lib/profile-template-build.mjs'
 
-// Run: CORN_DSH_HOME=<Corn-owned home from `pnpm setup:runtime`> node scripts/audit/model-config-api-audit.mjs
+// Run: node scripts/audit/model-config-api-audit.mjs   (takes no home; CORN_DSH_HOME is refused)
 // Standalone audit of the RC2 model-configuration Remote surface; not part of `pnpm check`.
-// Fake credentials only. No provider endpoint is contacted: discovery uses the
-// pi-ai catalog and a loopback stub. Every write is reverted before exit.
-assert.ok(
-  process.env.CORN_DSH_HOME,
-  'CORN_DSH_HOME must name a Corn-owned home',
-)
-const home = assertIsolatedHome(process.env.CORN_DSH_HOME)
-const owner = JSON.parse(
-  await readFile(join(home, '.corn-bot-home.json'), 'utf8'),
-)
-assert.equal(owner.owner, 'corn-bot')
-const profile = join(home, 'profiles', CORN_PROFILE)
-const require = createRequire(import.meta.url)
-const manifest = require.resolve('@deepseek-ai/dsh/package.json')
-assert.equal(require(manifest).version, '0.2.0-rc.2')
-
-const FAKE = {
-  file: 'sk-corn-audit-FAKE-0000',
-  env: 'sk-corn-audit-FAKE-ENV-0000',
-  dotenv: 'sk-corn-audit-FAKE-DOTENV-0000',
-  discovery: 'sk-corn-audit-FAKE-DISCOVERY-0000',
+// It creates its own temp lab, seeds the profile from a freshly built, verified
+// template (locked DSH + Claw release), uses fake credentials only, restores the
+// lab to its initial values, then destroys the lab. No provider endpoint is
+// contacted: discovery uses the pi-ai catalog and a loopback stub.
+try {
+  refuseExternalHome(process.argv.slice(2), process.env)
+} catch (error) {
+  if (!(error instanceof AuditRefusal)) throw error
+  console.error(error.message)
+  process.exit(2)
 }
+
+const REPORT = fileURLToPath(
+  new URL('../../.artifacts/model-config-api-audit.json', import.meta.url),
+)
+const REQUIRED = [
+  'runtime-versions',
+  'discovery-cancellation',
+  'global-default-write',
+  'global-default-restart-persistence',
+  'lab-restored',
+  'fake-key-leak-scan',
+]
 const REF = {
   file: 'CORN_AUDIT_FAKE_API_KEY',
   env: 'CORN_AUDIT_ENV_API_KEY',
@@ -53,18 +60,19 @@ const TARGET = {
 }
 const CUSTOM = 'corn-audit-gateway'
 
-const evidence = []
 const wire = []
-const hostOutput = []
-let child
-let exited
+const hosts = []
+let lab
+let audit
+let home
+let profile
+let host
 let auth
 let stub
 
-const record = (step, facts) => {
-  evidence.push({ step, ...facts })
-  console.log(`AUDIT ${step}`)
-}
+const record = (step, facts) => audit.record(step, facts)
+const requestSignal = (signal) =>
+  AbortSignal.any([signal ?? AbortSignal.timeout(30_000), audit.signal])
 
 /** Raw Connection RPC; failures are returned as observed envelopes rather than thrown. */
 async function rpc(endpoint, args, signal) {
@@ -79,7 +87,7 @@ async function rpc(endpoint, args, signal) {
       payload: { args },
     }),
     redirect: 'error',
-    signal: signal ?? AbortSignal.timeout(30_000),
+    signal: requestSignal(signal),
   })
   const text = await response.text()
   wire.push(text)
@@ -114,7 +122,7 @@ async function claw(path, body) {
     headers: { ...auth.headers(), 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
     redirect: 'error',
-    signal: AbortSignal.timeout(30_000),
+    signal: requestSignal(),
   })
   const text = await response.text()
   wire.push(text)
@@ -134,88 +142,14 @@ const failure = ({ http, code, message, details, contentType }) => ({
 })
 
 async function boot({ env = {}, overlay = [] } = {}) {
-  const patch = join(home, 'corn-audit.patch.yml')
-  await writeFile(
-    patch,
-    `${JSON.stringify(
-      [
-        {
-          id: 'workspace-controller',
-          config: { documentsDirectory: join(home, 'documents') },
-        },
-        ...overlay,
-      ],
-      null,
-      2,
-    )}\n`,
-    { mode: 0o600 },
-  )
-  child = spawn(
-    process.execPath,
-    [
-      join(dirname(manifest), 'lib', 'bin.js'),
-      CORN_PROFILE,
-      '--patch',
-      patch,
-      '--no-open',
-      '--port',
-      '0',
-    ],
-    {
-      cwd: home,
-      env: { ...cornHostEnvironment(home, null), ...env },
-      stdio: ['ignore', 'pipe', 'pipe'],
-    },
-  )
-  exited = new Promise((resolve) => child.once('close', resolve))
-  const launch = await new Promise((resolve, reject) => {
-    let pending = ''
-    const timer = setTimeout(
-      () => reject(new Error('Audit Host readiness deadline exceeded')),
-      45_000,
-    )
-    child.once('error', reject)
-    child.once('close', () => {
-      clearTimeout(timer)
-      reject(new Error('Audit Host exited before readiness'))
-    })
-    child.stdout.setEncoding('utf8').on('data', (chunk) => {
-      hostOutput.push(chunk)
-      pending += chunk
-      const lines = pending.split(/\r?\n/u)
-      pending = lines.pop() || ''
-      for (const line of lines) {
-        const url = parseReadinessLine(line)
-        if (url) {
-          clearTimeout(timer)
-          resolve(url)
-        }
-      }
-    })
-    child.stderr.setEncoding('utf8').on('data', (chunk) => {
-      hostOutput.push(chunk)
-    })
-  })
-  auth = await HostAuth.exchange(launch)
+  host = await lab.startHost({ env, overlay })
+  hosts.push(host)
+  auth = await HostAuth.exchange(host.launch)
 }
 
 async function halt() {
-  if (child && child.exitCode === null && child.signalCode === null) {
-    child.kill('SIGTERM')
-    let timer
-    const stopped = await Promise.race([
-      exited.then(() => true),
-      new Promise((resolve) => {
-        timer = setTimeout(() => resolve(false), 8000)
-      }),
-    ])
-    clearTimeout(timer)
-    if (!stopped) {
-      child.kill('SIGKILL')
-      await exited
-    }
-  }
-  child = undefined
+  await host?.stop()
+  host = undefined
   auth = undefined
 }
 
@@ -246,29 +180,24 @@ async function eventually(read, predicate, label, ms = 10_000) {
   throw new Error(`Deadline exceeded: ${label}`)
 }
 
-/** Loopback stand-in for an OpenAI-compatible listing endpoint; never a real provider. */
-async function startStub() {
-  const seen = { authorized: false, hangClosed: false }
-  const server = createServer((request, response) => {
-    if (request.url?.startsWith('/hang/')) {
-      request.socket.once('close', () => {
-        seen.hangClosed = true
-      })
-      return
-    }
-    seen.authorized =
-      request.headers.authorization === `Bearer ${FAKE.discovery}`
-    response.writeHead(200, { 'Content-Type': 'application/json' })
-    response.end(JSON.stringify({ data: [{ id: 'corn-audit-stub-model' }] }))
+async function auditBody(ownedLab, run) {
+  lab = ownedLab
+  audit = run
+  home = lab.home
+  profile = lab.profile
+  const template = join(lab.root, 'template')
+  await buildProfileTemplate(template, { signal: audit.signal })
+  await lab.seedProfile(template)
+  const versions = await verifyRuntimeVersions({ profile })
+  audit.facts.versions = versions
+  audit.pass('runtime-versions', {
+    dsh: versions.dsh,
+    claw: versions.claw,
+    clawComponents: versions.clawComponents,
   })
-  await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve))
-  return { server, seen, port: server.address().port }
-}
-
-const releaseLock = await acquireProcessLock(home)
-try {
-  await mkdir(join(home, 'documents'), { recursive: true, mode: 0o700 })
-  stub = await startStub()
+  await mkdir(join(home, 'documents'), { mode: 0o700 })
+  stub = await startDiscoveryStub({ fakeKey: FAKE.discovery })
+  lab.track(() => stub.close())
 
   // Phase A: first keyless boot.
   await boot()
@@ -402,34 +331,29 @@ try {
       fakeKeyEchoed: JSON.stringify(discovered).includes(FAKE.discovery),
     },
   })
-  const abort = new AbortController()
-  const pendingDiscovery = rpc(
-    'llm/discoverModels',
-    {
-      settingsNs: 'llm-pi-ai',
-      request: {
-        baseURL: `http://127.0.0.1:${stub.port}/hang/v1`,
-        api: 'openai-completions',
-        apiKey: FAKE.discovery,
-      },
-    },
-    abort.signal,
-  ).catch((error) => ({ aborted: error.name }))
-  await delay(500)
-  abort.abort()
-  const abortedCall = await pendingDiscovery
-  await eventually(
-    async () => stub.seen.hangClosed,
-    Boolean,
-    'upstream discovery request closed after client abort',
-    5000,
-  ).catch(() => false)
+  // Discovery HTTP only: settings/credentials writes are not cancellable and a
+  // timed-out write stays an unknown outcome that must be read back.
+  const { capability, status, ...cancellation } =
+    await probeDiscoveryCancellation({
+      stub,
+      call: (signal) =>
+        rpc(
+          'llm/discoverModels',
+          {
+            settingsNs: 'llm-pi-ai',
+            request: {
+              baseURL: `http://127.0.0.1:${stub.port}/hang/v1`,
+              api: 'openai-completions',
+              apiKey: FAKE.discovery,
+            },
+          },
+          signal,
+        ),
+    })
   record('llm.discoverModels cancellation (client aborts HTTP RPC)', {
-    observed: {
-      client: abortedCall,
-      upstreamRequestClosed: stub.seen.hangClosed,
-    },
+    observed: cancellation,
   })
+  audit.pass(capability, cancellation)
 
   // Harmless settings round-trip: ui-theme.fontSize (presentation only).
   const theme = await namespace('ui-theme')
@@ -539,6 +463,12 @@ try {
       staleRevisionWrite: failure(staleDefault),
     },
   })
+  audit.pass('global-default-write', {
+    returnedValueIsTarget: true,
+    sessionModelCatalogDefaultIsTarget: true,
+    clawRegistryOfficialIsTarget: true,
+    staleRevisionConflict: true,
+  })
 
   // Credentials with a fake key.
   const describeRefs = async (refs) =>
@@ -641,6 +571,13 @@ try {
   })
   assert.deepEqual(afterRestart.value, TARGET)
   assert.deepEqual(await catalogDefault(), TARGET)
+  assert.deepEqual((await claw('models', {})).official, TARGET)
+  audit.pass('global-default-restart-persistence', {
+    settingsValueIsTarget: true,
+    sessionModelCatalogDefaultIsTarget: true,
+    clawRegistryOfficialIsTarget: true,
+    revisionAfterRestart: afterRestart.revision,
+  })
 
   const invalidModel = await rpc('settings/update', {
     ns: DEFAULT_NS,
@@ -810,71 +747,55 @@ try {
   record('credentials service absent', { observed: credentialsAbsent })
   await halt()
 
-  // Final state and leak scan.
+  // Restore to the lab's initial values, then scan. Destroying the lab is runAudit's job.
   await boot()
   const finalDefault = await namespace(DEFAULT_NS)
   assert.deepEqual(finalDefault.user, {})
   assert.equal((await describeRefs([REF.file]))[REF.file].configured, false)
+  assert.equal((await customState()).routable, false)
   await halt()
-  const leaks = []
-  for (const [name, text] of [
-    ['wire', wire.join('\n')],
-    ['host-output', hostOutput.join('')],
-    ['evidence', JSON.stringify(evidence)],
-  ])
-    for (const fake of Object.values(FAKE))
-      if (text.includes(fake)) leaks.push(name)
-  async function scan(directory) {
-    for (const entry of await readdir(directory, { withFileTypes: true })) {
-      const path = join(directory, entry.name)
-      if (entry.name === 'node_modules') continue
-      if (entry.isDirectory()) await scan(path)
-      else if (entry.isFile()) {
-        const text = await readFile(path, 'utf8').catch(() => '')
-        for (const fake of Object.values(FAKE))
-          if (text.includes(fake)) leaks.push(path.slice(home.length))
-      }
-    }
-  }
-  await scan(home)
+  audit.pass('lab-restored', {
+    globalDefaultUserEmpty: true,
+    fakeCredentialUnset: true,
+    customProviderWithdrawn: true,
+  })
+  const leaks = await scanForFakeKeys({
+    texts: {
+      wire: wire.join('\n'),
+      'host-output': hosts.flatMap((item) => item.output).join(''),
+    },
+    tree: home,
+  })
   record('fake-key leak scan', {
     observed: {
-      scanned: [
-        'wire responses',
-        'Host stdout/stderr',
-        'evidence',
-        'home tree',
-      ],
+      scanned: ['wire responses', 'Host stdout/stderr', 'lab home tree'],
       leaks,
     },
   })
   assert.deepEqual(leaks, [])
-  const artifact = new URL(
-    '../../.artifacts/model-config-api-audit.json',
-    import.meta.url,
-  )
-  await mkdir(dirname(fileURLToPath(artifact)), {
-    recursive: true,
-    mode: 0o700,
-  })
-  await writeFile(
-    artifact,
-    `${JSON.stringify(
-      {
-        recordedAt: new Date().toISOString(),
-        dshVersion: '0.2.0-rc.2',
-        clawVersion: '0.3.0-rc.2',
-        evidence,
-      },
-      null,
-      2,
-    )}\n`,
-    { mode: 0o600 },
-  )
-} finally {
-  await halt()
-  stub?.server.close()
-  await rm(join(home, '.env'), { force: true })
-  await rm(join(home, 'corn-audit.patch.yml'), { force: true })
-  await releaseLock()
+  audit.pass('fake-key-leak-scan', { leaks: 0 })
 }
+
+const report = await runAudit({
+  label: 'api',
+  reportPath: REPORT,
+  required: REQUIRED,
+  handleSignals: true,
+  body: auditBody,
+})
+console.log(
+  JSON.stringify({
+    status: report.status,
+    durationMs: report.durationMs,
+    versions: report.facts?.versions,
+    capabilities: Object.fromEntries(
+      Object.entries(report.capabilities).map(([name, row]) => [
+        name,
+        row.status,
+      ]),
+    ),
+    cleanup: report.cleanup,
+    problems: report.problems,
+  }),
+)
+finishAudit(report)
