@@ -39,7 +39,7 @@ Corn must retain explicit relationships among Run, submission `requestId`, accep
 
 `session.cancel` targets the current live Agent activity by Session, preserves its pending inbox, and returns an acknowledgement before the durable terminal event. Main must reconcile the addressed Turn's `turn/end` and leave unrelated pending work intact. If Corn needs cancellation conditional on an exact Turn, RC2's Session endpoint alone does not provide an atomic expected-Turn check; validate a serialized Main policy or a minimal public Host extension before promising that behavior.
 
-`session.selectModel` installs a Session selection and also saves it as the Host global default in the background. Corn never uses it to set the global default. Corn writes the global default through the public settings Remote (see "Model configuration interfaces") and applies Bot selections explicitly. A Session-only model extension, if needed, must use an audited public Host seam rather than a private-method shortcut.
+`session.selectModel` installs a Session selection and also saves it as the Host global default in the background. Corn never uses it to set the global default. Corn writes the global default through the public settings Remote (see "Model configuration interfaces") and applies Bot selections explicitly. A Session-only model extension, if needed, must use an audited public Host seam rather than a private-method shortcut. U1 (authorised 2026-10-12, [design](../milestones/U1-SESSION-MODEL-PATCH.md)) adds that seam as `session.selectModel({ ..., scope: 'session' })` through a pinned DSH patch; the transport admits `session/selectModel` only with that scope and the adapter refuses any reply that does not echo it.
 
 ## Alternatives
 

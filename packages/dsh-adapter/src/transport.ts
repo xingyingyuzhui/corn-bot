@@ -23,6 +23,16 @@ const RPC_ENDPOINTS = new Set([
   'session/selectModel',
   '$events/result',
 ])
+/** Corn never lets `session/selectModel` save the Host global default. */
+function admitsArgs(endpoint: string, args: Record<string, unknown>): boolean {
+  if (endpoint !== 'session/selectModel') return true
+  const request = args.request
+  return (
+    typeof request === 'object' &&
+    request !== null &&
+    (request as Record<string, unknown>).scope === 'session'
+  )
+}
 const STREAM_ENDPOINTS = new Set([
   'session/follow',
   'session/control',
@@ -52,6 +62,11 @@ export class HostTransport {
       throw new RemoteError(
         'corn/endpoint-denied',
         'RPC endpoint is not allowed',
+      )
+    if (!admitsArgs(endpoint, args))
+      throw new RemoteError(
+        'corn/endpoint-denied',
+        'Only Session-scoped model selection is allowed',
       )
     const rpcId = randomUUID()
     const response = await fetch(this.authority.url(`/api/${endpoint}`), {

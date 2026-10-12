@@ -16,6 +16,7 @@ export const RUNTIME_ERROR_CODES = [
   'runtime_home_rejected',
   'runtime_home_locked',
   'runtime_version_mismatch',
+  'runtime_patch_mismatch',
   'claw_missing',
   'claw_version_mismatch',
   'claw_disabled',
