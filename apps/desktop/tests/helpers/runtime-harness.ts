@@ -14,6 +14,11 @@ import { PassThrough } from 'node:stream'
 import { CLAW_VERSION } from '../../../../packages/contracts/src/runtime.ts'
 import type { StopTimeouts } from '../../src/runtime/dsh-host-supervisor.ts'
 import { HostAuth } from '../../src/runtime/host-auth.ts'
+import type {
+  ProcessRow,
+  ProcessTable,
+  ReclaimReport,
+} from '../../src/runtime/host-descendants.ts'
 import {
   type AppRuntime,
   type AppRuntimeSeams,
@@ -132,6 +137,102 @@ export class FakeChild extends EventEmitter {
     this.exitCode = code
     this.signalCode = signal
     this.emit('exit', code, signal)
+  }
+}
+
+/** The test process's own group; the Host and its non-detached helpers share it. */
+export const OWN_GROUP = 39_000
+
+/**
+ * In-memory process table. A dead process's children are reparented to PID 1,
+ * as on macOS; `ownGroup: false` children stay in their parent's group.
+ */
+export class FakeProcessTable implements ProcessTable {
+  readonly rows = new Map<number, ProcessRow>()
+  readonly signals: Array<readonly [number, NodeJS.Signals]> = []
+  snapshots = 0
+  #nextPid = 60_000
+  #waiters: Array<() => void> = []
+
+  constructor() {
+    this.#add({
+      pid: process.pid,
+      ppid: 1,
+      pgid: OWN_GROUP,
+      started: 'self',
+      name: 'node',
+    })
+  }
+
+  /** Registers a fake Host; its exit reparents its children. */
+  host(child: FakeChild): void {
+    this.#add({
+      pid: child.pid,
+      ppid: process.pid,
+      pgid: OWN_GROUP,
+      started: `host-${child.pid}`,
+      name: 'node',
+    })
+    child.once('exit', () => this.exit(child.pid))
+  }
+
+  spawn(
+    parent: number,
+    name: string,
+    { ownGroup = true }: { readonly ownGroup?: boolean } = {},
+  ): ProcessRow {
+    const pid = this.#nextPid++
+    const parentGroup = this.rows.get(parent)?.pgid ?? OWN_GROUP
+    return this.#add({
+      pid,
+      ppid: parent,
+      pgid: ownGroup ? pid : parentGroup,
+      started: `${name}-${pid}`,
+      name,
+    })
+  }
+
+  /** Replaces `pid` with an unrelated process that reused it. */
+  reuse(pid: number, name: string): ProcessRow {
+    this.exit(pid)
+    return this.#add({ pid, ppid: 1, pgid: pid, started: 'reused', name })
+  }
+
+  alive(pid: number): boolean {
+    return this.rows.has(pid)
+  }
+
+  exit(pid: number): void {
+    if (!this.rows.delete(pid)) return
+    for (const row of this.rows.values())
+      if (row.ppid === pid) this.rows.set(row.pid, { ...row, ppid: 1 })
+  }
+
+  /** Resolves after the next snapshot has been taken. */
+  nextSnapshot(): Promise<void> {
+    const taken = deferred()
+    this.#waiters.push(taken.resolve)
+    return within(taken.promise, 'process snapshot')
+  }
+
+  async snapshot(): Promise<readonly ProcessRow[]> {
+    this.snapshots++
+    const rows = [...this.rows.values()]
+    for (const resolve of this.#waiters.splice(0)) queueMicrotask(resolve)
+    return rows
+  }
+
+  kill(pid: number, signal: NodeJS.Signals): void {
+    this.signals.push([pid, signal])
+    if (pid > 0) this.exit(pid)
+    else
+      for (const row of [...this.rows.values()])
+        if (row.pgid === -pid) this.exit(row.pid)
+  }
+
+  #add(row: ProcessRow): ProcessRow {
+    this.rows.set(row.pid, row)
+    return row
   }
 }
 
@@ -453,6 +554,8 @@ export class RuntimeHarness {
   readonly children: FakeChild[] = []
   readonly schedules: ScheduledRecovery[] = []
   readonly exchanges: Exchange[] = []
+  readonly processes = new FakeProcessTable()
+  readonly reclaims: ReclaimReport[] = []
   runtime!: AppRuntime
   readonly #options: HarnessOptions
   readonly #childArrivals: Array<Deferred<FakeChild>> = []
@@ -516,6 +619,7 @@ export class RuntimeHarness {
           this.host.port,
         )
         child.ignoreSignals = this.#options.wedgedChildren === true
+        this.processes.host(child)
         const index = this.children.length
         this.children.push(child)
         this.#childArrivals[index] ??= deferred()
@@ -537,6 +641,11 @@ export class RuntimeHarness {
       ...(this.#options.stopTimeouts
         ? { stopTimeouts: this.#options.stopTimeouts }
         : {}),
+      processTable: this.processes,
+      descendantPollMs: 10,
+      onReclaim: (report) => {
+        this.reclaims.push(report)
+      },
       schedule: (run, delayMs) => {
         const entry = { run, delayMs, cancelled: false }
         this.schedules.push(entry)
