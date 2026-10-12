@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict'
 import { createServer } from 'node:http'
 import { test } from 'node:test'
+import { ECHO_MISMATCH, RemoteError } from '../src/remote-error.ts'
 import { SessionClient } from '../src/session-client.ts'
 import { HostTransport } from '../src/transport.ts'
 
@@ -57,14 +58,49 @@ test('a reply that is not session-scoped or names another model is refused', asy
       { selected: { ...selected, reasoningEffort: 'high' }, scope: 'session' },
       { ...SELECTION, reasoningEffort: 'max' },
     ],
-    [
-      'malformed effort',
-      { selected: { ...selected, reasoningEffort: 1 }, scope: 'session' },
-      SELECTION,
-    ],
   ] as const) {
     const { client } = clientAnswering(value)
-    await assert.rejects(client.selectSessionModel(request), Error, label)
+    await assert.rejects(
+      client.selectSessionModel(request),
+      (error) => error instanceof RemoteError && error.code === ECHO_MISMATCH,
+      label,
+    )
+  }
+  const { client } = clientAnswering({
+    selected: { ...selected, reasoningEffort: 1 },
+    scope: 'session',
+  })
+  await assert.rejects(
+    client.selectSessionModel(SELECTION),
+    (error) =>
+      error instanceof RemoteError && error.code === 'corn/invalid-response',
+    'malformed effort',
+  )
+})
+
+test('a session/create echo with another identity or preset is a coded echo mismatch', async () => {
+  const request = {
+    sessionId: 'corn-session',
+    cwd: '/claw/agent',
+    agentPreset: 'wa-agent',
+  }
+  const ok = clientAnswering({ ...request })
+  assert.deepEqual(await ok.client.create(request), {
+    sessionId: request.sessionId,
+    agentPreset: request.agentPreset,
+  })
+  assert.deepEqual(ok.calls, [['session/create', { request }]])
+  for (const [label, value] of [
+    ['other preset', { sessionId: request.sessionId, agentPreset: 'wa-other' }],
+    ['no preset', { sessionId: request.sessionId }],
+    ['other id', { sessionId: 'session-x', agentPreset: request.agentPreset }],
+  ] as const) {
+    const { client } = clientAnswering(value)
+    await assert.rejects(
+      client.create(request),
+      (error) => error instanceof RemoteError && error.code === ECHO_MISMATCH,
+      label,
+    )
   }
 })
 

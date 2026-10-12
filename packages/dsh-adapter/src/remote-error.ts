@@ -1,3 +1,9 @@
+/**
+ * The Host answered, but its echo differs from what was requested (identity,
+ * preset, scope or model). Deterministic, so not a transport failure to retry.
+ */
+export const ECHO_MISMATCH = 'corn/echo-mismatch'
+
 export class RemoteError extends Error {
   readonly code: string
 

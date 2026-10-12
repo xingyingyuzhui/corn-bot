@@ -4,6 +4,7 @@ import {
   enumColumn,
   errorCodeColumn,
   integerColumn,
+  nullableIntegerColumn,
   requireErrorCode,
   requireId,
   requireOne,
@@ -39,6 +40,11 @@ export interface SessionBindingRow {
   readonly stage: BindingStage
   readonly lastError: string | null
   readonly appliedModel: ModelChoice | null
+  /**
+   * Corn clock when the last `registry/create` attempt was checkpointed; the
+   * lower bound of the adoption window for a lost create reply (decision 16A).
+   */
+  readonly clawCreateAttemptedAt: number | null
   readonly homeId: string
   readonly createdAt: number
   readonly updatedAt: number
@@ -54,8 +60,8 @@ export interface NewSessionBinding {
 }
 
 const COLUMNS = `binding_id, conversation_id, dsh_session_id, stage, last_error,
-  applied_provider, applied_model, applied_effort, home_id, created_at,
-  updated_at`
+  applied_provider, applied_model, applied_effort, claw_create_attempted_at,
+  home_id, created_at, updated_at`
 
 export function isLiveStage(stage: BindingStage): boolean {
   switch (stage) {
@@ -86,6 +92,11 @@ export function parseSessionBindingRow(row: SqlRow): SessionBindingRow {
     stage: enumColumn(BINDING_STAGES, row, 'session_bindings', 'stage'),
     lastError: errorCodeColumn(row, 'session_bindings', 'last_error'),
     appliedModel: modelChoiceColumns(row, 'session_bindings', 'applied'),
+    clawCreateAttemptedAt: nullableIntegerColumn(
+      row,
+      'session_bindings',
+      'claw_create_attempted_at',
+    ),
     homeId: textColumn(row, 'session_bindings', 'home_id'),
     createdAt: integerColumn(row, 'session_bindings', 'created_at'),
     updatedAt: integerColumn(row, 'session_bindings', 'updated_at'),
@@ -207,6 +218,32 @@ export function setSessionBindingStage(
       lastError: requireErrorCode(options.lastError),
     },
     options.now,
+  )
+}
+
+/**
+ * Checkpoints a `registry/create` attempt: stage `planned`, `lastError`, and
+ * the attempt time, in one statement so the adoption window is never torn.
+ */
+export function markClawCreateAttempt(
+  tx: SqlExecutor,
+  bindingId: string,
+  options: { readonly now: number; readonly lastError: string },
+): SessionBindingRow {
+  const now = requireTimestamp(options.now)
+  if (requireSessionBinding(tx, bindingId).stage !== 'planned') {
+    throw new LocalDbError(
+      'invalid_transition',
+      'Only a planned binding can attempt a Claw create',
+    )
+  }
+  return updateLiveBinding(
+    tx,
+    bindingId,
+    `last_error = :lastError,
+     claw_create_attempted_at = :attemptedAt`,
+    { lastError: requireErrorCode(options.lastError), attemptedAt: now },
+    now,
   )
 }
 

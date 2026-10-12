@@ -9,7 +9,10 @@ import type {
   ModelCatalog,
   ModelCatalogClient,
 } from '../../../../packages/dsh-adapter/src/model-catalog-client.ts'
-import { RemoteError } from '../../../../packages/dsh-adapter/src/remote-error.ts'
+import {
+  ECHO_MISMATCH,
+  RemoteError,
+} from '../../../../packages/dsh-adapter/src/remote-error.ts'
 import type { SessionClient } from '../../../../packages/dsh-adapter/src/session-client.ts'
 import {
   type BindingStage,
@@ -27,6 +30,7 @@ import {
   type LocalDb,
   listClawAgents,
   type ModelChoice,
+  markClawCreateAttempt,
   POLICY_PRESETS,
   type PolicyPreset,
   type SessionBindingRow,
@@ -55,9 +59,12 @@ export const PROVISION_ERRORS = [
   'claw_preset_failed',
   'claw_policy_failed',
   'session_create_failed',
-  /** DSH or Claw found the Session's preset or cwd differs from the agent's. */
+  /**
+   * Stop: DSH or Claw found the Session's preset or cwd differs from the
+   * agent's, or the Host echoed another identity (`corn/echo-mismatch`).
+   */
   'binding_mismatch',
-  /** The Session is already bound to another Claw agent; Corn never rebinds. */
+  /** Stop: the Session is already bound to another Claw agent; Corn never rebinds. */
   'claw_bind_conflict',
   'claw_bind_failed',
   /** `expectedRevision` kept moving after every allowed retry. */
@@ -155,10 +162,16 @@ const SESSION_CONFLICTS = new Set([
   'agent-preset/conflict',
   'session/conflict',
   'session/agent-busy',
+  ECHO_MISMATCH,
 ])
 const BIND_MISMATCHES = new Set([
   'REGISTRY_PRESET_MISMATCH',
   'REGISTRY_WORKSPACE_MISMATCH',
+])
+/** Deterministic identity conflicts: repair reports them and calls nothing. */
+const STOP_ERRORS: ReadonlySet<string | null> = new Set<ProvisionErrorCode>([
+  'binding_mismatch',
+  'claw_bind_conflict',
 ])
 const REVISION_CONFLICT = 'REGISTRY_REVISION_CONFLICT'
 const BIND_CONFLICT = 'REGISTRY_BIND_CONFLICT'
@@ -221,8 +234,6 @@ export class BotProvisioner {
   readonly #newId: () => string
   readonly #skewMs: number
   readonly #tails = new Map<string, Promise<unknown>>()
-  /** Policy chosen in a draft until `claw_agents` records it (no earlier column). */
-  readonly #pendingPolicy = new Map<string, PolicyPreset>()
 
   constructor(deps: BotProvisionerDeps) {
     this.#deps = deps
@@ -253,6 +264,7 @@ export class BotProvisioner {
           avatarVariant: draft.avatarVariant,
           sortKey: draft.sortKey ?? String(now).padStart(16, '0'),
           modelOverride: draft.modelOverride ?? null,
+          policyPreset,
           now,
         })
         insertMainConversation(tx, {
@@ -271,7 +283,6 @@ export class BotProvisioner {
     } catch (error) {
       return Promise.reject(dbInputError(error))
     }
-    this.#pendingPolicy.set(botId, policyPreset)
     return this.#serialize(botId, () => this.#advance(botId))
   }
 
@@ -352,7 +363,11 @@ export class BotProvisioner {
 
   async #advance(botId: string): Promise<ProvisionOutcome> {
     for (;;) {
-      const step = await this.#step(this.#load(botId))
+      const loaded = this.#load(botId)
+      const { lastError } = loaded.binding
+      if (STOP_ERRORS.has(lastError))
+        return this.#needsRepair(botId, lastError as ProvisionErrorCode)
+      const step = await this.#step(loaded)
       if (step !== 'continue') return step
     }
   }
@@ -391,7 +406,14 @@ export class BotProvisioner {
   async #createAgent(loaded: Loaded): Promise<Step> {
     if (loaded.binding.lastError === 'claw_create_unknown')
       return this.#adopt(loaded)
-    const marked = this.#checkpoint(loaded, 'planned', 'claw_create_unknown')
+    let marked = loaded
+    this.#write((tx) => {
+      const binding = markClawCreateAttempt(tx, loaded.binding.bindingId, {
+        now: this.#now(),
+        lastError: 'claw_create_unknown',
+      })
+      marked = { ...loaded, binding }
+    })
     let created: ClawAgent
     try {
       created = await this.#deps.registry.create(loaded.bot.displayName)
@@ -405,11 +427,15 @@ export class BotProvisioner {
   }
 
   /**
-   * Decision 16A. While unresolved the binding row is left untouched, so its
-   * `updated_at` stays the attempt time of the checkpoint.
+   * Decision 16A: the window opens at `claw_create_attempted_at`. The binding
+   * keeps `claw_create_unknown` until an agent is recorded, so repair never
+   * falls back to calling `registry/create` again.
    */
   async #adopt(loaded: Loaded): Promise<Step> {
     const { bot, binding } = loaded
+    const attemptedAt = binding.clawCreateAttemptedAt
+    if (attemptedAt === null)
+      return this.#needsRepair(bot.botId, 'claw_create_unknown')
     let list: Awaited<ReturnType<BotProvisionerDeps['registry']['list']>>
     try {
       list = await this.#deps.registry.list()
@@ -421,7 +447,7 @@ export class BotProvisioner {
     )
     const result = findAdoptionCandidate(list, {
       name: bot.displayName,
-      attemptedAt: binding.updatedAt,
+      attemptedAt,
       clockSkewMs: this.#skewMs,
       sessionId: binding.dshSessionId,
       knownAgentIds,
@@ -455,7 +481,8 @@ export class BotProvisioner {
         workspaceId: agent.workspaceId,
         canonicalRoot: agent.canonicalRoot,
         dshPreset: agent.dshPreset,
-        policyPreset: this.#pendingPolicy.get(botId) ?? 'research',
+        // `null` only on a Bot created before migration 0002 without an agent.
+        policyPreset: loaded.bot.policyPreset ?? 'research',
         now,
       })
       setSessionBindingStage(tx, loaded.binding.bindingId, 'agent_created', {
@@ -463,7 +490,6 @@ export class BotProvisioner {
         lastError: null,
       })
     })
-    this.#pendingPolicy.delete(botId)
   }
 
   /** Step 2. */
