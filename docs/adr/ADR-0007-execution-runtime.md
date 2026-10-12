@@ -81,3 +81,75 @@ Reopen this ADR if any of the following happens:
 - Upstream drift breaks the pinned contracts.
 
 If reopened, the next candidate is Mastra (only after its EE licence question is cleared) or OpenClaw (its auto-resume after restart must be shown to be stoppable before Corn's read-only reconcile). Run the comparison in the matrix's serial format.
+
+## Addendum 2026-10-12: targeted-stop verdict
+
+- Status: **Accepted (2026-10-12)** by maintainer decision. This addendum adds to the ADR. It does not change the Decision, and the sections above stay as written.
+- Naming: in this addendum **U2** is the stop-settlement upstream patch drafted in [U2-STOP-SETTLEMENT-DRAFT](../milestones/U2-STOP-SETTLEMENT-DRAFT.md). The optional Claw audit patch called "(U2)" in Known gaps and in the matrix is called the **Claw audit patch** from here on. It is still optional.
+
+### Evidence
+
+All runs used a real DSH `0.2.0-rc.2` Host with Claw `0.3.0-rc.2`, a fake loopback model and real `sleep` process trees. No real provider was called.
+
+- [PR #28](https://github.com/xingyingyuzhui/corn-bot/pull/28) (`test/dsh-headless-gates`, `a407e08`), B1–B5. B2 shows that `session.cancel` ends only the Turn. Background jobs and subagents survive it ([§2.3](https://github.com/xingyingyuzhui/corn-bot/blob/a7a75dc318213fc4ef7f85cd9be7a876f07a408d/docs/milestones/DSH-HEADLESS-GATES.md#23-targeted-cancel-b2), [§4](https://github.com/xingyingyuzhui/corn-bot/blob/a7a75dc318213fc4ef7f85cd9be7a876f07a408d/docs/milestones/DSH-HEADLESS-GATES.md#4-impact-on-adr-0007)).
+- [PR #30](https://github.com/xingyingyuzhui/corn-bot/pull/30) (`test/dsh-targeted-stop-probe`, `a7a75dc`), B6: a Run-level stop using DSH APIs only, measured in three orders ([§6](https://github.com/xingyingyuzhui/corn-bot/blob/a7a75dc318213fc4ef7f85cd9be7a876f07a408d/docs/milestones/DSH-HEADLESS-GATES.md#6-run-level-stop-via-dsh-apis-only-b6)). Measurements are in §6.2, parent reactivation in [§6.3](https://github.com/xingyingyuzhui/corn-bot/blob/a7a75dc318213fc4ef7f85cd9be7a876f07a408d/docs/milestones/DSH-HEADLESS-GATES.md#63-parent-reactivation-the-finding) and the verdict in [§6.5](https://github.com/xingyingyuzhui/corn-bot/blob/a7a75dc318213fc4ef7f85cd9be7a876f07a408d/docs/milestones/DSH-HEADLESS-GATES.md#65-verdict-on-the-adr-0007-trigger).
+  - Leaf-first: all three process trees were gone about 215 ms after the stop started. Nothing was left at +2 s or +10 s, the parent made 0 model requests, and the foreground completed 40/40 chunks.
+  - Parent-first (both orders): every tree was gone too, but the parent was woken once and made **1 model request** (at 37 ms and at 208 ms).
+- [PR #29](https://github.com/xingyingyuzhui/corn-bot/pull/29) (`fix/host-process-group-kill`), related. It reclaims Host descendant processes when the Host stops or crashes, and it was verified on a real Host. A tool started less than about 2 s before a Host crash is not reclaimed. That PR covers Host death. It is not a substitute for the stop sequence below.
+- DSH source at the pinned tag shows why the parent wakes: settlement notices from jobs and subagents open a new Turn on an idle owner. File and line citations are in [U2-STOP-SETTLEMENT-DRAFT §3](../milestones/U2-STOP-SETTLEMENT-DRAFT.md#3-where-dsh-delivers-the-notices-dsh-v020-rc2).
+
+### Verdict
+
+**Revisit trigger "a targeted stop cannot be confirmed": CONDITIONALLY triggered. This ADR is not reopened.**
+
+- DSH-only APIs can confirm a targeted stop if Corn stops the Run leaf-first (below). Under that order the ADR keeps standing.
+- The trigger stays open for one case: **a parent that is already idle**, or was cancelled before its children and jobs settled. Settlement notices are delivered to the parent inbox and open a new Turn. That costs **at most one leaked model request per wake**. C1's `tools.guard` fence stops tool dispatch, not model requests, so the leaked request cannot execute a tool but it still reaches the provider.
+- The answers to two Known gaps:
+  - `agent.cancel` / `session.cancel` does **not** end subagents or background shell jobs. Corn has to stop them explicitly.
+  - Pending inbox items do not start a Turn after a Host restart (B4). They **do** start a Turn when a settlement notice reaches an idle owner during normal operation.
+
+### Mandated stop order for C1 `corn-run-control` (normative)
+
+This is part of C1 and RUN-01a. It replaces "request runtime cancel" in the plan §8.2 stop line for the DSH route. MUST and SHOULD carry their usual meaning.
+
+The **Run set** is the Attempt's `workerSessionId` plus every Session whose `parentSessionId` lineage (with `origin: subagent`) leads to it, as read from `session.list`. DSH events carry no Corn run id, so membership comes only from Corn's own Attempt binding plus this lineage. The parent is the Worker Session.
+
+0. **Fence first.** Main increments the Run's stop epoch and pushes the control snapshot to `corn-run-control`. The stop sequence starts only after the plugin acknowledges it. From then on C1 denies every dispatch from any Session in the Run set, including child Sessions and Sessions that join the set later, and audits each denial as specified in C1. The fence is never lowered for this Attempt. If the acknowledgement cannot be confirmed, the stop continues, but the Run cannot reach `cancelled` (plan §8.2 `stopping` / `stop_partial` / `unknown`).
+1. **Children, deepest first.** For each child that is still running, call `subagents.interruptByParent({childSessionId, parentSessionId: <direct parent>, mode: 'continuable'})` and require `accepted: true`. The receipt only means the signal was admitted. Completion is confirmed when the child is no longer `running` in `session.list`. Corn MUST NOT call `session.cancel` on a child; DSH rejects it with `session/agent-busy`.
+2. **Jobs.** For every Session in the Run set (children first, then the parent), read `job.list` and call `job.kill` on each `running` or `stopping` row. Job ids come only from the structured `job.list` rows. The `tool-jobs` notice carries the id only in text, so Corn MUST NOT parse it for control.
+3. **Re-list until empty.** Repeat steps 1–2 until one full pass finds no running child Session and no running job anywhere in the Run set. A child can start a new job after the job pass, and interrupting a child also takes down its own jobs. The loop is bounded by a pass count and a deadline that RUN-01a sets; B6 cleared in about 250 ms, so the starting values are 5 passes and 5 s. Reaching the bound gives `stop_partial`.
+4. **Parent last.** Call `session.cancel(parent)`. If the parent is idle, the call is a no-op.
+5. **Verify.** At +2 s, `session.list` and `job.list` must show no running Session and no running job in the Run set. Only then may the Run become `cancelled`.
+
+Error mapping:
+
+| DSH result | Meaning for Corn |
+| --- | --- |
+| `interruptByParent` → `{accepted: true}` | Signal admitted; confirm with `session.list` |
+| `interruptByParent` → `subagent/unauthorized` | Re-read the lineage. If the child is gone, count it as stopped; otherwise `stop_partial` and audit |
+| `interruptByParent` → `gateway/bad-request` / `gateway/internal` | Retry within the step 3 bound, then `stop_partial` |
+| `session.cancel(child)` → `session/agent-busy` | Corn bug: children are interrupted, never cancelled |
+| `job.kill` → `requested` | Confirm on the next list |
+| `job.kill` → `already-finished` | Gone |
+| `job.kill` → `job/not-found` (B6 saw the text `unknown job <id>`) | Gone if it follows an interrupt of the owner or the row is no longer listed; otherwise re-list |
+| `session.cancel(parent)` → `session/not-found` | Parent not attached; verify by list |
+
+**Parent already idle, or woken after the stop (until U2 or an equivalent lands):**
+- Any `turn/start` on a Session in the Run set after step 0 is a **stale Turn**. Corn MUST call `session.cancel` on it as soon as it sees `turn/start`, without waiting for `step/start`. Corn MUST NOT treat its output as progress, adoption or completion, and MUST NOT route it to the Outbox. The C1 fence already blocks its tool calls.
+- Corn MUST count and audit every leaked request. A `step/start` in a stale Turn counts as one leaked model request; this is an upper bound, because Corn cannot see the provider call itself. The audit row carries runId, attemptId, stopEpoch, sessionId, turn, the trigger source (`subagent-settled` with `senderSessionId`, or `tool-jobs`) and whether `step/start` was seen. The count is attached to the Run's stop record.
+- Leaked requests on their own do not stop the Run from becoming `cancelled`, because no side effect can follow them. They stay visible in the stop audit.
+- Notices left in the parent inbox (`cancel` keeps the inbox) may surface on the next prompt; this is untested. Corn SHOULD NOT reuse a stopped Attempt's Worker Session for a new Attempt until that is tested.
+- An optional Corn-side alternative that needs no upstream patch is the C1 pre-step fence in [U2-STOP-SETTLEMENT-DRAFT §4](../milestones/U2-STOP-SETTLEMENT-DRAFT.md#4-options). It would reject the stale Turn's step before any request, the same way DSH's own archived-session gate does. It changes the C1 scope beyond `tools.guard`, so it needs its own maintainer decision and probe. **It is not mandated here.**
+
+### U2 and authorisation
+
+- U2 is **drafted only**: [U2-STOP-SETTLEMENT-DRAFT](../milestones/U2-STOP-SETTLEMENT-DRAFT.md). It describes a cancel that withholds settlement wake-ups, plus a probe that verifies it.
+- Nothing has been implemented, patched or posted to `deepseek-ai/deepseek-harness`. Implementing or posting U2 needs **separate maintainer authorisation**. U1 is still the only authorised upstream change.
+
+### Revisit condition for the residual gap
+
+Reopen this ADR (trigger fully fired) if any of the following happens:
+- The maintainer judges the leaked requests unacceptable, for example because of real-provider cost, latency or content seen in authorised runs.
+- U2 is declined (not authorised, or rejected upstream) **and** the C1 pre-step fence is declined or fails its probe.
+- A real-Host run under the mandated order leaves a running Session, job or process tree at +2 s.
+- A DSH bump changes the delivery paths cited in U2 §3. In that case B6 must be re-run, leaf-first and idle-parent, before `runtime.lock.json` is bumped.
