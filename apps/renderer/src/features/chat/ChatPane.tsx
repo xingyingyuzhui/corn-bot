@@ -46,6 +46,8 @@ const blockedReason = (conversation: ConversationView): string | null => {
       return null
     case 'loading':
       return '对话还在加载，暂时不能发送'
+    case 'reconnecting':
+      return '正在重新连接运行时，暂时不能发送'
     case 'error':
       return '对话加载失败，暂时不能发送'
     default: {

@@ -4,7 +4,7 @@ import { m1FixtureSnapshot } from '../src/fixtures/m1-workspace.ts'
 import {
   createUiStatesRepository,
   UI_STATES_BOTS,
-  UI_STATES_STALE_REQUEST_ID,
+  UI_STATES_STALE_HANDLE,
   uiStatesSnapshot,
 } from '../src/fixtures/ui-states.ts'
 import type { FeedItem } from '../src/model/workspace.ts'
@@ -30,14 +30,12 @@ test('ui-states has two pending approvals, one of them stale', async () => {
   )
   assert.equal(approvals.length, 2)
   assert.ok(approvals.every((item) => item.status === 'pending'))
-  assert.ok(
-    approvals.some((item) => item.requestId === UI_STATES_STALE_REQUEST_ID),
-  )
+  assert.ok(approvals.some((item) => item.handle === UI_STATES_STALE_HANDLE))
 
   const repo = createUiStatesRepository({ latencyMs: 0 })
   const stale = await repo.answerApproval(
     'xiaohuang',
-    UI_STATES_STALE_REQUEST_ID,
+    UI_STATES_STALE_HANDLE,
     'allowed-once',
   )
   assert.equal(stale.ok === false && stale.error.code, 'stale')

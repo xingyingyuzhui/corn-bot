@@ -183,7 +183,7 @@ export function MessageFeed({
                 <ApprovalCard
                   key={item.id}
                   botId={botId}
-                  requestId={item.requestId}
+                  handle={item.handle}
                   title={item.title}
                   detail={item.detail}
                   status={item.status}
@@ -228,6 +228,18 @@ function ConversationStatus({
             aria-hidden
           />
           正在加载对话…
+        </p>
+      )
+    case 'reconnecting':
+      return (
+        <p className="corn-feed__state" role="status">
+          <LoaderCircle
+            className="corn-feed__spin"
+            size={14}
+            strokeWidth={2}
+            aria-hidden
+          />
+          正在重新连接运行时…
         </p>
       )
     case 'error':

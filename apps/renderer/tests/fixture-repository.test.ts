@@ -107,7 +107,7 @@ test('approvals settle once; stale requests settle as cancelled', async () => {
   assert.equal(twice.ok === false && twice.error.code, 'conflict')
 
   const stale = new FixtureWorkspaceRepository(uiStatesSnapshot(), {
-    staleRequestIds: ['req-1'],
+    staleHandles: ['req-1'],
   })
   const result = await stale.answerApproval(
     'xiaohuang',
