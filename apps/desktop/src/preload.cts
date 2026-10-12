@@ -1,7 +1,8 @@
 import { contextBridge, ipcRenderer } from 'electron'
 
 // Sandboxed preloads cannot load workspace modules; channel names are checked
-// against MODEL_SETTINGS_CHANNELS by apps/desktop/tests/model-settings-ipc.test.ts.
+// against MODEL_SETTINGS_CHANNELS and DATA_CHANNELS by
+// apps/desktop/tests/model-settings-ipc.test.ts.
 const call =
   (channel: string) =>
   (command?: unknown): Promise<unknown> =>
@@ -13,6 +14,7 @@ contextBridge.exposeInMainWorld(
   'corn',
   Object.freeze({
     runtimeStatus: () => ipcRenderer.invoke('corn:runtime:status'),
+    dataStatus: () => ipcRenderer.invoke('corn:data:status'),
     modelSettings: Object.freeze({
       status: () => ipcRenderer.invoke('corn:model-settings:status'),
       read: () => ipcRenderer.invoke('corn:model-settings:read'),

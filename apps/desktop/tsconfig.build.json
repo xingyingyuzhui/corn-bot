@@ -11,6 +11,7 @@
     "src/**/*.ts",
     "src/**/*.cts",
     "../../packages/contracts/src/**/*.ts",
-    "../../packages/dsh-adapter/src/**/*.ts"
+    "../../packages/dsh-adapter/src/**/*.ts",
+    "../../packages/local-db/src/**/*.ts"
   ]
 }

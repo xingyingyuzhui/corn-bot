@@ -7,6 +7,7 @@ import {
   type ModelSettingsResult,
   type ModelSettingsSnapshot,
 } from '../../../packages/contracts/src/model-settings.ts'
+import { DATA_CHANNELS } from '../../../packages/contracts/src/workspace.ts'
 import { registerModelSettingsIpc } from '../src/ipc/model-settings.ts'
 
 const FAKE_KEY = 'sk-corn-wp3-FAKE-0000'
@@ -102,11 +103,13 @@ test('the sandboxed preload exposes exactly the contract channels', async () => 
     channels.toSorted(),
     [
       'corn:runtime:status',
+      ...Object.values(DATA_CHANNELS),
       ...Object.values(MODEL_SETTINGS_CHANNELS),
     ].toSorted(),
   )
   for (const method of Object.keys(MODEL_SETTINGS_CHANNELS))
     assert.match(preload, new RegExp(`\\b${method}: `, 'u'))
+  assert.match(preload, /\bdataStatus: /u)
   assert.doesNotMatch(preload, /ipcRenderer\.(send|on|sendSync)\b/u)
   const { handlers } = setup()
   assert.deepEqual(
