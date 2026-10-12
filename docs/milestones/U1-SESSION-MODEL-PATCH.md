@@ -1,6 +1,6 @@
 # U1: session-only model selection (pinned DSH patch)
 
-- Status: implemented in Corn behind a pinned patch; upstream PR **drafted, not posted**
+- Status: implemented in Corn behind a pinned patch; headless real-Host gate passed with a fake model (§5); upstream PR **drafted, not posted**
 - Authorisation: maintainer, 2026-10-12. This is the only authorised upstream change. No Claw policy or implementation change, no PTC change.
 - Context: [ADR-0007](https://github.com/xingyingyuzhui/corn-bot/blob/docs/p1-runtime-matrix/docs/adr/ADR-0007-execution-runtime.md) work item U1 and gate scenario 7 (model isolation); [MODEL-CONFIG-API-AUDIT §7](MODEL-CONFIG-API-AUDIT.md); [ADR-0001](../adr/ADR-0001-dsh-transport.md).
 
@@ -123,18 +123,29 @@ The Host runs from the published `@deepseek-ai/*` packages under Corn's `node_mo
 | `apps/desktop/tests/isolation.test.ts` | 4/4 |
 | `apps/desktop/tests/host-boundary.test.ts` | 4/4 |
 
-Also run: `tsc --noEmit`, `biome check .`, `pnpm verify:runtime`. No Electron, GUI, real Host or model call was run.
+Also run: `tsc --noEmit`, `biome check .`, `pnpm verify:runtime`. No Electron, GUI or packaged app was run, and no real provider was called.
 
-## 5. Real-Host gate (pending, not run here)
+## 5. Real-Host gate (passed with a fake model, 2026-10-12)
 
-Entry point: `pnpm smoke:session-model` (`scripts/smoke-session-model.mjs`). It is headless and billable, and it needs `CORN_MODEL_*` in the environment. `CORN_SESSION_MODEL_ALT` optionally names the second model. It uses the governed Host in `CORN_DSH_HOME` and two bound Claw Sessions, and asserts:
+Entry point: `pnpm smoke:session-model` (`scripts/smoke-session-model.mjs`). It is headless and free. A loopback OpenAI-compatible stub (`scripts/lib/fake-model-server.mjs`, identical to the headless-gates copy) serves two models, `corn-gate-model` (the default) and `corn-gate-model-alt`. The provider route is a home patch, and the fake key sits in the home `.env`.
 
-1. A session-scoped switch leaves `modelCatalog().default` unchanged after a settle delay.
-2. The next request header uses the session model, with exactly one switch notice.
-3. The other Session keeps its model.
-4. After a Host stop/start, the journal still holds the selection, the next request uses it with no new notice, and the default is still unchanged.
+The governed Host (Claw admission and the U1 patch check included) runs in a fresh Corn-owned home under `~/.corn-bot-dev/wt-dsh-u1/`, seeded from a verified profile template (`CORN_PROFILE_TEMPLATE`, otherwise built first). It runs under `sandbox-exec` with only loopback outbound allowed; a probe first confirms a public connect gets `EPERM`. Its spawn environment is scrubbed of `KEY|TOKEN|SECRET|PASSW|CREDENTIAL|AUTH|COOKIE|PROXY` names and must be within `cornHostEnvironment`'s allowlist. The home is removed after a pass and kept for diagnosis after a failure. The script writes `.artifacts/u1-session-model-gate.json` (ids, model names and counts only).
 
-It writes `.artifacts/u1-session-model-gate.json`. Another agent runs it as a separate gate; until then ADR-0007 scenario 7 stays pending.
+Run once, at `5dfc2f5` plus this script, with `env -i PATH HOME TMPDIR LANG` and the verified gate template: **5/5 PASS**, 13.5 s, 6 fake-model requests.
+
+| Claim | Evidence |
+| --- | --- |
+| 1. Global default unchanged | `modelCatalog().default` is `corn-gate-model` before the switch, 3 s after `selectSessionModel(alt)` (reply `scope: 'session'`), and again after the restart |
+| 2. Current Session uses the new model | Session 1's turn before the switch: header `corn-gate-model`, 0 notices. After the switch: request header `corn-gate-model-alt`, model on the wire to the stub `corn-gate-model-alt` only, exactly 1 `model-selection` notice |
+| 3. Another Session unaffected | Session 2's turn after the switch: header and wire `corn-gate-model`, 0 notices |
+| 4. Survives a Host restart | After `host.stop()` / `host.start()` (same home, re-admitted): `model/selection` for the alt model is in the journal; the next turn's header and wire are `corn-gate-model-alt`, with 0 new notices |
+| Host environment | Both Host spawns got exactly `DSH_HOME DSH_TELEMETRY_DISABLED HOME LANG PATH TMPDIR`; every stub request carried the fake bearer |
+
+After the run, `ps` found no DSH Host, stub, `sandbox-exec` or smoke process, and the run home and run root were gone. Not covered: a real provider; scenario 7 of ADR-0007 against the Bot UI (M2 wiring).
+
+### Packaged dependency tree
+
+`package:mac`'s deploy step was reproduced alone: `pnpm --filter @corn-bot/desktop deploy --prod --legacy --config.node-linker=hoisted` into a temp dir, with scripts ignored, the workspace state restored, and no `pnpm build`, electron-builder or app launch. The tree holds one copy of `@deepseek-ai/dsh-api-session-controller`. `verifyDshPatches` passed on it, and `lib/index.js` hashes to the locked `5b03b914…`, so `pnpm deploy` carries the patch. The temp tree was removed. A full `package:mac` run and the packaged app were not exercised.
 
 ## 6. Upstream PR draft (do not post without maintainer confirmation)
 
@@ -182,8 +193,8 @@ Body:
 ## 7. Risks
 
 - **rc2 vs alpha.2:** the cherry-pick onto `master` was clean. `commands.ts`, `agent.ts`, `model-selection.ts`, the projection and the spec are identical between the two lines; only line offsets in `types.ts`, `index.ts`, docs and the catalog moved. alpha.2 changes other `index.ts` Remotes, and its published dist was not inspected, so the next DSH bump must re-port the **dist** patch and re-hash it.
-- **Hand-mirrored dist:** the Typert codecs in `typert.host.js` / `typert.remote-client.js` are generated by the full monorepo build, which was not run. The patch mirrors the generator's literal-union shape by hand. The real-Host gate is the proof that the Host codec admits `scope` and returns it.
+- **Hand-mirrored dist:** the Typert codecs in `typert.host.js` / `typert.remote-client.js` are generated by the full monorepo build, which was not run. The patch mirrors the generator's literal-union shape by hand. The headless gate (§5) shows the patched Host codec admits `scope` and echoes it; the browser client codec (`typert.remote-client.js`) is not exercised by Corn.
 - **Unpatched Host hazard:** Typert strips the unknown `scope` key, so an unpatched Host saves the default. Mitigations: startup admission refuses an unpatched install; the adapter refuses replies without `scope: 'session'`; the transport refuses unscoped calls.
-- **pnpm deploy:** packaging assumes `pnpm deploy --legacy` applies `patchedDependencies`. If it does not, `package:mac` now fails at the staged-tree verification instead of shipping an unpatched runtime. Not exercised in this change.
+- **pnpm deploy:** the deploy step alone was shown to carry the patch (§5). A full `package:mac` and the packaged app were not run; `package:mac` still fails at the staged-tree verification if a later pnpm drops the patch.
 - **Maintenance burden:** the patch pins `0.2.0-rc.2` exactly. Any DSH upgrade fails `runtime_patch_mismatch` or `pnpm install` until the patch is re-ported. If upstream rejects U1, keeping a self-maintained patch needs its own decision (ADR-0007).
 - **Follow-global** cannot be restored once a Session has a selection or a request. This is documented; it is not a regression.
