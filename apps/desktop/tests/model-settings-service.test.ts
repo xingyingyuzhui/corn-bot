@@ -530,6 +530,90 @@ test('custom provider: schema-checked create, edit, then removal also clears its
   assert.equal(host.credentialStore.has('CORN_GW_API_KEY'), false)
 })
 
+test('custom read-back compares every saved field; another writer between write and read is readback_mismatch', async () => {
+  const fields = {
+    displayName: 'Corn Gateway',
+    protocol: 'openai-completions',
+    baseURL: 'http://127.0.0.1:9/v1',
+    models: [{ id: 'wanted-model' }, { id: 'second', name: 'Second' }],
+  }
+  const tampers: Array<[string, (profile: Record<string, unknown>) => void]> = [
+    [
+      'protocol',
+      (profile) => Object.assign(profile, { api: 'anthropic-messages' }),
+    ],
+    [
+      'model id',
+      (profile) =>
+        Object.assign(profile, {
+          models: [{ id: 'other-model' }, { id: 'second', name: 'Second' }],
+        }),
+    ],
+    [
+      'model name',
+      (profile) =>
+        Object.assign(profile, {
+          models: [{ id: 'wanted-model' }, { id: 'second', name: 'Renamed' }],
+        }),
+    ],
+    [
+      'model order',
+      (profile) =>
+        Object.assign(profile, {
+          models: [{ id: 'second', name: 'Second' }, { id: 'wanted-model' }],
+        }),
+    ],
+    [
+      'extra model',
+      (profile) =>
+        Object.assign(profile, { models: [...fields.models, { id: 'third' }] }),
+    ],
+    [
+      'display name',
+      (profile) => Object.assign(profile, { displayName: 'Someone else' }),
+    ],
+  ]
+  for (const [label, tamper] of tampers) {
+    const { host, service } = setup()
+    const before = value(await service.read())
+    host.before.set('describe', () => {
+      if (!host.calls.some((call) => call.method === 'mutate')) return
+      const providers = host.namespaces.get('llm-pi-ai')?.user.providers as
+        | Record<string, Record<string, unknown>>
+        | undefined
+      const profile = providers?.['corn-gw']
+      if (profile) tamper(profile)
+      host.before.delete('describe')
+    })
+    const error = failure(
+      await service.saveCustomProvider({
+        generation: before.generation,
+        mode: 'create',
+        providerId: 'corn-gw',
+        revision: before.customRevision,
+        fields,
+      }),
+    )
+    assert.equal(error.code, 'readback_mismatch', label)
+    const actual = provider(error.snapshot as ModelSettingsSnapshot, 'corn-gw')
+    assert.equal(actual.custom?.baseURL, fields.baseURL, label)
+    assert.notDeepEqual(actual.custom, fields, label)
+  }
+  // Normalization that the parser and projection share is not a difference.
+  const { service } = setup()
+  const before = value(await service.read())
+  const saved = value(
+    await service.saveCustomProvider({
+      generation: before.generation,
+      mode: 'create',
+      providerId: 'corn-gw',
+      revision: before.customRevision,
+      fields: { ...fields, displayName: '' },
+    }),
+  )
+  assert.equal(provider(saved, 'corn-gw').custom?.displayName, '')
+})
+
 test('raw Host failures map to closed codes; no key, message or stack leaves the service', async () => {
   const { host, service } = setup()
   const logged: unknown[] = []

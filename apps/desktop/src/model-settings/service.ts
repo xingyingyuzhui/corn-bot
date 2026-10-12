@@ -34,6 +34,7 @@ import {
   type ProviderRecord,
   protocolChoices,
   providerRecords,
+  sameCustomFields,
   sameSelection,
   selectionInCatalog,
   snapshotOf,
@@ -345,7 +346,7 @@ export class ModelSettingsService {
         const row = snapshot.providers.find((provider) => provider.id === id)
         return (
           row?.kind === 'custom' &&
-          row.custom?.baseURL === fields.baseURL &&
+          sameCustomFields(row.custom, fields) &&
           (!key || row.credential.kind === 'configured')
         )
       })
