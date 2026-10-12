@@ -1,14 +1,15 @@
-import type {
-  ClearProviderKeyCommand,
-  ModelSettingsError,
-  ModelSettingsErrorCode,
-  ModelSettingsResult,
-  ModelSettingsSnapshot,
-  ModelStatusView,
-  RemoveCustomProviderCommand,
-  SaveCustomProviderCommand,
-  SetDefaultModelCommand,
-  SetProviderKeyCommand,
+import {
+  type ClearProviderKeyCommand,
+  type ModelSettingsError,
+  type ModelSettingsErrorCode,
+  type ModelSettingsResult,
+  type ModelSettingsSnapshot,
+  type ModelStatusView,
+  type RemoveCustomProviderCommand,
+  type SaveCustomProviderCommand,
+  type SetDefaultModelCommand,
+  type SetProviderKeyCommand,
+  sameCustomFields,
 } from '../../../../packages/contracts/src/model-settings.ts'
 import { CredentialsClient } from '../../../../packages/dsh-adapter/src/credentials-client.ts'
 import { ModelCatalogClient } from '../../../../packages/dsh-adapter/src/model-catalog-client.ts'
@@ -34,7 +35,6 @@ import {
   type ProviderRecord,
   protocolChoices,
   providerRecords,
-  sameCustomFields,
   sameSelection,
   selectionInCatalog,
   snapshotOf,

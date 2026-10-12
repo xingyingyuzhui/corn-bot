@@ -15,6 +15,7 @@ import {
   type ModelSettingsSnapshot,
   type ModelStatusReason,
   type ModelStatusView,
+  sameCustomFields,
 } from '@corn-bot/contracts/model-settings'
 
 /* ── Wording ─────────────────────────────────────────────────────────── */
@@ -550,6 +551,7 @@ export type Operation =
       readonly kind: 'save-custom'
       readonly mode: 'create' | 'update'
       readonly providerId: string
+      readonly fields: CustomProviderFields
     }
   | { readonly kind: 'remove-custom'; readonly providerId: string }
   | {
@@ -566,6 +568,12 @@ export interface PageNotice {
   readonly text: string
   /** A default-model field's own status line, or the page. */
   readonly scope: 'page' | DefaultField
+}
+
+/** A create whose outcome only a fresh read can tell; never holds the key. */
+export interface UnconfirmedCreate {
+  readonly providerId: string
+  readonly fields: CustomProviderFields
 }
 
 export interface ModelSettingsPageState {
@@ -586,6 +594,8 @@ export interface ModelSettingsPageState {
   readonly draftVersion: number
   /** `draftVersion` when the in-flight editor write was submitted. */
   readonly submittedDraft: number | null
+  /** No create may be sent until a fresh read settles this one. */
+  readonly unconfirmedCreate: UnconfirmedCreate | null
 }
 
 export const INITIAL_PAGE: ModelSettingsPageState = {
@@ -600,6 +610,7 @@ export const INITIAL_PAGE: ModelSettingsPageState = {
   reloadRequested: false,
   draftVersion: 0,
   submittedDraft: null,
+  unconfirmedCreate: null,
 }
 
 export type PageAction =
@@ -691,21 +702,64 @@ function editorOf(editor: Editor | null, op: Operation): boolean {
 const scopeOf = (op: Operation): PageNotice['scope'] =>
   op.kind === 'set-default' ? op.field : 'page'
 
-/** After a partial create the route exists, so the editor continues as an update. */
-function editorAfterFailure(
-  editor: Editor | null,
+/** Create failures after which the route may already exist. */
+const UNCERTAIN_CREATE: ReadonlySet<ModelSettingsErrorCode> = new Set([
+  'outcome_unknown',
+  'partially_applied',
+  'readback_mismatch',
+])
+
+function uncertainCreate(
   op: Operation,
   error: ModelSettingsError,
-): Editor | null {
-  if (
-    editor?.kind === 'custom' &&
-    editor.mode === 'create' &&
-    op.kind === 'save-custom' &&
-    error.code === 'partially_applied' &&
-    error.failedStep === 'credential'
-  )
-    return { kind: 'custom', mode: 'update', providerId: op.providerId }
-  return editor
+): UnconfirmedCreate | null {
+  return op.kind === 'save-custom' &&
+    op.mode === 'create' &&
+    UNCERTAIN_CREATE.has(error.code)
+    ? { providerId: op.providerId, fields: op.fields }
+    : null
+}
+
+const isCreateEditor = (editor: Editor | null): boolean =>
+  editor?.kind === 'custom' && editor.mode === 'create'
+
+/**
+ * Settles an unconfirmed create against a fresh read. Only a route holding the
+ * submitted fields is adopted (as an update); the key was never kept, so it
+ * must be typed again either way.
+ */
+function settleCreate(
+  state: ModelSettingsPageState,
+  snapshot: ModelSettingsSnapshot,
+): ModelSettingsPageState {
+  const created = state.unconfirmedCreate
+  if (created === null) return state
+  const { providerId } = created
+  const row = snapshot.providers.find((entry) => entry.id === providerId)
+  const taken =
+    row !== undefined ||
+    snapshot.catalog.some((group) => group.providerId === providerId)
+  const adopted =
+    row?.kind === 'custom' && sameCustomFields(row.custom, created.fields)
+  const text = !taken
+    ? '已重新读取：这次添加没有生效。请重新输入密钥后再保存'
+    : adopted
+      ? `已重新读取：提供方已添加，配置与提交的一致；密钥状态：${credentialLabel(row.credential)}。密钥不会被保留，如需设置请重新输入后保存`
+      : `已重新读取：路由 ID“${providerId}”现在的配置与提交的不一致，未自动采用。请在列表中核对，或换一个路由 ID`
+  if (!isCreateEditor(state.editor))
+    return {
+      ...state,
+      unconfirmedCreate: null,
+      notice: { tone: adopted ? 'ok' : 'error', text, scope: 'page' },
+    }
+  return {
+    ...state,
+    unconfirmedCreate: null,
+    editor: adopted
+      ? { kind: 'custom', mode: 'update', providerId }
+      : state.editor,
+    editorError: text,
+  }
 }
 
 export function pageReducer(
@@ -724,28 +778,41 @@ export function pageReducer(
     case 'load-success':
       return action.token !== state.pending
         ? state
-        : {
-            ...state,
-            load: 'ready',
-            snapshot: action.snapshot,
-            error: null,
-            pending: null,
-          }
+        : settleCreate(
+            {
+              ...state,
+              load: 'ready',
+              snapshot: action.snapshot,
+              error: null,
+              pending: null,
+            },
+            action.snapshot,
+          )
     case 'load-fail':
       if (action.token !== state.pending) return state
-      return state.snapshot
-        ? {
-            ...state,
-            pending: null,
-            notice: {
-              tone: 'error',
-              text: errorText(action.error),
-              scope: 'page',
-            },
-          }
-        : { ...state, load: 'error', error: action.error, pending: null }
+      if (!state.snapshot)
+        return { ...state, load: 'error', error: action.error, pending: null }
+      return {
+        ...state,
+        pending: null,
+        notice: {
+          tone: 'error',
+          text: errorText(action.error),
+          scope: 'page',
+        },
+        editorError:
+          state.unconfirmedCreate && isCreateEditor(state.editor)
+            ? '仍无法确认上次添加是否生效。再次点击保存会先重新读取，不会重复添加'
+            : state.editorError,
+      }
     case 'op-start':
       if (state.busy || state.pending !== null || !state.snapshot) return state
+      if (
+        state.unconfirmedCreate &&
+        action.op.kind === 'save-custom' &&
+        action.op.mode === 'create'
+      )
+        return state
       return {
         ...state,
         busy: action.op,
@@ -783,23 +850,23 @@ export function pageReducer(
     case 'op-fail': {
       const op = state.busy
       if (action.token !== state.pending || !op) return state
-      const text = errorText(action.error)
+      const { error } = action
+      const text = errorText(error)
       const inEditor = usesEditor(op) && editorOf(state.editor, op)
-      return {
+      const failed: ModelSettingsPageState = {
         ...state,
-        snapshot: action.error.snapshot ?? state.snapshot,
+        snapshot: error.snapshot ?? state.snapshot,
         busy: null,
         pending: null,
         submittedDraft: null,
-        editor: inEditor
-          ? editorAfterFailure(state.editor, op, action.error)
-          : state.editor,
         editorError: inEditor ? text : state.editorError,
         notice: inEditor ? null : { tone: 'error', text, scope: scopeOf(op) },
         reloadRequested:
-          action.error.snapshot === undefined &&
-          RELOAD_CODES.has(action.error.code),
+          error.snapshot === undefined && RELOAD_CODES.has(error.code),
+        unconfirmedCreate:
+          state.unconfirmedCreate ?? uncertainCreate(op, error),
       }
+      return error.snapshot ? settleCreate(failed, error.snapshot) : failed
     }
     case 'open-editor':
       return state.busy

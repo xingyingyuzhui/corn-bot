@@ -272,3 +272,25 @@ export function isHttpUrl(value: string): boolean {
     return false
   }
 }
+
+/**
+ * Saved custom fields as Main projects them back: an empty display or
+ * model name counts as absent, and model order is meaningful.
+ */
+export function sameCustomFields(
+  actual: CustomProviderFields | undefined,
+  wanted: CustomProviderFields,
+): boolean {
+  return (
+    actual !== undefined &&
+    actual.displayName === wanted.displayName &&
+    actual.protocol === wanted.protocol &&
+    actual.baseURL === wanted.baseURL &&
+    actual.models.length === wanted.models.length &&
+    actual.models.every(
+      (model, index) =>
+        model.id === wanted.models[index]?.id &&
+        (model.name ?? '') === (wanted.models[index]?.name ?? ''),
+    )
+  )
+}

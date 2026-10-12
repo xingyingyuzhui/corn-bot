@@ -15,6 +15,7 @@ Only fake keys (`sk-corn-wp3-FAKE-*`, `corn-review-fake-credential`) were used. 
 | Revision conflicts are recoverable, never blind overwrites | Done | service test (Corn pre-check and Host fence); smoke step 3 |
 | Settings saved but key failed → `partially_applied` with read-back; retry writes only the key | Done | service test |
 | Write timeout → `outcome_unknown` resolved by read-back | Done | service test |
+| Uncertain custom create: no re-create until a fresh read; adopted as an update only when the route holds the submitted fields; key retyped | Done (fake reducer tests) | renderer `model-settings.test.ts` |
 | Host generation pinning: stale commands refused, Host change mid-write is `outcome_unknown` | Done | service test; smoke step 6 (real restart) |
 | Main serializes writes | Done | service test |
 | Closed error codes; no raw message, stack, key or ref in replies or logs | Done | service and IPC tests; smoke leak scan |

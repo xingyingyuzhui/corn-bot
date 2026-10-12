@@ -2,11 +2,13 @@ import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import {
   type CredentialState,
+  type CustomProviderFields,
   MODEL_SETTINGS_ERROR_CODES,
   MODEL_STATUS_REASONS,
   MODEL_STATUSES,
   type ModelProviderView,
   type ModelSettingsBridge,
+  type ModelSettingsError,
   type ModelSettingsSnapshot,
 } from '@corn-bot/contracts/model-settings'
 import {
@@ -377,8 +379,13 @@ test('protocol, URL, name and model rows are validated', () => {
 
 /* ── Page reducer ────────────────────────────────────────────────────── */
 
+const after = (
+  state: ModelSettingsPageState,
+  ...actions: PageAction[]
+): ModelSettingsPageState => actions.reduce(pageReducer, state)
+
 const run = (...actions: PageAction[]): ModelSettingsPageState =>
-  actions.reduce(pageReducer, INITIAL_PAGE)
+  after(INITIAL_PAGE, ...actions)
 
 const ready = (): ModelSettingsPageState =>
   run(
@@ -443,10 +450,18 @@ test('a successful write replaces the snapshot, closes the editor and says saved
   assert.match(done.notice?.text ?? '', /密钥已保存.*尚未验证/u)
 })
 
+const gatewayFields: CustomProviderFields = {
+  displayName: '我的网关',
+  protocol: snapshot.protocols[0] ?? '',
+  baseURL: 'https://gateway.example.com/v1',
+  models: [{ id: 'model-a' }],
+}
+
 const saveLocal: Operation = {
   kind: 'save-custom',
   mode: 'update',
   providerId: 'local-compatible',
+  fields: gatewayFields,
 }
 
 test('a save whose draft changed in flight keeps the editor and says the later edits are unsaved', () => {
@@ -514,35 +529,143 @@ test('a late result never closes a different editor', () => {
   }
 })
 
-test('a partial create keeps the editor open as an update and holds no secret', () => {
-  const failed = run(
+const createGateway: Operation = {
+  kind: 'save-custom',
+  mode: 'create',
+  providerId: 'my-gateway',
+  fields: gatewayFields,
+}
+
+const withGateway = (
+  custom: CustomProviderFields,
+  credential: CredentialState = { kind: 'missing', writable: true },
+): ModelSettingsSnapshot => ({
+  ...snapshot,
+  providers: [
+    ...snapshot.providers,
+    provider({ id: 'my-gateway', kind: 'custom', custom, credential }),
+  ],
+})
+
+const creating = (): ModelSettingsPageState =>
+  run(
     { type: 'load-start', token: 1 },
     { type: 'load-success', token: 1, snapshot },
     { type: 'open-editor', editor: { kind: 'custom', mode: 'create' } },
+    { type: 'op-start', token: 2, op: createGateway },
+  )
+
+test('an unknown create outcome blocks re-create until a fresh read adopts the matching route', () => {
+  const unknown = pageReducer(creating(), {
+    type: 'op-fail',
+    token: 2,
+    error: { code: 'outcome_unknown' },
+  })
+  assert.deepEqual(unknown.editor, { kind: 'custom', mode: 'create' })
+  assert.equal(unknown.reloadRequested, true)
+  assert.equal(
+    pageReducer(unknown, { type: 'op-start', token: 3, op: createGateway }),
+    unknown,
+    'no blind re-create before the outcome is known',
+  )
+  const settled = after(
+    unknown,
+    { type: 'load-start', token: 4 },
     {
-      type: 'op-start',
-      token: 2,
-      op: { kind: 'save-custom', mode: 'create', providerId: 'my-gateway' },
-    },
-    {
-      type: 'op-fail',
-      token: 2,
-      error: {
-        code: 'partially_applied',
-        failedStep: 'credential',
-        cause: 'host_error',
-      },
+      type: 'load-success',
+      token: 4,
+      snapshot: withGateway({ ...gatewayFields }),
     },
   )
-  assert.deepEqual(failed.editor, {
+  assert.deepEqual(settled.editor, {
     kind: 'custom',
     mode: 'update',
     providerId: 'my-gateway',
   })
-  assert.match(failed.editorError ?? '', /^提供方配置已保存，密钥未保存/u)
-  assert.equal(failed.notice, null)
-  assert.equal(failed.reloadRequested, true)
-  assert.doesNotMatch(JSON.stringify(failed), /FAKE|sk-/u)
+  assert.match(
+    settled.editorError ?? '',
+    /提供方已添加，配置与提交的一致；密钥状态：未配置。密钥不会被保留/u,
+  )
+  assert.equal(settled.unconfirmedCreate, null)
+  assert.doesNotMatch(JSON.stringify(settled), /FAKE|sk-/u)
+})
+
+test('a same-name route with other fields is never adopted after an uncertain create', () => {
+  const other = withGateway({
+    ...gatewayFields,
+    baseURL: 'https://other.example.com/v1',
+  })
+  for (const error of [
+    { code: 'outcome_unknown', snapshot: other },
+    { code: 'readback_mismatch', snapshot: other },
+    {
+      code: 'partially_applied',
+      failedStep: 'credential',
+      cause: 'host_error',
+      snapshot: other,
+    },
+  ] satisfies ModelSettingsError[]) {
+    const done = pageReducer(creating(), { type: 'op-fail', token: 2, error })
+    assert.deepEqual(
+      done.editor,
+      { kind: 'custom', mode: 'create' },
+      error.code,
+    )
+    assert.match(done.editorError ?? '', /不一致，未自动采用/u, error.code)
+    assert.equal(done.unconfirmedCreate, null)
+  }
+  const retry = validateCustomDraft(draft(), other, 'create')
+  assert.ok(
+    !retry.ok && retry.errors.routeId,
+    'the taken route id blocks a second create',
+  )
+})
+
+test('a create confirmed absent may be retried with the key typed again', () => {
+  const done = pageReducer(creating(), {
+    type: 'op-fail',
+    token: 2,
+    error: { code: 'outcome_unknown', snapshot },
+  })
+  assert.deepEqual(done.editor, { kind: 'custom', mode: 'create' })
+  assert.match(done.editorError ?? '', /没有生效。请重新输入密钥/u)
+  assert.notEqual(
+    pageReducer(done, { type: 'op-start', token: 3, op: createGateway }),
+    done,
+  )
+})
+
+test('a failed confirming read keeps the create blocked and says save re-reads first', () => {
+  const failed = after(
+    pageReducer(creating(), {
+      type: 'op-fail',
+      token: 2,
+      error: { code: 'outcome_unknown' },
+    }),
+    { type: 'load-start', token: 3 },
+    { type: 'load-fail', token: 3, error: { code: 'host_error' } },
+  )
+  assert.deepEqual(failed.unconfirmedCreate, {
+    providerId: 'my-gateway',
+    fields: gatewayFields,
+  })
+  assert.match(
+    failed.editorError ?? '',
+    /再次点击保存会先重新读取，不会重复添加/u,
+  )
+  const closed = after(
+    failed,
+    { type: 'close-editor' },
+    { type: 'load-start', token: 4 },
+    {
+      type: 'load-success',
+      token: 4,
+      snapshot: withGateway({ ...gatewayFields }),
+    },
+  )
+  assert.equal(closed.editor, null)
+  assert.equal(closed.notice?.tone, 'ok')
+  assert.match(closed.notice?.text ?? '', /提供方已添加/u)
 })
 
 test('a failure snapshot replaces state; without one, uncertain outcomes reload', () => {

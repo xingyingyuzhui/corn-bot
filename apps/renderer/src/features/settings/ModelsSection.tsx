@@ -170,10 +170,11 @@ export function ModelsSection() {
   const submitCustom = (fields: CustomProviderFields, key: string) => {
     const editor = state.editor
     if (editor?.kind !== 'custom' || !draft) return
+    if (editor.mode === 'create' && state.unconfirmedCreate) return void load()
     const providerId =
       editor.mode === 'create' ? draft.routeId.trim() : editor.providerId
     void run(
-      { kind: 'save-custom', mode: editor.mode, providerId },
+      { kind: 'save-custom', mode: editor.mode, providerId, fields },
       (snapshot) => {
         const revision =
           editor.mode === 'create'
