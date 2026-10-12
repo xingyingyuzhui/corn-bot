@@ -50,7 +50,8 @@ test('send: align first, one prompt with the persisted request id, observed clea
   assert.deepEqual(world.aligned, [MODEL])
   assert.deepEqual(
     world.order.filter((step) => step === 'align' || step === 'resume'),
-    ['resume', 'align'],
+    ['align'],
+    'an ordinary send does not lift a stop that is not there',
   )
   const alignAt = world.host.calls.findIndex((call) => call.op === 'prompt')
   assert.ok(alignAt > 0)

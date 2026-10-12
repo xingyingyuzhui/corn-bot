@@ -71,17 +71,31 @@ export class ApprovalLedger {
   }
 
   /**
-   * The earliest unclaimed ask of the open turn with the same `callId` (both
-   * absent counts as equal). Asks of closed turns never match, so replayed
-   * history cannot capture a live request; an ask already decided can, since
-   * the journal may outrun `$events`.
+   * Epoch a request that arrives now may bind to: the open turn, or the next
+   * one when none is open (`turn/start` does not increment a closed epoch).
    */
-  claim(eventId: string, callId: string | undefined): AskedEntry | undefined {
-    if (!this.#open) return undefined
+  bindEpoch(): number {
+    return this.#epoch
+  }
+
+  /**
+   * The earliest unclaimed ask of the open turn with the same `callId` (both
+   * absent counts as equal) and the same `epoch` the request was born into.
+   * Asks of closed turns never match, so replayed history cannot capture a
+   * live request; an ask already decided can, since the journal may outrun
+   * `$events`. A request left unmatched when its epoch ends must not be
+   * offered a later turn's ask (`epoch` no longer matches).
+   */
+  claim(
+    eventId: string,
+    callId: string | undefined,
+    epoch: number,
+  ): AskedEntry | undefined {
+    if (!this.#open || epoch !== this.#epoch) return undefined
     const entry = this.#asked.find(
       (candidate) =>
         candidate.claimedBy === undefined &&
-        candidate.epoch === this.#epoch &&
+        candidate.epoch === epoch &&
         candidate.callId === callId,
     )
     if (entry !== undefined) entry.claimedBy = eventId

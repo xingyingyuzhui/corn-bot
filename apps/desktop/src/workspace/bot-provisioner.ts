@@ -300,12 +300,14 @@ export class BotProvisioner {
     override: ModelChoice | null,
   ): Promise<SetModelOutcome> {
     return this.#serialize(botId, async () => {
+      const loaded = this.#load(botId)
+      this.#assertHome(loaded.binding)
       this.#write((tx) => {
         setBotModelOverride(tx, botId, override, { now: this.#now() })
       })
-      const loaded = this.#load(botId)
-      if (!isProvisioned(loaded.binding.stage)) return { status: 'pending' }
-      return this.#align(loaded, loaded.binding.appliedModel)
+      const next = this.#load(botId)
+      if (!isProvisioned(next.binding.stage)) return { status: 'pending' }
+      return this.#align(next, next.binding.appliedModel)
     })
   }
 
@@ -320,6 +322,7 @@ export class BotProvisioner {
   ): Promise<AlignOutcome> {
     return this.#serialize(botId, async () => {
       const loaded = this.#load(botId)
+      this.#assertHome(loaded.binding)
       if (!isProvisioned(loaded.binding.stage))
         throw new ProvisionerError('binding_broken', 'Bot is not provisioned')
       return this.#align(loaded, observed === null ? null : toChoice(observed))
@@ -364,6 +367,7 @@ export class BotProvisioner {
   async #advance(botId: string): Promise<ProvisionOutcome> {
     for (;;) {
       const loaded = this.#load(botId)
+      this.#assertHome(loaded.binding)
       const { lastError } = loaded.binding
       if (STOP_ERRORS.has(lastError))
         return this.#needsRepair(botId, lastError as ProvisionErrorCode)
@@ -651,12 +655,13 @@ export class BotProvisioner {
       }
     }
     const choice = toChoice(desired)
-    if (
-      !sameSelection(nullableSelection(binding.appliedModel), desired) ||
-      binding.stage !== 'ready'
-    ) {
-      let clawSynced = binding.stage === 'ready'
-      if (!clawSynced) {
+    const needsClaw = binding.stage !== 'ready' || binding.lastError !== null
+    const needsWrite =
+      needsClaw ||
+      !sameSelection(nullableSelection(binding.appliedModel), desired)
+    if (needsWrite) {
+      let clawSynced = !needsClaw
+      if (needsClaw) {
         try {
           await this.#withRevisionRetry(() =>
             this.#deps.registry.state(binding.dshSessionId, 'ready'),
@@ -669,14 +674,28 @@ export class BotProvisioner {
       this.#write((tx) => {
         const now = this.#now()
         setSessionBindingAppliedModel(tx, binding.bindingId, choice, { now })
-        if (binding.stage !== 'ready')
-          setSessionBindingStage(tx, binding.bindingId, 'ready', {
+        setSessionBindingStage(
+          tx,
+          binding.bindingId,
+          clawSynced ? 'ready' : 'model_applied',
+          {
             now,
             lastError: clawSynced ? null : 'claw_state_failed',
-          })
+          },
+        )
       })
+      if (!clawSynced)
+        throw new ProvisionerError('host_error', 'Claw ready sync failed')
     }
     return { status: 'aligned', selection: desired, changed }
+  }
+
+  #assertHome(binding: SessionBindingRow): void {
+    if (this.#deps.homeId.length === 0 || binding.homeId !== this.#deps.homeId)
+      throw new ProvisionerError(
+        'binding_broken',
+        'Binding belongs to another home',
+      )
   }
 
   /** Local stage first, then Claw `needs_model`; a Claw failure keeps the model code. */
@@ -764,7 +783,9 @@ export class BotProvisioner {
 }
 
 function isProvisioned(stage: BindingStage): boolean {
-  return stage === 'ready' || stage === 'needs_model'
+  return (
+    stage === 'ready' || stage === 'needs_model' || stage === 'model_applied'
+  )
 }
 
 function nullableSelection(choice: ModelChoice | null): ModelSelection | null {

@@ -494,12 +494,36 @@ test('stopping a turn makes its approvals stale and never answers them', async (
   assert.equal(card(1).status, 'cancelled')
   t.mock.timers.tick(APPROVAL_TIMEOUT_MS)
   assert.equal(channel.answers.length, 0)
-  // Once the turn is seen ending, the next turn's requests are answerable.
+  const stoppedHandle = card().handle
+  // A later turn/end, including one replayed with the next turn, does not lift the fence.
   broker.observe(SESSION, [turnEnd(1), turnStart(2)])
   channel.approval('evt-3')
+  const raced = broker.cards(SESSION).at(-1)
+  assert.ok(raced)
+  assert.equal(
+    broker.cards(SESSION).find((view) => view.status === 'pending'),
+    undefined,
+  )
+  assert.deepEqual(
+    await broker.answer(BOT, raced.handle, 'allowed-once'),
+    failed('stale'),
+  )
+  assert.deepEqual(
+    await broker.answer(BOT, raced.handle, 'rejected'),
+    failed('stale'),
+  )
+  assert.equal(channel.answers.length, 0)
+  // Explicit resume allows a new turn. Handles closed by the stop stay dead.
+  broker.resumeSession(SESSION)
+  channel.approval('evt-4')
   const fresh = broker.cards(SESSION).find((view) => view.status === 'pending')
   assert.ok(fresh)
   assert.deepEqual(await broker.answer(BOT, fresh.handle, 'rejected'), okResult)
+  assert.deepEqual(
+    await broker.answer(BOT, stoppedHandle, 'allowed-once'),
+    failed('stale'),
+  )
+  assert.equal(channel.answers.length, 1)
 })
 
 test('resumeSession lifts the stop fence without a turn end', (t) => {
@@ -509,6 +533,93 @@ test('resumeSession lifts the stop fence without a turn end', (t) => {
   broker.resumeSession(SESSION)
   channel.approval('evt-1')
   assert.equal(broker.cards(SESSION)[0]?.status, 'pending')
+})
+
+test('a stop before the first snapshot keeps old turn ends from unlocking the current ask', async (t) => {
+  const { broker, connectReady } = setup(t)
+  const channel = connectReady()
+  broker.stopTurn(SESSION)
+  broker.observe(SESSION, [
+    turnStart(1),
+    turnEnd(1),
+    turnStart(2),
+    turnEnd(2),
+    turnStart(3),
+    asked('ask-now', 'call-now'),
+  ])
+  channel.approval('evt-now', { callId: 'call-now' })
+  const view = broker.cards(SESSION).at(-1)
+  assert.ok(view)
+  assert.notEqual(view.status, 'pending')
+  assert.deepEqual(
+    await broker.answer(BOT, view.handle, 'allowed-once'),
+    failed('stale'),
+  )
+  assert.deepEqual(
+    await broker.answer(BOT, view.handle, 'rejected'),
+    failed('stale'),
+  )
+  assert.equal(channel.answers.length, 0)
+  assert.equal(channel.delegated.length, 0)
+})
+
+test('a live request is settled by the same snapshot that ends its turn', async (t) => {
+  const { broker, connectReady } = setup(t)
+  const channel = connectReady()
+  channel.approval('evt-1', { callId: 'call-1' })
+  const handle = broker.cards(SESSION)[0]?.handle
+  assert.ok(handle)
+  broker.observe(SESSION, [
+    turnStart(1),
+    asked('ask-1', 'call-1'),
+    decided('ask-1', 'cancelled'),
+    turnEnd(1),
+  ])
+  assert.equal(
+    broker.cards(SESSION).find((view) => view.status === 'pending'),
+    undefined,
+  )
+  assert.deepEqual(
+    await broker.answer(BOT, handle, 'allowed-once'),
+    failed('stale'),
+  )
+  assert.equal(channel.answers.length, 0)
+})
+
+test('an unmatched request cannot capture the next turn ask', (t) => {
+  const { broker, connectReady, card } = setup(t)
+  const channel = connectReady()
+  broker.observe(SESSION, [turnStart(1)])
+  channel.approval('evt-old')
+  const stale = card().handle
+  broker.observe(SESSION, [turnEnd(1), turnStart(2), asked('ask-new')])
+  assert.notEqual(card().askedId, 'ask-new')
+  channel.approval('evt-new')
+  const fresh = broker.cards(SESSION).find((view) => view.askedId === 'ask-new')
+  assert.ok(fresh)
+  assert.notEqual(fresh.handle, stale)
+  assert.equal(card().status, 'cancelled')
+})
+
+test('a new generation does not lift a stop', async (t) => {
+  const { broker, connectReady, latest } = setup(t)
+  const first = connectReady()
+  broker.observe(SESSION, [turnStart(1)])
+  first.approval('evt-1')
+  broker.stopTurn(SESSION)
+  first.fail()
+  t.mock.timers.tick(RECONNECT_DELAY_MS)
+  const second = latest()
+  second.ready()
+  broker.observe(SESSION, [turnEnd(1), turnStart(2)])
+  second.approval('evt-2')
+  const view = broker.cards(SESSION).at(-1)
+  assert.ok(view)
+  assert.deepEqual(
+    await broker.answer(BOT, view.handle, 'allowed-once'),
+    failed('stale'),
+  )
+  assert.equal(second.answers.length, 0)
 })
 
 test('requests of an ended turn are pruned and their handles go stale', async (t) => {

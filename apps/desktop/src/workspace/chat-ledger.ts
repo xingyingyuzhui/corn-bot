@@ -31,7 +31,7 @@ import {
   requestIdFor,
   type SendFailure,
 } from './chat-admissions.ts'
-import { fail, type Located } from './chat-runtime.ts'
+import { fail, type Located, OK } from './chat-runtime.ts'
 import type {
   AdmissionObservation,
   AdmissionView,
@@ -72,7 +72,9 @@ const OBSERVABLE: readonly AdmissionState[] = [
 ]
 
 const isProvisioned = (binding: SessionBindingRow): boolean =>
-  binding.stage === 'ready' || binding.stage === 'needs_model'
+  binding.stage === 'ready' ||
+  binding.stage === 'needs_model' ||
+  binding.stage === 'model_applied'
 
 export class ChatLedger {
   readonly #data: ChatLedgerOptions['data']
@@ -254,6 +256,37 @@ export class ChatLedger {
   }
 
   /**
+   * Withdraws a still-`pending` admission in one conditional write, without
+   * waiting for the Session lane. Already `withdrawn` is success. A lost
+   * race (no longer pending) is `stale`. A failed write is `data_unavailable`
+   * and does not claim the withdraw succeeded.
+   */
+  withdrawPending(
+    target: ChatTarget,
+    requestId: string,
+  ): WorkspaceResult<null> {
+    try {
+      const moved = target.db.write((tx) => {
+        const row = getMessageAdmission(tx, requestId)
+        if (row === null || row.conversationId !== target.conversationId)
+          return 'missing' as const
+        if (row.state === 'withdrawn') return 'done' as const
+        if (row.state !== 'pending') return 'stale' as const
+        transitionMessageAdmission(tx, requestId, 'withdrawn', {
+          now: this.#now(),
+        })
+        return 'wrote' as const
+      })
+      if (moved === 'stale' || moved === 'missing') return fail('stale')
+      if (moved === 'wrote') this.#onChanged(target.conversationId)
+    } catch {
+      this.#log('Corn chat: admission write failed (withdrawn)')
+      return fail('data_unavailable')
+    }
+    return OK
+  }
+
+  /**
    * One guarded transition: applied only from the listed states, so racing
    * paths (follow, prompt reply, detach) never fight. `null` when skipped or
    * when the write failed (the caller then sends nothing).
@@ -333,6 +366,40 @@ export class ChatLedger {
     } catch {
       return undefined
     }
+  }
+
+  /**
+   * A stop has begun. Still-local `pending` rows become `rejected` /
+   * `not_sent` and keep their body and request id. They are not auto-retried.
+   * Rows the Host may already hold are left for reconciliation.
+   */
+  rejectPending(sessionId: string): void {
+    const db = this.db()
+    if (db === undefined) return
+    let changed: string | undefined
+    try {
+      changed = db.write((tx) => {
+        const binding = findSessionBindingBySessionId(tx, sessionId)
+        if (binding === null) return undefined
+        let conversationId: string | undefined
+        for (const row of listUnsettledMessageAdmissions(
+          tx,
+          binding.conversationId,
+        )) {
+          if (row.state !== 'pending') continue
+          transitionMessageAdmission(tx, row.requestId, 'rejected', {
+            now: this.#now(),
+            lastError: 'not_sent',
+          })
+          conversationId = binding.conversationId
+        }
+        return conversationId
+      })
+    } catch {
+      this.#log('Corn chat: could not reject pending sends')
+      return
+    }
+    if (changed !== undefined) this.#onChanged(changed)
   }
 
   /** The Host generation ended: an in-flight send's outcome is now unknown. */

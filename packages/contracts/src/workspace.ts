@@ -176,6 +176,19 @@ export type FeedItem =
 /** `reconnecting`: the live stream dropped; history stays, provisional text does not. */
 export type ConversationState = 'ready' | 'loading' | 'reconnecting' | 'error'
 
+/**
+ * Foreground stop, as a product fact. `stopped` requires a confirmed quiet
+ * tree, not a cancel RPC on its own. Omitted when `idle`.
+ */
+export const STOP_STATES = [
+  'idle',
+  'stopping',
+  'stopped',
+  'partial',
+  'unknown',
+] as const
+export type StopState = (typeof STOP_STATES)[number]
+
 /** The Bot's one main conversation, keyed by Bot id. */
 export interface ConversationView {
   readonly botId: string
@@ -185,6 +198,8 @@ export interface ConversationView {
   readonly items: readonly FeedItem[]
   /** Live only: older history can be fetched with `loadEarlier`. */
   readonly hasEarlier?: boolean
+  /** Present only while a foreground stop is not idle. No DSH identity. */
+  readonly stopState?: Exclude<StopState, 'idle'>
 }
 
 export interface ModelOption {

@@ -17,12 +17,19 @@ import {
  * stale-Turn fallback while and after this runs.
  */
 
+/** Bound passed into one control RPC. Abort means Corn stopped waiting. */
+export interface StopCallOptions {
+  readonly signal?: AbortSignal
+  readonly timeoutMs?: number
+}
+
 /** `job.list` / `job.kill` for one Session's visible roster. */
 export interface ChatJobs {
-  list(sessionId: string): Promise<readonly JobRow[]>
+  list(sessionId: string, options?: StopCallOptions): Promise<readonly JobRow[]>
   kill(
     sessionId: string,
     jobId: string,
+    options?: StopCallOptions,
   ): Promise<'requested' | 'already-finished'>
 }
 
@@ -38,8 +45,28 @@ export interface StopPorts {
 export const STOP_MAX_PASSES = 5
 export const STOP_DEADLINE_MS = 5_000
 export const STOP_PASS_DELAY_MS = 100
+/** Kept inside the stop deadline for the parent cancel. */
+export const STOP_PARENT_RESERVE_MS = 1_000
 /** Step 5: the tree must be empty this long after the stop. */
 export const STOP_VERIFY_DELAY_MS = 2_000
+/** The +2s check itself cannot wait forever. */
+export const STOP_VERIFY_BUDGET_MS = 5_000
+
+export class StopBudgetError extends Error {
+  constructor() {
+    super('Stop budget exhausted')
+    this.name = 'StopBudgetError'
+  }
+}
+
+/**
+ * Reserve for the parent cancel. A full 5s budget keeps 1s. A shorter test
+ * budget keeps a slice so a child RPC can still start and then be abandoned.
+ */
+export function parentReserveMs(deadlineMs: number): number {
+  if (deadlineMs >= STOP_PARENT_RESERVE_MS) return STOP_PARENT_RESERVE_MS
+  return Math.max(1, Math.floor(deadlineMs / 5))
+}
 
 export interface StopOptions {
   readonly maxPasses?: number
@@ -47,10 +74,15 @@ export interface StopOptions {
   readonly passDelayMs?: number
   readonly now?: () => number
   readonly sleep?: (ms: number) => Promise<void>
+  /** A control RPC Corn stopped waiting for. It must not be dropped. */
+  readonly onUnsettled?: (work: Promise<unknown>) => void
 }
 
-/** `not_found`: the parent was not attached; the verify list decides. */
-export type ParentCancel = 'cancelled' | 'not_found' | 'failed'
+/**
+ * `not_found`: the parent was not attached; the verify list decides.
+ * `unknown`: Corn stopped waiting. The RPC may still run; it is not a confirmation.
+ */
+export type ParentCancel = 'cancelled' | 'not_found' | 'failed' | 'unknown'
 
 /** Counts and closed outcomes only; no Session, job or Host text. */
 export interface StopReport {
@@ -62,6 +94,8 @@ export interface StopReport {
   /** Live jobs visible from the tree but not owned by it; never touched. */
   readonly foreignJobs: number
   readonly parentCancel: ParentCancel
+  /** Control RPCs still running after Corn stopped waiting for them. */
+  readonly unsettled: number
 }
 
 export type StopVerification =
@@ -125,11 +159,74 @@ interface PassResult {
   readonly foreign: number
 }
 
+interface Budget {
+  readonly deadlineAt: number
+  readonly reserveMs: number
+  readonly now: () => number
+  readonly sleep: (ms: number) => Promise<void>
+  readonly onUnsettled?: (work: Promise<unknown>) => void
+  unsettled: number
+  truncated: boolean
+}
+
+function totalLeft(budget: Budget): number {
+  return Math.max(0, budget.deadlineAt - budget.now())
+}
+
+function childLeft(budget: Budget): number {
+  return Math.max(0, totalLeft(budget) - budget.reserveMs)
+}
+
+/**
+ * Waits at most `ms` of budget time. A sleep that does not move `now`
+ * (the test harness yields without time passing) is not a timeout: the RPC
+ * is still awaited. When the wait ends first, `work` is retained as unsettled.
+ */
+async function withinBudget<T>(
+  work: Promise<T>,
+  ms: number,
+  budget: Budget,
+): Promise<T> {
+  if (ms <= 0) {
+    budget.unsettled += 1
+    budget.truncated = true
+    budget.onUnsettled?.(work)
+    throw new StopBudgetError()
+  }
+  let ignoreLate = false
+  const timeout = (async (): Promise<'pending'> => {
+    const start = budget.now()
+    await budget.sleep(ms)
+    if (ignoreLate) return 'pending'
+    if (budget.now() - start >= ms) throw new StopBudgetError()
+    return 'pending'
+  })()
+  try {
+    const result = await Promise.race([work, timeout])
+    if (result === 'pending') return await work
+    return result
+  } catch (error) {
+    if (error instanceof StopBudgetError) {
+      budget.unsettled += 1
+      budget.truncated = true
+      budget.onUnsettled?.(work)
+    }
+    throw error
+  } finally {
+    ignoreLate = true
+  }
+}
+
 /** Steps 1–2 once: interrupt running children deepest first, then kill owned jobs. */
-async function stopPass(ports: StopPorts, rootId: string): Promise<PassResult> {
+async function stopPass(
+  ports: StopPorts,
+  rootId: string,
+  budget: Budget,
+): Promise<PassResult> {
   let rows: readonly SessionRow[]
   try {
-    rows = await ports.sessions.sessionRows()
+    const call = ports.sessions.sessionRows({ timeoutMs: childLeft(budget) })
+    rows = await withinBudget(call, childLeft(budget), budget)
   } catch {
     return { clean: false, interrupted: 0, killed: 0, foreign: 0 }
   }
@@ -139,13 +236,28 @@ async function stopPass(ports: StopPorts, rootId: string): Promise<PassResult> {
   for (const child of tree) {
     if (!child.running) continue
     clean = false
+    if (childLeft(budget) <= 0) {
+      budget.truncated = true
+      return { clean: false, interrupted, killed: 0, foreign: 0 }
+    }
+    const slice = childLeft(budget)
     try {
-      await ports.sessions.interruptChild({
-        parentSessionId: child.parentSessionId,
-        childSessionId: child.sessionId,
-      })
+      await withinBudget(
+        ports.sessions.interruptChild(
+          {
+            parentSessionId: child.parentSessionId,
+            childSessionId: child.sessionId,
+          },
+          { timeoutMs: slice },
+        ),
+        slice,
+        budget,
+      )
       interrupted += 1
-    } catch {
+    } catch (error) {
+      if (error instanceof StopBudgetError) {
+        return { clean: false, interrupted, killed: 0, foreign: 0 }
+      }
       // `subagent/unauthorized` or a gateway error: the next pass re-reads.
     }
   }
@@ -155,11 +267,22 @@ async function stopPass(ports: StopPorts, rootId: string): Promise<PassResult> {
   let killed = 0
   let foreign = 0
   for (const sessionId of owners) {
-    let jobs: readonly JobRow[]
-    try {
-      jobs = await ports.jobs.list(sessionId)
-    } catch {
+    if (childLeft(budget) <= 0) {
+      budget.truncated = true
       clean = false
+      break
+    }
+    let jobs: readonly JobRow[]
+    const slice = childLeft(budget)
+    try {
+      jobs = await withinBudget(
+        ports.jobs.list(sessionId, { timeoutMs: slice }),
+        slice,
+        budget,
+      )
+    } catch (error) {
+      clean = false
+      if (error instanceof StopBudgetError) break
       continue
     }
     for (const job of jobs) {
@@ -170,10 +293,24 @@ async function stopPass(ports: StopPorts, rootId: string): Promise<PassResult> {
         continue
       }
       clean = false
+      if (childLeft(budget) <= 0) {
+        budget.truncated = true
+        return { clean: false, interrupted, killed, foreign }
+      }
+      const killSlice = childLeft(budget)
       try {
-        if ((await ports.jobs.kill(job.owner, job.id)) === 'requested')
+        if (
+          (await withinBudget(
+            ports.jobs.kill(job.owner, job.id, { timeoutMs: killSlice }),
+            killSlice,
+            budget,
+          )) === 'requested'
+        )
           killed += 1
-      } catch {
+      } catch (error) {
+        if (error instanceof StopBudgetError) {
+          return { clean: false, interrupted, killed, foreign }
+        }
         // `job/not-found`: already gone; anything else is re-listed.
       }
     }
@@ -199,14 +336,25 @@ export async function stopForegroundTree(
     options.sleep ??
     ((ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms)))
   const started = now()
+  const budget: Budget = {
+    deadlineAt: started + deadlineMs,
+    reserveMs: parentReserveMs(deadlineMs),
+    now,
+    sleep,
+    unsettled: 0,
+    truncated: false,
+    ...(options.onUnsettled === undefined
+      ? {}
+      : { onUnsettled: options.onUnsettled }),
+  }
   let passes = 0
   let childrenInterrupted = 0
   let jobsKilled = 0
   let foreignJobs = 0
   let clean = false
-  while (passes < maxPasses) {
+  while (passes < maxPasses && !budget.truncated && childLeft(budget) > 0) {
     passes += 1
-    const pass = await stopPass(ports, rootId)
+    const pass = await stopPass(ports, rootId, budget)
     childrenInterrupted += pass.interrupted
     jobsKilled += pass.killed
     foreignJobs = Math.max(foreignJobs, pass.foreign)
@@ -214,23 +362,32 @@ export async function stopForegroundTree(
       clean = true
       break
     }
-    if (passes >= maxPasses || now() - started >= deadlineMs) break
-    await sleep(passDelayMs)
+    if (budget.truncated || passes >= maxPasses || childLeft(budget) <= 0) break
+    const delay = Math.min(passDelayMs, childLeft(budget))
+    if (delay > 0) await sleep(delay)
   }
+  if (passes === 0) passes = 1
   let parentCancel: ParentCancel = 'cancelled'
+  const parentSlice = totalLeft(budget)
+  const cancel = ports.sessions.cancel(rootId, { timeoutMs: parentSlice })
   try {
-    await ports.sessions.cancel(rootId)
+    await withinBudget(cancel, parentSlice, budget)
   } catch (error) {
     parentCancel =
-      remoteCode(error) === 'session/not-found' ? 'not_found' : 'failed'
+      error instanceof StopBudgetError
+        ? 'unknown'
+        : remoteCode(error) === 'session/not-found'
+          ? 'not_found'
+          : 'failed'
   }
   return {
-    outcome: clean ? 'stopped' : 'stop_partial',
+    outcome: clean && !budget.truncated ? 'stopped' : 'stop_partial',
     passes,
     childrenInterrupted,
     jobsKilled,
     foreignJobs,
     parentCancel,
+    unsettled: budget.unsettled,
   }
 }
 
@@ -304,9 +461,29 @@ export class StaleTurnFence {
 export async function verifyForegroundTree(
   ports: StopPorts,
   rootId: string,
+  options: {
+    readonly timeoutMs?: number
+    readonly sleep?: StopOptions['sleep']
+  } = {},
 ): Promise<StopVerification> {
+  const timeoutMs = options.timeoutMs ?? STOP_VERIFY_BUDGET_MS
+  const budget: Budget = {
+    deadlineAt:
+      (options.sleep === undefined ? Date.now() : Date.now()) + timeoutMs,
+    reserveMs: 0,
+    now: Date.now,
+    sleep:
+      options.sleep ??
+      ((ms) => new Promise<void>((resolve) => setTimeout(resolve, ms))),
+    unsettled: 0,
+    truncated: false,
+  }
   try {
-    const rows = await ports.sessions.sessionRows()
+    const rows = await withinBudget(
+      ports.sessions.sessionRows({ timeoutMs }),
+      timeoutMs,
+      budget,
+    )
     const tree = sessionTree(rows, rootId)
     const root = rows.find((row) => row.sessionId === rootId)
     const runningSessions =
@@ -315,10 +492,17 @@ export async function verifyForegroundTree(
     const owners = [...tree.map((member) => member.sessionId), rootId]
     const owned = new Set(owners)
     const live = new Set<string>()
-    for (const sessionId of owners)
-      for (const job of await ports.jobs.list(sessionId))
+    for (const sessionId of owners) {
+      const left = totalLeft(budget)
+      if (left <= 0) return { status: 'unreadable' }
+      for (const job of await withinBudget(
+        ports.jobs.list(sessionId, { timeoutMs: left }),
+        left,
+        budget,
+      ))
         if (isLive(job) && job.owner !== null && owned.has(job.owner))
           live.add(job.id)
+    }
     return {
       status: runningSessions === 0 && live.size === 0 ? 'clean' : 'residual',
       runningSessions,

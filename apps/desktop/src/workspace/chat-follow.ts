@@ -9,6 +9,7 @@ import type { ApprovalBroker } from './approval-broker.ts'
 import { messageIdFor } from './chat-admissions.ts'
 import type { ChatLedger } from './chat-ledger.ts'
 import { type ChatRuntime, type ChatTiming, fail, OK } from './chat-runtime.ts'
+import type { StopPhase } from './chat-stop.ts'
 import { ConversationFollow, type FollowStream } from './conversation-follow.ts'
 import {
   type ApprovalOverlay,
@@ -36,6 +37,13 @@ export interface ChatFollowerOptions {
     target: FollowTarget,
     events: readonly WireEvent[],
   ) => void
+  /** Product stop phase overlaid on a published view. `idle` is omitted. */
+  readonly stopPhase?: (botId: string) => StopPhase
+  /**
+   * The warm stream of a protected Session died. The caller cold-reconciles;
+   * this class does not open a second follow.
+   */
+  readonly onControlLost?: (botId: string, sessionId: string) => void
   readonly onView: (view: ConversationView) => void
   /** Runs `fn` after `ms`; returns a cancel. */
   readonly schedule: (fn: () => void, ms: number) => () => void
@@ -50,6 +58,8 @@ interface Followed extends FollowTarget {
   follow: ConversationFollow | undefined
   reopenFailures: number
   admissionsDirty: boolean
+  /** Control watch: keep the stream, do not publish UI and do not reopen it. */
+  silent: boolean
 }
 
 /**
@@ -61,6 +71,8 @@ interface Followed extends FollowTarget {
 export class ChatFollower {
   readonly #options: ChatFollowerOptions
   #followed: Followed | undefined
+  /** Warm follows kept only to observe a stop. Not a second Agent. */
+  readonly #controls = new Map<string, Followed>()
   /** A reopen waiting for the next Host generation. */
   #parked: (() => void) | undefined
 
@@ -96,6 +108,16 @@ export class ChatFollower {
       follow: undefined,
       reopenFailures: 0,
       admissionsDirty: false,
+      silent: false,
+    }
+    const kept = this.#controls.get(target.sessionId)
+    if (kept !== undefined) {
+      this.#controls.delete(target.sessionId)
+      kept.silent = false
+      this.#followed = kept
+      this.#refreshAdmissions(kept)
+      this.#publish(kept.projector.refresh())
+      return
     }
     this.#followed = entry
     this.#refreshAdmissions(entry)
@@ -109,9 +131,41 @@ export class ChatFollower {
     entry?.follow?.stop()
   }
 
+  /**
+   * The UI left a Session whose stop is still in force. Keep the existing
+   * stream as a control watch. Do not open another one.
+   */
+  demote(sessionId: string): void {
+    const entry = this.#followed
+    if (entry?.sessionId !== sessionId) return
+    this.#followed = undefined
+    this.#parked = undefined
+    entry.silent = true
+    this.#controls.set(sessionId, entry)
+  }
+
+  /** Whether this Session already has a live follow stream. */
+  hasWarm(sessionId: string): boolean {
+    const selected = this.#followed
+    if (selected?.sessionId === sessionId && selected.follow !== undefined)
+      return true
+    const control = this.#controls.get(sessionId)
+    return control?.follow !== undefined
+  }
+
+  /** Republish the selected Bot so a stop phase change is visible. */
+  republish(botId: string): void {
+    const entry = this.#followed
+    if (entry?.botId === botId) this.#emitView(entry.projector.view())
+  }
+
   /** A retired binding: stop following it. */
   forget(sessionId: string): void {
     if (this.#followed?.sessionId === sessionId) this.unfollow()
+    const control = this.#controls.get(sessionId)
+    if (control === undefined) return
+    this.#controls.delete(sessionId)
+    control.follow?.stop()
   }
 
   /** After a generation's recovery: start the follow or run its parked reopen. */
@@ -132,17 +186,22 @@ export class ChatFollower {
   detach(): void {
     this.#parked = undefined
     const entry = this.#followed
-    if (entry === undefined) return
-    entry.follow?.stop()
-    entry.follow = undefined
-    this.#publish(entry.projector.rebaseline('disconnected'))
-    this.#refreshAdmissions(entry)
+    if (entry !== undefined) {
+      entry.follow?.stop()
+      entry.follow = undefined
+      this.#publish(entry.projector.rebaseline('disconnected'))
+      this.#refreshAdmissions(entry)
+    }
+    for (const control of this.#controls.values()) control.follow?.stop()
+    this.#controls.clear()
   }
 
   dispose(): void {
     this.#parked = undefined
     this.#followed?.follow?.stop()
     this.#followed = undefined
+    for (const control of this.#controls.values()) control.follow?.stop()
+    this.#controls.clear()
   }
 
   view(botId: string): ConversationView | undefined {
@@ -184,7 +243,10 @@ export class ChatFollower {
           )
         return runtime.sessions.page({ sessionId: entry.sessionId, ...request })
       },
-      onView: (view) => this.#emitView(view),
+      onView: (view) => {
+        if (entry.silent) return
+        this.#emitView(view)
+      },
       scheduleReopen: (_reason, reopen) => this.#scheduleReopen(entry, reopen),
     })
     entry.follow = follow
@@ -240,6 +302,12 @@ export class ChatFollower {
 
   /** Bounded exponential backoff while the Host is up; otherwise wait for the next generation. */
   #scheduleReopen(entry: Followed, reopen: () => void): () => void {
+    if (entry.silent) {
+      entry.follow?.stop()
+      this.#controls.delete(entry.sessionId)
+      this.#options.onControlLost?.(entry.botId, entry.sessionId)
+      return () => {}
+    }
     if (this.#followed !== entry) return () => {}
     entry.reopenFailures += 1
     const { reopenBaseMs, reopenMaxMs, reopenFailureLimit } =
@@ -295,8 +363,10 @@ export class ChatFollower {
   }
 
   #emitView(view: ConversationView): void {
+    const phase = this.#options.stopPhase?.(view.botId) ?? 'idle'
+    const published = phase === 'idle' ? view : { ...view, stopState: phase }
     try {
-      this.#options.onView(view)
+      this.#options.onView(published)
     } catch {
       // A failing listener must not break follow callbacks.
     }

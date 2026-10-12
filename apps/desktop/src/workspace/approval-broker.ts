@@ -108,6 +108,11 @@ interface ApprovalRecord {
   timedOut: boolean
   /** The timeout fired while detached; the redelivery is rejected. */
   timeoutDue: boolean
+  /**
+   * Ledger epoch this request may bind to. `-1` after that epoch ended
+   * unmatched, so a later turn's ask cannot be captured.
+   */
+  bindEpoch: number
   entry: AskedEntry | undefined
   outcome: DurableOutcome | undefined
   timer: ReturnType<typeof setTimeout> | undefined
@@ -205,6 +210,13 @@ export class ApprovalBroker {
       record.phase === 'detached'
     )
       return fail('stale')
+    if (this.#stopped.has(record.sessionId) && record.phase !== 'decided') {
+      if (record.phase !== 'closed') {
+        this.#close(record)
+        this.#emitApprovals([record.sessionId])
+      }
+      return fail('stale')
+    }
     switch (record.phase) {
       case 'decided':
         return record.outcome === value ? ok : fail('stale')
@@ -231,7 +243,10 @@ export class ApprovalBroker {
 
   /**
    * Feeds durable Session events in seq order: a follow snapshot's records or
-   * one live event. Overlaps are skipped.
+   * one live event. Overlaps are skipped. Each event is folded, then linked,
+   * settled and cleaned up before the next, so a decision that shares a
+   * window with its `turn/end` still reaches the live card. The whole batch
+   * publishes at most one approval update. A `turn/end` never lifts a stop.
    */
   observe(sessionId: string, events: readonly WireEvent[]): void {
     let ledger = this.#ledgers.get(sessionId)
@@ -240,34 +255,43 @@ export class ApprovalBroker {
       this.#ledgers.set(sessionId, ledger)
     }
     let changed = false
-    for (const fact of ledger.observe(events)) {
-      switch (fact.kind) {
-        case 'decided': {
-          const claimant = fact.entry.claimedBy
-          const record =
-            claimant === undefined ? undefined : this.#records.get(claimant)
-          if (record !== undefined) {
-            this.#decide(record, fact.entry.outcome)
-            changed = true
+    const segments = turnSegments(events)
+    for (let index = 0; index < segments.length; index += 1) {
+      const linking = index === segments.length - 1
+      for (const event of segments[index] ?? []) {
+        const facts = ledger.observe([event])
+        if (linking) changed = this.#link(sessionId) || changed
+        for (const fact of facts) {
+          switch (fact.kind) {
+            case 'decided': {
+              const claimant = fact.entry.claimedBy
+              const record =
+                claimant === undefined ? undefined : this.#records.get(claimant)
+              if (record !== undefined) {
+                this.#decide(record, fact.entry.outcome)
+                changed = true
+              }
+              break
+            }
+            case 'turn-ended':
+              changed = this.#endTurn(sessionId, ledger) || changed
+              changed = this.#retireUnmatched(sessionId, ledger) || changed
+              break
+            default:
+              assertNever(fact)
           }
-          break
         }
-        case 'turn-ended':
-          this.#stopped.delete(sessionId)
-          changed = this.#endTurn(sessionId, ledger) || changed
-          break
-        default:
-          assertNever(fact)
       }
     }
-    changed = this.#link(sessionId) || changed
     if (changed) this.#emitApprovals([sessionId])
   }
 
   /**
    * Decision 8B: the foreground turn is being stopped. Its requests are
-   * never answered from now on, and requests that arrive before the turn is
-   * seen ending (or {@link resumeSession}) are closed on arrival.
+   * never answered from now on. History replay, a natural `turn/end`, a
+   * reconnect and a new `$events` generation do not lift this; only
+   * {@link resumeSession} does, and it does not revive handles already
+   * closed.
    */
   stopTurn(sessionId: string): void {
     this.#stopped.add(sessionId)
@@ -370,6 +394,7 @@ export class ApprovalBroker {
       resent: false,
       timedOut: false,
       timeoutDue: false,
+      bindEpoch: this.#ledgers.get(request.sessionId)?.bindEpoch() ?? 0,
       entry: undefined,
       outcome: undefined,
       timer: undefined,
@@ -385,6 +410,11 @@ export class ApprovalBroker {
   /** The Gateway redelivers a still-pending request under the same `eventId`. */
   #redeliver(record: ApprovalRecord, generation: number): void {
     if (record.phase !== 'detached') return
+    if (this.#stopped.has(record.sessionId)) {
+      this.#close(record)
+      this.#emitApprovals([record.sessionId])
+      return
+    }
     record.generation = generation
     this.#mintHandle(record)
     if (record.timeoutDue) {
@@ -552,7 +582,11 @@ export class ApprovalBroker {
     let changed = false
     for (const record of this.#sessionRecords(sessionId)) {
       if (record.entry !== undefined) continue
-      const entry = ledger.claim(record.eventId, record.request.callId)
+      const entry = ledger.claim(
+        record.eventId,
+        record.request.callId,
+        record.bindEpoch,
+      )
       if (entry === undefined) continue
       record.entry = entry
       changed = true
@@ -571,6 +605,23 @@ export class ApprovalBroker {
       if (record.entry === undefined || !ledger.hasEnded(record.entry.epoch))
         continue
       this.#prune(record)
+      changed = true
+    }
+    return changed
+  }
+
+  /**
+   * An unmatched request whose epoch has ended can no longer be proved to
+   * belong to a live ask. Close it and refuse every later turn's ask.
+   */
+  #retireUnmatched(sessionId: string, ledger: ApprovalLedger): boolean {
+    let changed = false
+    for (const record of this.#sessionRecords(sessionId)) {
+      if (record.entry !== undefined || !ledger.hasEnded(record.bindEpoch))
+        continue
+      record.bindEpoch = -1
+      if (record.phase === 'decided' || record.phase === 'closed') continue
+      this.#close(record)
       changed = true
     }
     return changed
@@ -685,6 +736,26 @@ export function approvalFeedItem(
       card.displayReason?.zh ?? card.displayReason?.en ?? card.reason ?? '',
     status: card.status,
   }
+}
+
+/**
+ * One segment per turn. A window that begins mid-turn stays one segment
+ * until the next `turn/start`. Only the last segment may claim requests
+ * that were already live, so earlier turns in the same snapshot cannot
+ * capture them.
+ */
+function turnSegments(events: readonly WireEvent[]): WireEvent[][] {
+  const segments: WireEvent[][] = []
+  let current: WireEvent[] = []
+  for (const event of events) {
+    if (event.type === 'turn/start' && current.length > 0) {
+      segments.push(current)
+      current = []
+    }
+    current.push(event)
+  }
+  if (current.length > 0) segments.push(current)
+  return segments
 }
 
 function assertNever(value: never): never {
