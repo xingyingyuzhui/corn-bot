@@ -15,7 +15,7 @@
 | DSH headless 门禁 B1–B6 | 已合；fake 模型。B2/B6 已证明 `session.cancel` 只结束 Turn | [DSH-HEADLESS-GATES](../milestones/DSH-HEADLESS-GATES.md) |
 | 定向停止 | ADR-0007 补遗：有条件成立，叶子优先顺序为强制规定；U2 只是草案 | [ADR-0007 补遗](../adr/ADR-0007-execution-runtime.md#addendum-2026-10-12-targeted-stop-verdict) |
 | 产品数据层 | **不存在**。`CompositionRoot` 在正常入口仍绑定 `FixtureWorkspaceRepository`；preload 只有 `runtimeStatus` 与 `modelSettings` | `apps/renderer/src/app/CompositionRoot.tsx`、`apps/desktop/src/preload.cts` |
-| SQLite | [ADR-0002](../adr/ADR-0002-sqlite-runtime.md) 仍为 Proposed：只在 Electron 的 Node 模式验证过 `node:sqlite`，Main 进程本体与打包 App 都未验证 | ADR-0002 |
+| SQLite | [ADR-0002](../adr/ADR-0002-sqlite-runtime.md) 已因 D0（PR #34）改为 Accepted：CI 上 Electron Main 与打包 App 中 WAL、`synchronous=FULL`、外键、`backup()` 均通过（SQLite 3.53.4）；签名/公证/DMG 安装后的 App 仍未验证 | ADR-0002 |
 
 因此 CHAT-01 的依赖里，MODEL-01b 和 U1 已满足。剩下的是 DATA-01，以及“必需视觉门禁”（GUI 暂停期间保持 pending，不阻塞代码合并，但阻塞 P3 签收）。
 
@@ -57,7 +57,7 @@ Context7 本次需要认证，没有使用。以下资料取自官方文档、Gi
 - 没有原生 addon：Electron 升级不需要 ABI 重建，不需要 `asar.unpack`，也不需要新的 `allowBuilds`。打包树和 `verify:runtime` 的锁定纪律不受影响（现有包体约 846 MB，减重属 C8，尚未开始）。
 - 同步 API 适合“Main 单写者、写入极小”的场景，事务边界写在代码里一目了然。
 - 自带在线备份（`sqlite.backup`）、默认开启外键与 defensive，减少自定义代码。
-- ADR-0002 已在 Electron 44.7.0 的 Node 模式完成 WAL 写读。
+- ADR-0002 已在 Electron 44.7.0 的 Node 模式完成 WAL 写读；D0 之后 Main 进程本体与打包 App 也已由 CI 验证。
 
 附带条件和风险：
 
