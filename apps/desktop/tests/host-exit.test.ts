@@ -110,6 +110,7 @@ test(
       assert.equal(harness.schedules.length, 1)
       await closeLate(harness, first)
       harness.runRecovery()
+      await harness.nextChild()
       const second = await harness.nextChild()
       assert.notEqual(second, first)
       await within(
