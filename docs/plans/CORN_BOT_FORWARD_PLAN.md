@@ -115,6 +115,13 @@ DSH路线需先解决：Session-only模型选择、Host侧RunControl与只读恢
 
 基于已经迁入的原创几何实现 MotionRenderer、统一 scheduler 和生命周期；稳定 seed、各实例 SVG ID、18 状态 fixture、减少动态设置、隐藏/离屏静态、销毁清理。不要每个实例无限 RAF，不随机展示业务活动。
 
+2026-10-12维护者决策：行为参照 DMG 0.68.1 引擎（时间采样，5 颗 orbit/spawning 粒子、standby 光晕），官网组件只作 idle 身体/眼睛运动参数参照，同状态不混用；状态语义、时序、缓动、形变结构、粒子数、墨迹时间采样、<48px compact 与 overflow 规则在 Corn TS 中重写，不复制 Kit/Grok 代码、SVG path、素材或精确形变几何，身体/眼睛/形变造型保持原创（§1）。拆为：
+
+- **02D-2a 动效引擎（UI-01a）**：全部实例共 1 个 RAF 的统一 scheduler、useAvatarLifecycle、时间纯函数采样、可承载形变的帧契约、形变↔idle 过渡、静态路径与清理；沿用 v1 视觉，现在可开工，只做虚拟时钟＋JSDOM 测试。
+- **02D-2b 形变接入（UI-01b）**：Corn 原创 `corn-avatar-kit-v2`（独立资产锁，v1 不变）定稿后接入。第一批 writing/thinking/searching(radar)/progress/alerting，第二批 orbit/waiting、spawning、sending、receiving、uploading、dictating、powering-down；orbit/spawning 不在现有 18 态内，需先定契约。
+- 动画状态不改变任务状态：不继承 DMG 自动回 idle，失败/审批/后台任务由 PR-03A 展示 reducer 按真实事件驱动，短态由展示层 TTL 回落。
+- 增补门禁：同一虚拟动画时间在 30/60/120 FPS 及低于 100ms 封顶的不规则 delta 下帧一致；长间隔（后台、睡眠）每 tick 最多推进 100ms、从原处继续不跳相位（维护者决策，单独测试）；14–60px 全部使用尺寸＋144px fixture，14px 走 compact；形变→idle 恢复眼睛无残留；不裁切；N 实例 1 个 RAF；卸载/切 Bot/StrictMode/窗口销毁后 RAF、observer、listener 归零。GUI/视觉部分在 smoke 暂停期间保持 pending。细则见[头像计划](CORN_AVATAR_ASSET_INTEGRATION_PLAN.md) §3A、§4 与 [ADR-0003 增补](../adr/ADR-0003-avatar-engine.md)；Kit 锁 `0248419`→`5bb4379` 由独立小 PR 处理。
+
 静态头像、角色选择器、图标源和哈希保留。头像上传在 P3 受控资产访问后接通。真实事件驱动在 P3/P4 接入；组件层只消费脱敏 presentation，不能直接调用 Host。
 
 ### 6.3 02C / 02E-2 与图标验收
@@ -221,8 +228,10 @@ GUI 操作的速度和成本以本机单场景实测，不因安装框架就声�
 | MODEL-01a | #15 N1/N3通用修复，只更新PR | 可与RT-DECISION静态对照并行；不合并、不跑真实验证 |
 | MODEL-01b | N2与选中底座的完整配置/集成 | 底座依赖已由 ADR-0007 满足；继续已有#15，审查后合并；真实 Key 检查需授权 |
 | U1 | DSH上游补丁：Session-only 模型选择 | **待单独授权**（§5.3，ADR-0007不构成授权）；Bot级模型覆盖与§7.3门禁依赖它 |
-| UI-01 | 02D-2 动效及 lifecycle | 可并行接口工作；不直接访问运行时 |
-| UI-02 | 02C/02E-2/图标、设置页联合验收 | MODEL-01b + UI-01；GUI待恢复 |
+| UI-01a | 02D-2a 动效引擎：统一 scheduler（1 RAF）、lifecycle、时间采样、形变帧契约与过渡、静态路径/清理；v1 视觉 | 可立即开工，与接口工作并行；不直接访问运行时；只做虚拟时钟＋JSDOM 测试；引用 Kit `5bb4379`（锁升级小 PR 另行） |
+| ASSET-02 | `corn-avatar-kit-v2` 原创形变素材及独立资产锁 | 仓库外设计工作；不改 v1 静态头像、16 角色、App 图标 |
+| UI-01b | 02D-2b 形变接入（第一批5种，再第二批）＋视觉验收 | UI-01a + ASSET-02；第二批 orbit/spawning 先定契约；GUI/视觉待恢复 |
+| UI-02 | 02C/02E-2/图标、设置页联合验收 | MODEL-01b + UI-01a/UI-01b；GUI待恢复 |
 | DATA-01 | 最小DB、身份、幂等、只读恢复 | 底座依赖已由 ADR-0007 满足；先契约后实现 |
 | CHAT-01 | Main-backed真实聊天/审批/取消 | MODEL-01b + DATA-01 + 必需视觉门禁 |
 | RUN-01a | Run/Attempt/Directive/Outbox/Lease和Host控制契约 | CHAT-01；先模型隔离/执行控制seam |
@@ -257,7 +266,7 @@ GUI 操作的速度和成本以本机单场景实测，不因安装框架就声�
 ## 16. 下一步的具体队列
 
 1. 更新决策并提交/推送纯文档PR；主目录切回main，文档PR待独立审查，不直接合并。
-2. RT-DECISION已完成（ADR-0007选DSH）。#15继续N2与变基集成，审查后合并；U1待单独授权；DATA-01可先定契约。安排#16–#19一次独立事后审查，真实门禁仍暂停；UI-01可按已锁素材契约独立规划。
+2. RT-DECISION已完成（ADR-0007选DSH）。#15继续N2与变基集成，审查后合并；U1待单独授权；DATA-01可先定契约。安排#16–#19一次独立事后审查，真实门禁仍暂停；UI-01a 可按 v1 视觉开工（仅虚拟时钟＋JSDOM），UI-01b 待 ASSET-02 v2 素材锁定。
 3. 用户明确恢复对应工作/验证后，按§5.2跑DSH真实门禁最小场景；接真实前台聊天。
 4. 交付完整单 Worker 体验，再扩展恢复、电脑操作和其它能力。
 
