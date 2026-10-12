@@ -1,4 +1,5 @@
-import { record } from './remote-error.ts'
+import { RemoteError, record } from './remote-error.ts'
+import { parseEventRecords, type WireEvent } from './session-wire.ts'
 import type { HostTransport } from './transport.ts'
 
 export interface ModelSelection {
@@ -6,6 +7,69 @@ export interface ModelSelection {
   readonly model: string
   readonly reasoningEffort?: string
 }
+
+/**
+ * One `session/list` row (`SessionSummary`). The list carries no
+ * `agentPreset`; the preset is only on the follow snapshot header or the
+ * `session/create` echo.
+ */
+export interface SessionRow {
+  readonly sessionId: string
+  readonly updatedAt: number
+  readonly running: boolean
+  readonly agentAvailable: boolean
+  readonly blank: boolean
+  readonly cwd?: string
+  readonly parentSessionId?: string
+  readonly origin?: 'subagent'
+}
+
+export interface PageRequest {
+  readonly sessionId: string
+  /** Inclusive cut from a follow snapshot cursor or projections `asOfSeq`. */
+  readonly throughSeq: number
+  readonly beforeSeq?: number
+  readonly maxMessages?: number
+}
+
+export interface SessionPage {
+  readonly records: readonly WireEvent[]
+  readonly hasMore: boolean
+}
+
+const invalid = (what: string) =>
+  new RemoteError('corn/invalid-response', `Invalid ${what}`)
+
+function sessionRow(raw: unknown): SessionRow {
+  const value = record(raw)
+  if (
+    typeof value.sessionId !== 'string' ||
+    value.sessionId.length === 0 ||
+    typeof value.updatedAt !== 'number' ||
+    typeof value.running !== 'boolean' ||
+    typeof value.agentAvailable !== 'boolean' ||
+    typeof value.blank !== 'boolean' ||
+    (value.cwd !== undefined && typeof value.cwd !== 'string') ||
+    (value.parentSessionId !== undefined &&
+      typeof value.parentSessionId !== 'string') ||
+    (value.origin !== undefined && value.origin !== 'subagent')
+  )
+    throw invalid('Session row')
+  return {
+    sessionId: value.sessionId,
+    updatedAt: value.updatedAt,
+    running: value.running,
+    agentAvailable: value.agentAvailable,
+    blank: value.blank,
+    ...(value.cwd === undefined ? {} : { cwd: value.cwd as string }),
+    ...(value.parentSessionId === undefined
+      ? {}
+      : { parentSessionId: value.parentSessionId as string }),
+    ...(value.origin === undefined ? {} : { origin: 'subagent' as const }),
+  }
+}
+
+const isCut = (value: number) => Number.isSafeInteger(value) && value >= -1
 
 export class SessionClient {
   readonly transport: HostTransport
@@ -22,6 +86,47 @@ export class SessionClient {
     )
     if (!Array.isArray(value.items)) throw new Error('Invalid Session list')
     return value.items
+  }
+
+  /** Structured `session/list`; one malformed row rejects the whole list. */
+  async sessionRows(): Promise<readonly SessionRow[]> {
+    return (await this.list()).map(sessionRow)
+  }
+
+  /** One cold-safe, message-aligned backwards page; does not activate an Agent. */
+  async page(request: PageRequest): Promise<SessionPage> {
+    if (
+      request.sessionId.length === 0 ||
+      !isCut(request.throughSeq) ||
+      (request.beforeSeq !== undefined &&
+        !(Number.isSafeInteger(request.beforeSeq) && request.beforeSeq >= 0)) ||
+      (request.maxMessages !== undefined &&
+        !(Number.isSafeInteger(request.maxMessages) && request.maxMessages > 0))
+    )
+      throw new RemoteError('corn/invalid-request', 'Invalid page request')
+    const value = record(
+      await this.transport.rpc('session/page', {
+        request: {
+          address: { kind: 'session', sessionId: request.sessionId },
+          throughSeq: request.throughSeq,
+          ...(request.beforeSeq === undefined
+            ? {}
+            : { beforeSeq: request.beforeSeq }),
+          ...(request.maxMessages === undefined
+            ? {}
+            : { maxMessages: request.maxMessages }),
+        },
+      }),
+    )
+    if (typeof value.hasMore !== 'boolean') throw invalid('Session page')
+    const records = parseEventRecords(value.records)
+    const last = records.at(-1)
+    const end = Math.min(
+      request.throughSeq,
+      (request.beforeSeq ?? Number.POSITIVE_INFINITY) - 1,
+    )
+    if (last !== undefined && last.seq > end) throw invalid('Session page cut')
+    return { records, hasMore: value.hasMore }
   }
 
   async create(request: {
