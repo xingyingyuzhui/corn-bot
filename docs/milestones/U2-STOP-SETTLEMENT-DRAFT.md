@@ -4,6 +4,15 @@
 - Authorisation: on 2026-10-12 the maintainer authorised **drafting only**. Implementing, patching or posting U2 each needs a separate decision. U1 ([PR #27](https://github.com/xingyingyuzhui/corn-bot/pull/27)) is still the only authorised upstream change.
 - Context: the [ADR-0007 addendum 2026-10-12](../adr/ADR-0007-execution-runtime.md#addendum-2026-10-12-targeted-stop-verdict) (verdict: conditional) and B6 in [DSH-HEADLESS-GATES §6](https://github.com/xingyingyuzhui/corn-bot/blob/a7a75dc318213fc4ef7f85cd9be7a876f07a408d/docs/milestones/DSH-HEADLESS-GATES.md#6-run-level-stop-via-dsh-apis-only-b6) ([PR #30](https://github.com/xingyingyuzhui/corn-bot/pull/30), `a7a75dc`).
 - Naming: this is not the optional Claw audit patch that the matrix calls "(U2)". See the ADR-0007 addendum.
+- **Status update 2026-10-12: the Option C probe (arm 3 of §6) has run; verdict CONDITIONAL YES.** Evidence: [DSH-HEADLESS-GATES §7](DSH-HEADLESS-GATES.md#7-option-c-pre-step-stop-fence-b6-idle). A probe-only `agent/pre-step` fence plugin, admitted as a home-patch insert under ADR-0006, was tested with and without the fence. Variants: idle parent woken by a job, by a subagent and by both; parent-first; leaf-first; and compaction pressure.
+  - Every fenced run had **0 parent model requests and 0 compaction requests** after T0, and every woken Turn ended `blocked`. The controls leaked 1–2 model requests, plus 2 compaction requests under pressure.
+  - The foreground Session and the next Run after the fence lifted were unaffected.
+  - Conditions:
+    - Arm the fence before the first stop call.
+    - Register it `prepend`.
+    - Corn must keep its own settlement record: notices claimed by a rejected Turn are consumed and never reach the model.
+    - Map `blocked` inside a fenced Run as "stopped", including the child's "declined the task" notice.
+  - Arms 1, 2, 4 and 5 were not run. Adopting C and any U2 implementation still need separate maintainer decisions.
 - Source: DSH `dsh-v0.2.0-rc.2` (`639ed015`), read only with `git -C /Users/qin/deepseek-harness show|grep dsh-v0.2.0-rc.2:…`. The clone was not checked out or modified. All line numbers below are at that tag. `master` was not re-read (§7).
 
 ## 1. Problem
@@ -178,7 +187,7 @@ export interface SessionStopValue {
   - With U2 verified, Corn still runs the stale-Turn detector. Any `turn/start` in a fenced Run set after a quiet cancel is a **U2 violation**: audited as `u2_violation`, then cancelled.
 - Leak accounting stays in place under every option. Under U2 the expected count is 0, and a non-zero count is an alarm, not a tolerance.
 
-## 6. Probe design (B6-idle, not run)
+## 6. Probe design (B6-idle; arm 3 run 2026-10-12, see the status update above)
 
 Variant of `scripts/gates/b6-run-level-stop.mjs`, same harness: real Host, unsandboxed, scrubbed environment, loopback fake model, `ps` watcher at 25 ms, foreground Session streaming 40 chunks.
 
@@ -204,6 +213,6 @@ Variant of `scripts/gates/b6-run-level-stop.mjs`, same harness: real Host, unsan
 - Only `dsh-v0.2.0-rc.2` was read. The local `master` ref is stale (`0.1.0-rc.8`), so drift in `0.2.1-alpha.*` was not checked. A port would start with a fresh read of `master`.
 - Option A changes a core-loop rule (`send` wake semantics). Upstream may prefer a narrower hook, such as a `quiet` flag only on the two producers. That would touch two packages instead of one.
 - The latch lifecycle is process-local. A Host restart clears it, which is harmless today (B4: pending items do not auto-start) but would matter if upstream changes recovery.
-- Retained notices: with Options A and C the notices stay in or end in the inbox. What the model sees on the next prompt is untested.
+- Retained notices: with Options A and C the notices stay in or end in the inbox. For Option C this is now measured (gates §7.4): claimed-then-rejected notices never reach the model; pending `next-step` notices surface with the next prompt. Option A is untested.
 - `job.kill` errors: the `unknown job` text is the `job/not-found` message (§3.1). Corn maps the code and treats the text only as a hint.
 - PR #29's crash blind spot (< 2 s) is about Host death and is unaffected by U2.

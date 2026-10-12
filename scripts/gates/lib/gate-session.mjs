@@ -29,6 +29,8 @@ export function requestFacts(stub, since = 0) {
     step: row.step,
     markers: row.markers,
     toolResults: row.toolResults,
+    notices: row.notices,
+    compaction: row.compaction,
     authOk: row.authOk,
     model: row.model,
     receivedMs: row.receivedAt - since,
@@ -49,13 +51,17 @@ export function requestFacts(stub, since = 0) {
  */
 export async function runGate(
   name,
-  { scripts, title, hostSandbox = true },
+  { scripts, title, hostSandbox = true, homePatch = () => [], contextWindow },
   body,
 ) {
   await assertSandboxDeniesNetwork()
   const t0 = Date.now()
   const stub = await startFakeModel({ scripts })
-  const home = await createRunHome(name, { baseURL: stub.baseURL })
+  const home = await createRunHome(name, {
+    baseURL: stub.baseURL,
+    homePatch,
+    contextWindow,
+  })
   const hostExits = []
   // The supervisor reports on `close`, which waits for every stdio holder;
   // `exit` and a stderr tail record what the Host process itself did.

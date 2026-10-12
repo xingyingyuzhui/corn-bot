@@ -14,7 +14,8 @@ import { setTimeout as delay } from 'node:timers/promises'
  * until `release(name)` (or the client closes it), then an optional tool
  * call, then the stream either finishes or, with `hang`, stays open until the
  * client closes it or `releaseHangs()` is called. Only the marker set, tool
- * names and timing are recorded; prompt text is not retained.
+ * names, settlement-notice job ids and counts, the compaction flag and timing
+ * are recorded; prompt text is not retained.
  */
 export const FAKE_MODEL_KEY = 'sk-corn-gate-FAKE-0000'
 export const FAKE_PROVIDER = 'corn-gate-fake'
@@ -22,6 +23,13 @@ export const FAKE_MODEL = 'corn-gate-model'
 export const FAKE_KEY_ENV = 'CORN_GATE_FAKE_API_KEY'
 
 const MARKER = /⟦([a-z]+):([^⟧]+)⟧/gu
+// DSH settlement notice openings (`tool-jobs` fitCompletionNotice and the
+// subagent settlementSummary at dsh-v0.2.0-rc.2); only ids and counts are kept.
+const JOB_NOTICE = /^background job (\S+) \(/u
+const SUBAGENT_NOTICE =
+  /^Background subagent \S+ (?:was|finished|ran|declined|failed|ended)/u
+// compaction-basic's summarizer appends this instruction as the last user turn.
+const COMPACTION_INSTRUCTION = 'You are now acting as a compaction engine'
 
 function textOf(content) {
   if (typeof content === 'string') return content
@@ -56,6 +64,18 @@ export function classifyRequest(body) {
   const tools = Array.isArray(body?.tools)
     ? body.tools.map((tool) => tool?.function?.name ?? tool?.name).sort()
     : []
+  const notices = { jobs: [], subagents: 0 }
+  for (const message of messages) {
+    if (message?.role !== 'user') continue
+    const text = textOf(message.content)
+    const job = JOB_NOTICE.exec(text)
+    if (job) notices.jobs.push(job[1])
+    if (SUBAGENT_NOTICE.test(text)) notices.subagents++
+  }
+  const last = messages.at(-1)
+  const compaction =
+    last?.role === 'user' &&
+    textOf(last.content).startsWith(COMPACTION_INSTRUCTION)
   return {
     kind: tools.length > 0 ? 'agent' : 'aux',
     scriptId,
@@ -63,6 +83,8 @@ export function classifyRequest(body) {
     markers,
     tools,
     toolResults: messages.filter((m) => m?.role === 'tool').length,
+    notices,
+    compaction,
   }
 }
 
@@ -219,10 +241,11 @@ export async function startFakeModel({ scripts = {}, auxReply = 'ok' } = {}) {
           closed.onClose?.()
         }
       })
-      // Auxiliary calls (titles) carry the prompt's marker but no tools; they
-      // always get the fixed reply so a script only drives the agent loop.
+      // Auxiliary calls (titles) carry the prompt's marker but no tools, and a
+      // compaction call replays the agent's tools; both get the fixed reply so
+      // a script only drives the agent loop.
       const steps =
-        facts.kind === 'agent' && facts.scriptId
+        facts.kind === 'agent' && facts.scriptId && !facts.compaction
           ? scripts[facts.scriptId]
           : undefined
       if (!row.stream) {

@@ -1,0 +1,11 @@
+{
+  "name": "corn-stop-fence-probe",
+  "version": "0.0.0-probe",
+  "private": true,
+  "description": "PROBE-ONLY gate fixture for the U2 Option C pre-step stop fence. Not product code; never register it in a product profile.",
+  "type": "module",
+  "exports": "./host.js",
+  "peerDependencies": {
+    "@deepseek-ai/dsh": "0.2.0-rc.2"
+  }
+}

@@ -230,7 +230,7 @@ export async function preflight() {
 }
 
 /** Fake provider rows for the home patch layer; Claw rows are untouched. */
-export function fakeProviderPatch(baseURL) {
+export function fakeProviderPatch(baseURL, { contextWindow = 65_536 } = {}) {
   return [
     {
       id: 'llm-pi-ai',
@@ -247,7 +247,7 @@ export function fakeProviderPatch(baseURL) {
                 id: FAKE_MODEL,
                 name: 'Corn Gate Model',
                 reasoningEfforts: false,
-                contextWindow: 65_536,
+                contextWindow,
                 maxTokens: 4_096,
               },
             ],
@@ -265,9 +265,13 @@ export function fakeProviderPatch(baseURL) {
 /**
  * Fresh Corn-owned home for one run. The profile is seeded by the supervisor
  * from the verified template; the fake route is a home patch and its key a
- * home `.env` (fake literal only).
+ * home `.env` (fake literal only). `homePatch(home)` appends gate-only rows to
+ * that home patch, so they pass the same Claw admission as the App's.
  */
-export async function createRunHome(runName, { baseURL } = {}) {
+export async function createRunHome(
+  runName,
+  { baseURL, homePatch = () => [], contextWindow } = {},
+) {
   await mkdir(GATES_ROOT, { recursive: true, mode: 0o700 })
   const home = join(GATES_ROOT, `${runName}-${Date.now()}`)
   await mkdir(home, { mode: 0o700 })
@@ -279,7 +283,7 @@ export async function createRunHome(runName, { baseURL } = {}) {
   if (baseURL) {
     await writeFile(
       join(home, 'cordis.patch.yml'),
-      `${JSON.stringify(fakeProviderPatch(baseURL), null, 2)}\n`,
+      `${JSON.stringify([...fakeProviderPatch(baseURL, { contextWindow }), ...homePatch(home)], null, 2)}\n`,
       { mode: 0o600 },
     )
     await writeFile(join(home, '.env'), `${FAKE_KEY_ENV}=${FAKE_MODEL_KEY}\n`, {
