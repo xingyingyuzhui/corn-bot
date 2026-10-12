@@ -235,8 +235,8 @@ GUI 操作的速度和成本以本机单场景实测，不因安装框架就声�
 | ASSET-02 | `corn-avatar-kit-v2` 原创形变素材及独立资产锁 | 仓库外设计工作；不改 v1 静态头像、16 角色、App 图标 |
 | UI-01b | 02D-2b 形变接入（第一批5种，再第二批）＋视觉验收 | UI-01a + ASSET-02；第二批 orbit/spawning 先定契约；GUI/视觉待恢复 |
 | UI-02 | 02C/02E-2/图标、设置页联合验收 | MODEL-01b + UI-01a/UI-01b；GUI待恢复 |
-| DATA-01 | 最小DB、身份、幂等、只读恢复 | 底座依赖已由 ADR-0007 满足；先契约后实现 |
-| CHAT-01 | Main-backed真实聊天/审批/取消 | MODEL-01b + DATA-01 + 必需视觉门禁 |
+| DATA-01 | 最小DB、身份、幂等、只读恢复 | 底座依赖已由 ADR-0007 满足；先契约后实现。切片与决策见 [P3 计划](CORN_P3_REAL_CHAT_PLAN.md) |
+| CHAT-01 | Main-backed真实聊天/审批/取消 | MODEL-01b + DATA-01 + 必需视觉门禁。切片、门禁 G1–G8 与 §7.3 模型隔离门禁见 [P3 计划](CORN_P3_REAL_CHAT_PLAN.md) |
 | RUN-01a | Run/Attempt/Directive/Outbox/Lease和Host控制契约 | CHAT-01；先模型隔离/执行控制seam |
 | C1（属RUN-01a） | Corn自有Host插件 `corn-run-control`：公开 tools.guard 查 stopEpoch/租约/revision，未知或过期控制默认拒绝，带 runId/attemptId/callId 审计，纳入ADR-0006准入；停止必须按 ADR-0007 补遗的叶子优先顺序执行 | 随RUN-01a；不改上游DSH或Claw策略 |
 | RUN-01b | 单Worker、路由、RunCard、完成交付 | RUN-01a；同一竖向产品门禁签收 |
@@ -270,7 +270,7 @@ GUI 操作的速度和成本以本机单场景实测，不因安装框架就声�
 
 1. 更新决策并提交/推送纯文档PR；主目录切回main，文档PR待独立审查，不直接合并。
 2. RT-DECISION已完成（ADR-0007选DSH）。#15继续N2与变基集成，审查后合并；U1待单独授权；DATA-01可先定契约。安排#16–#19一次独立事后审查，真实门禁仍暂停；UI-01a 可按 v1 视觉开工（仅虚拟时钟＋JSDOM），UI-01b 待 ASSET-02 v2 素材锁定。
-3. 用户明确恢复对应工作/验证后，按§5.2跑DSH真实门禁最小场景；接真实前台聊天。
+3. 用户明确恢复对应工作/验证后，按§5.2跑DSH真实门禁最小场景；接真实前台聊天。P3 的实施切片、并行关系、headless 门禁和待决事项见 [P3 真实前台聊天计划](CORN_P3_REAL_CHAT_PLAN.md)（2026-10-12，仅计划）。
 4. 交付完整单 Worker 体验，再扩展恢复、电脑操作和其它能力。
 
 状态：RT-DECISION 已决定为 DSH（[ADR-0007](../adr/ADR-0007-execution-runtime.md)，依据[P1静态能力对照](../research/runtime-capability-matrix-2026-10-12.md)），真实比较跳过；DSH 真实门禁待恢复。
