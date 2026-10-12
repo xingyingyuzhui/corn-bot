@@ -121,7 +121,7 @@ async function seedProfile(template: string, profile: string): Promise<void> {
 /** One spawned Host process; every startup step is bound to its lifetime. */
 class ChildLife {
   readonly child: ChildProcess
-  /** Aborted when the child exits or errors, or when a stop is requested. */
+  /** Aborted at the child's `exit` (not its pipe `close`) or error, or when a stop is requested. */
   readonly controller = new AbortController()
   /** The process is gone (`exit`, `close` or a failed spawn); its pipes may still be open. */
   readonly exited: Promise<void>
@@ -314,13 +314,16 @@ export class DshHostSupervisor {
         ),
       )
     })
-    child.once('close', (code, signal) => {
+    // `exit` ends this generation even if a descendant keeps the pipes open; a later `close` only finds it reported.
+    const ended = (code: number | null, signal: NodeJS.Signals | null) => {
       const message = `DSH exited (${String(code ?? signal)}): ${this.#life === life ? this.#diagnostic : ''}`
       life.controller.abort(new RuntimeFailure('host_unavailable', message))
       if (!life.committed || life.stopping || life.reported) return
       life.reported = true
       this.onFailure(message)
-    })
+    }
+    child.once('exit', ended)
+    child.once('close', ended)
     child.stderr?.setEncoding('utf8').on('data', (chunk: string) => {
       if (this.#life !== life) return
       this.#diagnostic = redactHostDiagnostic(
