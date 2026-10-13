@@ -275,4 +275,6 @@ GUI 操作的速度和成本以本机单场景实测，不因安装框架就声�
 
 状态：RT-DECISION 已决定为 DSH（[ADR-0007](../adr/ADR-0007-execution-runtime.md)，依据[P1静态能力对照](../research/runtime-capability-matrix-2026-10-12.md)），真实比较跳过；DSH 真实门禁待恢复。
 
+2026-10-12 审查修复（基线 `7cb1399`，F1–F8）：停止禁答只由明确继续解除；pending 撤回在发送 lane 之前落库；前台停止有代次、5 秒预算和父取消预留；UI 只跟随选中会话，已有 warm 停止观察是窄例外，冷对账不激活 Agent，也不能写成立即或零泄漏。另一 home 的绑定不能被 repair/align/setModel 使用。Claw ready 同步失败不返回 aligned。真 Host、GUI 和真实模型签收仍 pending。
+
 选择底座、恢复测试、使用真实凭据/模型、系统权限和发布分别属于不同操作，本计划不会把其中一个决定当成对其它操作的授权。

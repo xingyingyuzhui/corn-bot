@@ -226,7 +226,18 @@ export class FakeChatHost {
           return {}
         },
         page: async (request: PageRequest): Promise<SessionPage> => {
-          this.calls.push({ op: 'page', sessionId: request.sessionId })
+          this.calls.push({
+            op: 'page',
+            sessionId: request.sessionId,
+            target: String(request.throughSeq),
+          })
+          const journal = this.journal(request.sessionId)
+          const cursor = journal.at(-1)?.seq ?? -1
+          if (request.throughSeq > cursor)
+            throw new RemoteError(
+              'gateway/bad-request',
+              'page cut is past cursor',
+            )
           const end = Math.min(
             request.throughSeq,
             (request.beforeSeq ?? Number.POSITIVE_INFINITY) - 1,

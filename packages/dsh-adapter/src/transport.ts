@@ -101,6 +101,21 @@ function admitsClawBody(
   )
 }
 
+/** Main-only bound for one RPC. The default stays 30s when no budget is passed. */
+export interface RpcOptions {
+  readonly signal?: AbortSignal
+  /** Replaces the 30s default. Abort means Corn stopped waiting, not that the Host did not run it. */
+  readonly timeoutMs?: number
+}
+
+const combineSignal = (
+  signal: AbortSignal | undefined,
+  timeoutMs: number,
+): AbortSignal => {
+  const timeout = AbortSignal.timeout(timeoutMs)
+  return signal === undefined ? timeout : AbortSignal.any([signal, timeout])
+}
+
 export class HostTransport {
   readonly authority: HostAuthority
 
@@ -108,7 +123,11 @@ export class HostTransport {
     this.authority = authority
   }
 
-  async rpc(endpoint: string, args: Record<string, unknown>): Promise<unknown> {
+  async rpc(
+    endpoint: string,
+    args: Record<string, unknown>,
+    options: RpcOptions = {},
+  ): Promise<unknown> {
     if (!RPC_ENDPOINTS.has(endpoint))
       throw new RemoteError(
         'corn/endpoint-denied',
@@ -133,7 +152,7 @@ export class HostTransport {
         payload: { args },
       }),
       redirect: 'error',
-      signal: AbortSignal.timeout(30_000),
+      signal: combineSignal(options.signal, options.timeoutMs ?? 30_000),
     })
     if (!response.ok)
       throw new RemoteError(

@@ -126,6 +126,12 @@ export class ChatService {
       onChanged: (conversationId) =>
         this.#follower.admissionsChanged(conversationId),
     })
+    const schedule =
+      options.schedule ??
+      ((fn, ms) => {
+        const timer = setTimeout(fn, ms)
+        return () => clearTimeout(timer)
+      })
     this.#stopper = new ChatStopper({
       approvals: options.approvals,
       runtime,
@@ -135,21 +141,24 @@ export class ChatService {
       log: this.#log,
       now,
       sleep: this.#sleep,
+      schedule,
       timing: this.#timing,
+      onPending: (sessionId) => this.#ledger.rejectPending(sessionId),
+      onPhase: (botId) => this.#follower.republish(botId),
+      onColdEvents: (sessionId, events) =>
+        this.#approvals.observe(sessionId, events),
     })
     this.#follower = new ChatFollower({
       approvals: options.approvals,
       ledger: this.#ledger,
       runtime,
+      stopPhase: (botId) => this.#stopper.phase(botId),
       onEvents: (target, events) =>
         this.#stopper.watch(target.botId, target.sessionId, events),
+      onControlLost: (botId, sessionId) =>
+        this.#stopper.armCold(botId, sessionId),
       onView: options.onView,
-      schedule:
-        options.schedule ??
-        ((fn, ms) => {
-          const timer = setTimeout(fn, ms)
-          return () => clearTimeout(timer)
-        }),
+      schedule,
       timing: this.#timing,
     })
   }
@@ -173,6 +182,9 @@ export class ChatService {
         if (generation !== this.#generation) return
         this.#reconciled = true
         this.#follower.resume()
+        this.#stopper.armUnwatched((sessionId) =>
+          this.#follower.hasWarm(sessionId),
+        )
       }),
     )
   }
@@ -185,6 +197,7 @@ export class ChatService {
     this.#runtime = undefined
     this.#generation += 1
     this.#reconciled = false
+    this.#stopper.invalidate()
     this.#ledger.markInFlightUnknown()
     this.#follower.detach()
   }
@@ -194,6 +207,7 @@ export class ChatService {
     this.#disposed = true
     this.#runtime = undefined
     this.#generation += 1
+    this.#stopper.dispose()
     this.#follower.dispose()
   }
 
@@ -213,17 +227,17 @@ export class ChatService {
   select(botId: string | null): WorkspaceResult<null> {
     const current = this.#follower.current
     if (botId === null) {
-      this.#follower.unfollow()
+      this.#releaseFollow(current)
       return OK
     }
     const target = this.#ledger.target(botId)
     if (!target.ok) {
-      this.#follower.unfollow()
+      this.#releaseFollow(current)
       return target
     }
     const { sessionId, conversationId } = target.value
     if (current?.botId === botId && current.sessionId === sessionId) return OK
-    this.#follower.unfollow()
+    this.#releaseFollow(current)
     if (current !== undefined && current.botId === botId)
       this.forgetSession(current.sessionId)
     this.#follower.follow(
@@ -251,6 +265,18 @@ export class ChatService {
     return this.#ledger.botForSession(sessionId)
   }
 
+  /**
+   * Leave the current follow. A Session that is still stop-protected keeps
+   * its warm stream as a control watch instead of opening another Agent.
+   */
+  #releaseFollow(current: { readonly sessionId: string } | undefined): void {
+    if (current !== undefined && this.#stopper.protects(current.sessionId)) {
+      this.#follower.demote(current.sessionId)
+      return
+    }
+    this.#follower.unfollow()
+  }
+
   /** A binding retired: drop its follow, approvals and stop fence. */
   forgetSession(sessionId: string): void {
     this.#follower.forget(sessionId)
@@ -275,13 +301,17 @@ export class ChatService {
     const target = resolved.value
     const repeat = this.#ledger.repeat(target, command)
     if (repeat !== undefined) return repeat
+    if (this.#stopper.blocksDispatch(target.sessionId))
+      return fail('unavailable')
     if (this.#runtime === undefined) return fail('runtime_not_ready')
     const requestId = mintRequestId(this.#newId())
     const admitted = this.#ledger.admit(target, command, requestId)
     // A concurrent repeat resolves to the original message; only a new row is delivered.
     if (admitted.ok && admitted.value === messageIdFor(requestId))
       this.#track(
-        this.#lane(target.sessionId, () => this.#deliver(target, requestId)),
+        this.#lane(target.sessionId, () =>
+          this.#deliver(target, requestId, 'automatic'),
+        ),
       )
     return admitted
   }
@@ -311,6 +341,8 @@ export class ChatService {
         throw new Error(`Unhandled admission state ${String(unreachable)}`)
       }
     }
+    if (this.#stopper.blocksDispatch(target.sessionId))
+      return fail('unavailable')
     if (this.#runtime === undefined) return fail('runtime_not_ready')
     this.#track(
       this.#lane(target.sessionId, () =>
@@ -328,9 +360,15 @@ export class ChatService {
   async cancelQueued(command: MessageCommand): Promise<WorkspaceResult<null>> {
     const found = this.#ledger.admission(command)
     if (!found.ok) return found
-    const { target } = found.value
+    const { target, row } = found.value
+    // A still-local pending row is withdrawn before any Session lane runs,
+    // so a held prompt cannot dispatch it first. Host-visible states stay
+    // on the lane and are reconciled, never declared withdrawn locally.
+    if (row.state === 'withdrawn') return OK
+    if (row.state === 'pending')
+      return this.#ledger.withdrawPending(target, row.requestId)
     return this.#lane(target.sessionId, () =>
-      this.#withdrawInLane(target, found.value.row.requestId),
+      this.#withdrawInLane(target, row.requestId),
     )
   }
 
@@ -361,16 +399,35 @@ export class ChatService {
   // -------------------------------------------------------------------------
 
   /** Model alignment (11A), then the prompt with bounded same-generation retries. */
-  async #deliver(target: ChatTarget, requestId: string): Promise<void> {
+  async #deliver(
+    target: ChatTarget,
+    requestId: string,
+    intent: 'automatic' | 'explicit',
+  ): Promise<void> {
+    const current = this.#ledger.read(target, requestId)
+    // Withdrawn or already recorded: do not lift a stop, align a model, or prompt.
+    // Automatic recovery never revives a message that was refused before send.
+    // An explicit resend may, after this re-read.
+    if (
+      current === null ||
+      current.state === 'withdrawn' ||
+      current.state === 'observed' ||
+      current.state === 'accepted' ||
+      current.state === 'sending' ||
+      (intent === 'automatic' &&
+        current.state === 'rejected' &&
+        current.lastError === 'not_sent')
+    )
+      return
+    if (this.#stopper.blocksDispatch(target.sessionId)) return
     const runtime = this.#runtime
     const generation = this.#generation
     if (runtime === undefined) {
       this.#ledger.settleUnsent(target, requestId, 'runtime_not_ready')
       return
     }
-    // A new user prompt ends the previous stop.
-    this.#approvals.resumeSession(target.sessionId)
-    this.#stopper.lift(target.sessionId)
+    // Only a confirmed stop is lifted, and only by this explicit send.
+    if (!this.#stopper.continueIfConfirmed(target.sessionId)) return
     let probe: SessionProbe | null | undefined
     try {
       probe = parseSessionProbe(
@@ -393,6 +450,7 @@ export class ChatService {
       return
     }
     for (let retry = 0; ; retry += 1) {
+      if (this.#stopper.blocksDispatch(target.sessionId)) return
       const sending = this.#ledger.move(target, requestId, 'sending', {
         from: ['pending', 'rejected', 'unknown'],
         countAttempt: true,
@@ -458,8 +516,10 @@ export class ChatService {
       const located = await this.#locate(runtime, target.sessionId, row)
       if (!this.#ledger.applyLocated(target, requestId, located)) return
     }
-    if (row.state === 'rejected' || row.state === 'unknown')
-      await this.#deliver(target, requestId)
+    const current = this.#ledger.read(target, requestId)
+    if (current === null) return
+    if (current.state === 'rejected' || current.state === 'unknown')
+      await this.#deliver(target, requestId, 'explicit')
   }
 
   async #withdrawInLane(

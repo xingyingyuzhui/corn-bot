@@ -1,5 +1,5 @@
 import { RemoteError, record } from './remote-error.ts'
-import type { HostStreamMux, HostTransport } from './transport.ts'
+import type { HostStreamMux, HostTransport, RpcOptions } from './transport.ts'
 
 export type JobStatus =
   | 'running'
@@ -65,9 +65,14 @@ export class JobClient {
   async kill(
     sessionId: string,
     jobId: string,
+    options: RpcOptions = {},
   ): Promise<'requested' | 'already-finished'> {
     const value = record(
-      await this.transport.rpc('job/kill', { request: { sessionId, jobId } }),
+      await this.transport.rpc(
+        'job/kill',
+        { request: { sessionId, jobId } },
+        options,
+      ),
     )
     if (value.outcome !== 'requested' && value.outcome !== 'already-finished')
       throw new RemoteError('corn/invalid-response', 'Invalid job kill result')
@@ -79,15 +84,29 @@ export class JobClient {
     mux: HostStreamMux,
     sessionId: string,
     timeoutMs = 5_000,
+    signal?: AbortSignal,
   ): Promise<readonly JobRow[]> {
     return new Promise((resolve, reject) => {
       let close = () => {}
-      const timer = setTimeout(() => {
+      const fail = (error: unknown) => {
+        clearTimeout(timer)
+        signal?.removeEventListener('abort', onAbort)
         close()
-        reject(new RemoteError('corn/timeout', 'Job roster timed out'))
+        reject(error)
+      }
+      const onAbort = () =>
+        fail(new RemoteError('corn/timeout', 'Job roster timed out'))
+      const timer = setTimeout(() => {
+        fail(new RemoteError('corn/timeout', 'Job roster timed out'))
       }, timeoutMs)
+      if (signal?.aborted === true) {
+        fail(new RemoteError('corn/timeout', 'Job roster timed out'))
+        return
+      }
+      signal?.addEventListener('abort', onAbort, { once: true })
       const settle = (done: () => void) => {
         clearTimeout(timer)
+        signal?.removeEventListener('abort', onAbort)
         close()
         done()
       }

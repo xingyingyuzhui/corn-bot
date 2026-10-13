@@ -50,7 +50,8 @@ test('send: align first, one prompt with the persisted request id, observed clea
   assert.deepEqual(world.aligned, [MODEL])
   assert.deepEqual(
     world.order.filter((step) => step === 'align' || step === 'resume'),
-    ['resume', 'align'],
+    ['align'],
+    'an ordinary send does not lift a stop that is not there',
   )
   const alignAt = world.host.calls.findIndex((call) => call.op === 'prompt')
   assert.ok(alignAt > 0)
@@ -447,6 +448,27 @@ test('recovery: open admissions are reconciled read-only; nothing is resent', as
     (item) => item.kind === 'message' && item.delivery === 'failed',
   )
   assert.equal(failed.length, 2)
+})
+
+test('explicit resend of not_sent sends the original request once', async (t) => {
+  const world = await setup(t)
+  seedAdmission(world, 'req_pending', [])
+  world.chat.attachRuntime(world.host.runtime())
+  ok(world.chat.select('bot_1'))
+  await settle(world)
+  const row = world.db.read((tx) => getMessageAdmission(tx, 'req_pending'))
+  assert.equal(row?.state, 'rejected')
+  assert.equal(row?.lastError, 'not_sent')
+  assert.equal(world.host.count('prompt'), 0)
+  const messageId = messageIdFor('req_pending')
+  assert.ok(messageId)
+  ok(await world.chat.resend({ botId: 'bot_1', messageId }))
+  await settle(world)
+  assert.equal(world.host.count('prompt'), 1)
+  assert.deepEqual(world.host.admitted, ['req_pending'])
+  const sent = world.db.read((tx) => getMessageAdmission(tx, 'req_pending'))
+  assert.equal(sent?.state, 'observed')
+  assert.equal(sent?.attempts, 1)
 })
 
 test('select: only the selected conversation is followed', async (t) => {

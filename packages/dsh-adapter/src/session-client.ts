@@ -1,6 +1,6 @@
 import { ECHO_MISMATCH, RemoteError, record } from './remote-error.ts'
 import { parseEventRecords, type WireEvent } from './session-wire.ts'
-import type { HostTransport } from './transport.ts'
+import type { HostTransport, RpcOptions } from './transport.ts'
 
 export interface ModelSelection {
   readonly provider: string
@@ -80,21 +80,24 @@ export class SessionClient {
     this.transport = transport
   }
 
-  async list(): Promise<readonly unknown[]> {
+  async list(options: RpcOptions = {}): Promise<readonly unknown[]> {
     const value = record(
-      await this.transport.rpc('session/list', { _request: {} }),
+      await this.transport.rpc('session/list', { _request: {} }, options),
     )
     if (!Array.isArray(value.items)) throw new Error('Invalid Session list')
     return value.items
   }
 
   /** Structured `session/list`; one malformed row rejects the whole list. */
-  async sessionRows(): Promise<readonly SessionRow[]> {
-    return (await this.list()).map(sessionRow)
+  async sessionRows(options: RpcOptions = {}): Promise<readonly SessionRow[]> {
+    return (await this.list(options)).map(sessionRow)
   }
 
   /** One cold-safe, message-aligned backwards page; does not activate an Agent. */
-  async page(request: PageRequest): Promise<SessionPage> {
+  async page(
+    request: PageRequest,
+    options: RpcOptions = {},
+  ): Promise<SessionPage> {
     if (
       request.sessionId.length === 0 ||
       !isCut(request.throughSeq) ||
@@ -105,18 +108,22 @@ export class SessionClient {
     )
       throw new RemoteError('corn/invalid-request', 'Invalid page request')
     const value = record(
-      await this.transport.rpc('session/page', {
-        request: {
-          address: { kind: 'session', sessionId: request.sessionId },
-          throughSeq: request.throughSeq,
-          ...(request.beforeSeq === undefined
-            ? {}
-            : { beforeSeq: request.beforeSeq }),
-          ...(request.maxMessages === undefined
-            ? {}
-            : { maxMessages: request.maxMessages }),
+      await this.transport.rpc(
+        'session/page',
+        {
+          request: {
+            address: { kind: 'session', sessionId: request.sessionId },
+            throughSeq: request.throughSeq,
+            ...(request.beforeSeq === undefined
+              ? {}
+              : { beforeSeq: request.beforeSeq }),
+            ...(request.maxMessages === undefined
+              ? {}
+              : { maxMessages: request.maxMessages }),
+          },
         },
-      }),
+        options,
+      ),
     )
     if (typeof value.hasMore !== 'boolean') throw invalid('Session page')
     const records = parseEventRecords(value.records)
@@ -218,32 +225,47 @@ export class SessionClient {
   }
 
   /** Cancels the active Turn; pending inbox messages remain. */
-  cancel(sessionId: string): Promise<unknown> {
-    return this.transport.rpc('session/cancel', { request: { sessionId } })
+  cancel(sessionId: string, options: RpcOptions = {}): Promise<unknown> {
+    return this.transport.rpc(
+      'session/cancel',
+      { request: { sessionId } },
+      options,
+    )
   }
 
   /**
    * Interrupts a continuable child's current Turn on its parent's behalf;
    * `session/cancel` refuses a child that is still owned by subagent routing.
    */
-  async interruptChild(request: {
-    parentSessionId: string
-    childSessionId: string
-  }): Promise<void> {
+  async interruptChild(
+    request: {
+      parentSessionId: string
+      childSessionId: string
+    },
+    options: RpcOptions = {},
+  ): Promise<void> {
     const value = record(
-      await this.transport.rpc('subagents/interruptByParent', {
-        childSessionId: request.childSessionId,
-        parentSessionId: request.parentSessionId,
-        mode: 'continuable',
-      }),
+      await this.transport.rpc(
+        'subagents/interruptByParent',
+        {
+          childSessionId: request.childSessionId,
+          parentSessionId: request.parentSessionId,
+          mode: 'continuable',
+        },
+        options,
+      ),
     )
     if (value.accepted !== true)
       throw new Error('Subagent interrupt was not accepted')
   }
 
   /** Non-activating projection baseline at `asOfSeq`; `null` for an unknown Session. */
-  projections(sessionId: string): Promise<unknown> {
-    return this.transport.rpc('session/projections', { request: { sessionId } })
+  projections(sessionId: string, options: RpcOptions = {}): Promise<unknown> {
+    return this.transport.rpc(
+      'session/projections',
+      { request: { sessionId } },
+      options,
+    )
   }
 
   /** Mutates one still-pending inbox item; the receipt is not an adoption record. */

@@ -42,13 +42,25 @@ export type LedgerFact =
 const isId = (value: unknown): value is string =>
   typeof value === 'string' && value.length > 0
 
+/** A known finished ask. Kept after the live row is pruned, bounded. */
+interface EndedAsk {
+  readonly askedId: string
+  readonly callId: string | undefined
+  readonly outcome: DurableOutcome
+}
+
+const TOMBSTONE_LIMIT = 64
+
 export class ApprovalLedger {
   #lastSeq = -1
   /** Count of turns seen closing; an ask's epoch ends when this passes it. */
   #epoch = 0
   #open = false
+  /** At least one durable event has been folded, so a live request has a baseline. */
+  #established = false
   #asked: AskedEntry[] = []
   #byId = new Map<string, AskedEntry>()
+  #ended: EndedAsk[] = []
 
   /**
    * Folds events in seq order; already-seen seqs are skipped, so snapshot
@@ -59,6 +71,7 @@ export class ApprovalLedger {
     for (const event of events) {
       if (event.seq <= this.#lastSeq) continue
       this.#lastSeq = event.seq
+      this.#established = true
       const fact = this.#fold(event)
       if (fact !== undefined) facts.push(fact)
     }
@@ -70,20 +83,78 @@ export class ApprovalLedger {
     return epoch < this.#epoch
   }
 
+  /** A live request can be placed only after at least one durable event. */
+  established(): boolean {
+    return this.#established
+  }
+
+  /** A turn is open, so a not-yet-placed request may bind to {@link bindEpoch}. */
+  isOpen(): boolean {
+    return this.#open
+  }
+
+  /**
+   * A finished ask with this `callId`. `ambiguous` when more than one ask
+   * matches; the caller must not answer or capture a different ask.
+   */
+  endedByCallId(
+    callId: string | undefined,
+  ): { readonly outcome: DurableOutcome } | 'ambiguous' | undefined {
+    if (callId === undefined) return undefined
+    const outcomes = new Set<DurableOutcome>()
+    const consider = (
+      id: string | undefined,
+      outcome: DurableOutcome | undefined,
+      epoch: number,
+    ) => {
+      if (id !== callId) return
+      const finished = outcome !== undefined || epoch < this.#epoch
+      if (!finished) return
+      outcomes.add(outcome ?? 'cancelled')
+    }
+    for (const entry of this.#asked)
+      consider(entry.callId, entry.outcome, entry.epoch)
+    for (const ended of this.#ended)
+      if (ended.callId === callId) outcomes.add(ended.outcome)
+    if (outcomes.size === 0) return undefined
+    if (outcomes.size > 1) return 'ambiguous'
+    const outcome = [...outcomes][0]
+    if (outcome === undefined) return undefined
+    return { outcome }
+  }
+
+  /**
+   * Epoch a request that arrives now may bind to: the open turn, or the next
+   * one when none is open (`turn/start` does not increment a closed epoch).
+   */
+  bindEpoch(): number {
+    return this.#epoch
+  }
+
   /**
    * The earliest unclaimed ask of the open turn with the same `callId` (both
-   * absent counts as equal). Asks of closed turns never match, so replayed
-   * history cannot capture a live request; an ask already decided can, since
-   * the journal may outrun `$events`.
+   * absent counts as equal) and the same `epoch` the request was born into.
+   * Asks of closed turns never match, so replayed history cannot capture a
+   * live request; an ask already decided can, since the journal may outrun
+   * `$events`. A request left unmatched when its epoch ends must not be
+   * offered a later turn's ask (`epoch` no longer matches).
    */
-  claim(eventId: string, callId: string | undefined): AskedEntry | undefined {
-    if (!this.#open) return undefined
-    const entry = this.#asked.find(
+  claim(
+    eventId: string,
+    callId: string | undefined,
+    epoch: number,
+  ): AskedEntry | undefined {
+    if (!this.#open || epoch !== this.#epoch) return undefined
+    const matches = this.#asked.filter(
       (candidate) =>
         candidate.claimedBy === undefined &&
-        candidate.epoch === this.#epoch &&
+        candidate.epoch === epoch &&
         candidate.callId === callId,
     )
+    // Two asks with the same call id are not a guess. Missing call ids stay
+    // in arrival order, one request each.
+    if (callId !== undefined && matches.length !== 1) return undefined
+    const entry = matches[0]
     if (entry !== undefined) entry.claimedBy = eventId
     return entry
   }
@@ -130,6 +201,7 @@ export class ApprovalLedger {
         )
           return undefined
         entry.outcome = data.outcome as DurableOutcome
+        this.#remember(entry)
         return { kind: 'decided', entry }
       }
       default:
@@ -139,7 +211,21 @@ export class ApprovalLedger {
 
   /** Keeps asks of the current and the last closed turn only. */
   #prune(): void {
+    for (const entry of this.#asked) {
+      if (entry.epoch < this.#epoch - 1) this.#remember(entry)
+    }
     this.#asked = this.#asked.filter((entry) => entry.epoch >= this.#epoch - 1)
     this.#byId = new Map(this.#asked.map((entry) => [entry.askedId, entry]))
+  }
+
+  #remember(entry: AskedEntry): void {
+    if (entry.outcome === undefined) return
+    if (this.#ended.some((ended) => ended.askedId === entry.askedId)) return
+    this.#ended.push({
+      askedId: entry.askedId,
+      callId: entry.callId,
+      outcome: entry.outcome,
+    })
+    if (this.#ended.length > TOMBSTONE_LIMIT) this.#ended.shift()
   }
 }

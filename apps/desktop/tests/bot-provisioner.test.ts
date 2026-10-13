@@ -12,6 +12,7 @@ import {
   type ModelChoice,
   openLocalDb,
   type SessionBindingRow,
+  setBotProvisioning,
   setSessionBindingStage,
 } from '../../../packages/local-db/src/index.ts'
 import {
@@ -836,4 +837,124 @@ test('alignment recovers a needs_model Bot once the model is runnable', async (t
     changed: true,
   })
   assertProvisioned(world, botId)
+})
+
+test('repair, align and setModel refuse a binding from another home', async (t) => {
+  const world = await setup(t)
+  const { botId } = await world.provisioner.create(draft())
+  const row = binding(world, botId)
+  const override = bot(world, botId).modelOverride
+  world.db.write((tx) => {
+    setSessionBindingStage(tx, row.bindingId, row.stage, {
+      now: T0,
+      lastError: 'home_mismatch',
+    })
+  })
+  const other = new BotProvisioner({
+    db: world.db,
+    ...world.host.clients(),
+    homeId: 'home_other',
+    now: () => T0,
+    newId: () => 'other',
+  })
+  const calls = world.host.calls.length
+  const refused = (error: unknown) => {
+    assert.ok(error instanceof ProvisionerError)
+    assert.equal(error.code, 'binding_broken')
+    return true
+  }
+  await assert.rejects(other.repair(botId), refused)
+  await assert.rejects(other.alignModel(botId, null), refused)
+  await assert.rejects(other.setModel(botId, choice(MODEL_ALT)), refused)
+  assert.equal(world.host.calls.length, calls)
+  const kept = binding(world, botId)
+  assert.equal(kept.stage, row.stage)
+  assert.equal(kept.lastError, 'home_mismatch')
+  assert.equal(kept.homeId, HOME_ID)
+  assert.deepEqual(bot(world, botId).modelOverride, override)
+})
+
+test('Claw ready sync failure is not aligned and a retry finishes it once', async (t) => {
+  const world = await setup(t)
+  world.host.globalDefault = null
+  const { botId } = await world.provisioner.create(draft())
+  world.host.globalDefault = MODEL_ALT
+  world.host.fail('registry/session/state', DROPPED)
+  await assert.rejects(world.provisioner.alignModel(botId, null), (error) => {
+    assert.ok(error instanceof ProvisionerError)
+    assert.equal(error.code, 'host_error')
+    return true
+  })
+  assert.equal(binding(world, botId).stage, 'model_applied')
+  assert.equal(binding(world, botId).lastError, 'claw_state_failed')
+  const selects = world.host.count('session/selectModel')
+  assert.deepEqual(await world.provisioner.alignModel(botId, MODEL_ALT), {
+    status: 'aligned',
+    selection: MODEL_ALT,
+    changed: false,
+  })
+  assert.equal(world.host.count('session/selectModel'), selects)
+  assert.equal(binding(world, botId).stage, 'ready')
+  assert.equal(binding(world, botId).lastError, null)
+})
+
+test('a ready binding left with claw_state_failed is synced before it is aligned', async (t) => {
+  const world = await setup(t)
+  const { botId } = await world.provisioner.create(draft())
+  const row = binding(world, botId)
+  world.db.write((tx) => {
+    setSessionBindingStage(tx, row.bindingId, 'ready', {
+      now: T0,
+      lastError: 'claw_state_failed',
+    })
+  })
+  world.host.fail('registry/session/state', DROPPED)
+  const before = world.host.count('registry/session/state')
+  await assert.rejects(
+    world.provisioner.alignModel(botId, MODEL_A),
+    (error) => {
+      assert.ok(error instanceof ProvisionerError)
+      assert.equal(error.code, 'host_error')
+      return true
+    },
+  )
+  assert.ok(world.host.count('registry/session/state') > before)
+  assert.equal(binding(world, botId).stage, 'model_applied')
+  assert.equal(binding(world, botId).lastError, 'claw_state_failed')
+  assert.equal(
+    (await world.provisioner.alignModel(botId, MODEL_A)).status,
+    'aligned',
+  )
+  assert.equal(binding(world, botId).stage, 'ready')
+  assert.equal(binding(world, botId).lastError, null)
+})
+
+test('align marks the Bot ready in the same transaction as the binding', async (t) => {
+  const world = await setup(t)
+  world.host.fail('registry/session/state', DROPPED)
+  const created = await world.provisioner.create(draft())
+  assert.equal(created.status, 'needs_repair')
+  const botId = created.botId
+  assert.equal(bot(world, botId).provisioning, 'needs_repair')
+  assert.equal(binding(world, botId).stage, 'model_applied')
+  assert.equal(
+    (await world.provisioner.alignModel(botId, null)).status,
+    'aligned',
+  )
+  assert.equal(binding(world, botId).stage, 'ready')
+  assert.equal(binding(world, botId).lastError, null)
+  assert.equal(bot(world, botId).provisioning, 'ready')
+})
+
+test('repair corrects a ready binding whose Bot was left needs_repair', async (t) => {
+  const world = await setup(t)
+  const { botId } = await world.provisioner.create(draft())
+  world.db.write((tx) => {
+    setBotProvisioning(tx, botId, 'needs_repair', { now: T0 })
+  })
+  const calls = world.host.count('registry/session/state')
+  assert.equal((await world.provisioner.repair(botId)).status, 'ready')
+  assert.equal(bot(world, botId).provisioning, 'ready')
+  assert.equal(binding(world, botId).stage, 'ready')
+  assert.ok(world.host.count('registry/session/state') > calls)
 })

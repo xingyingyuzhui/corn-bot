@@ -444,7 +444,7 @@ B4 已证明：重启后排队的 inbox 项不会自动开始。P3 把它显示�
 
 ### CS：`ChatService`
 
-- **范围**：落实 §3.7、§3.9：受理状态机、lane、模型对齐、自动与手动重试、撤回、取消（含叶子优先）、follow 生命周期（只跟随当前选中的会话）、启动时的只读恢复、断线重连。
+- **范围**：落实 §3.7、§3.9：受理状态机、lane、模型对齐、自动与手动重试、撤回、取消（含叶子优先）、follow 生命周期（UI 只跟随当前选中的会话；已有的 warm 停止控制观察是窄例外，切走后不发布原会话的临时输出）、启动时的只读恢复、断线重连。冷对账只按周期用 projections/page，不调用会激活 Agent 的 follow，不能写成立即或零泄漏。
 - **文件**：`apps/desktop/src/workspace/chat-service.ts`、`apps/desktop/src/workspace/foreground-stop.ts`、相关测试。
 - **测试**（fake Host 与 DB）：
   - IPC 重复 clientId 只受理一次；

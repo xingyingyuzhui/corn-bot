@@ -1,5 +1,13 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
+import { setImmediate } from 'node:timers/promises'
+import { ChatStopper } from '../src/workspace/chat-stop.ts'
+import {
+  parentReserveMs,
+  STOP_DEADLINE_MS,
+  STOP_PARENT_RESERVE_MS,
+  stopForegroundTree,
+} from '../src/workspace/foreground-stop.ts'
 import {
   admission,
   assertNoLeaks,
@@ -80,6 +88,87 @@ test('cancelQueued: withdraws unsent and DSH-queued messages; a recorded one is 
     code(await world.chat.resend({ botId: 'bot_1', messageId: rejected })),
     'stale',
   )
+})
+
+test('cancelQueued: a pending send is withdrawn before an earlier prompt finishes', async (t) => {
+  const world = await setup(t)
+  world.chat.attachRuntime(world.host.runtime())
+  await settle(world)
+  let release!: () => void
+  world.host.hold = new Promise<void>((resolve) => {
+    release = resolve
+  })
+  ok(
+    await world.chat.sendMessage({
+      botId: 'bot_1',
+      clientId: 'first',
+      text: 'first held',
+    }),
+  )
+  await setImmediate()
+  const second = ok(
+    await world.chat.sendMessage({
+      botId: 'bot_1',
+      clientId: 'second',
+      text: 'withdraw before dispatch',
+    }),
+  )
+  assert.equal(admission(world, second).state, 'pending')
+  const resumedBefore = world.broker.resumed.length
+  const cancel = world.chat.cancelQueued({
+    botId: 'bot_1',
+    messageId: second,
+  })
+  await setImmediate()
+  assert.equal(admission(world, second).state, 'withdrawn')
+  assert.equal(admission(world, second).bodyText, null)
+  world.host.hold = undefined
+  release()
+  ok(await cancel)
+  await settle(world)
+  assert.equal(world.host.count('prompt'), 1)
+  assert.deepEqual(
+    world.host.prompts.map((call) => call.text),
+    ['first held'],
+  )
+  assert.equal(world.broker.resumed.length, resumedBefore)
+  ok(await world.chat.cancelQueued({ botId: 'bot_1', messageId: second }))
+  assert.equal(
+    code(await world.chat.cancelQueued({ botId: 'bot_2', messageId: second })),
+    'not_found',
+  )
+
+  let releaseAgain!: () => void
+  world.host.hold = new Promise<void>((resolve) => {
+    releaseAgain = resolve
+  })
+  ok(
+    await world.chat.sendMessage({
+      botId: 'bot_1',
+      clientId: 'blocker',
+      text: 'blocker',
+    }),
+  )
+  await setImmediate()
+  const third = ok(
+    await world.chat.sendMessage({
+      botId: 'bot_1',
+      clientId: 'third',
+      text: 'keep me',
+    }),
+  )
+  assert.equal(admission(world, third).state, 'pending')
+  world.failWrites = true
+  assert.equal(
+    code(await world.chat.cancelQueued({ botId: 'bot_1', messageId: third })),
+    'data_unavailable',
+  )
+  assert.equal(admission(world, third).state, 'pending')
+  assert.equal(admission(world, third).bodyText, 'keep me')
+  world.failWrites = false
+  world.host.hold = undefined
+  releaseAgain()
+  await settle(world)
 })
 
 test('cancelQueued: a queued item claimed meanwhile settles as observed and is stale', async (t) => {
@@ -287,6 +376,208 @@ test('cancelTurn: runtime not ready and concurrent stops share one run', async (
   assert.equal(world.host.count('cancel'), 1)
 })
 
+test('cancelTurn: a send during the stop is refused and a later send is not cancelled', async (t) => {
+  const world = await setup(t)
+  const base = world.host.runtime()
+  let release!: () => void
+  let entered!: () => void
+  const enter = new Promise<void>((resolve) => {
+    entered = resolve
+  })
+  const hold = new Promise<void>((resolve) => {
+    release = resolve
+  })
+  let first = true
+  world.chat.attachRuntime({
+    ...base,
+    sessions: {
+      ...base.sessions,
+      sessionRows: async () => {
+        if (first) {
+          first = false
+          entered()
+          await hold
+        }
+        return base.sessions.sessionRows()
+      },
+    },
+  })
+  ok(world.chat.select('bot_1'))
+  await settle(world)
+  const stopping = world.chat.cancelTurn({ botId: 'bot_1' })
+  await enter
+  assert.equal(
+    code(
+      await world.chat.sendMessage({
+        botId: 'bot_1',
+        clientId: 'during',
+        text: 'not yet',
+      }),
+    ),
+    'unavailable',
+  )
+  assert.equal(world.host.count('prompt'), 0)
+  release()
+  ok(await stopping)
+  await settle(world)
+  ok(
+    await world.chat.sendMessage({
+      botId: 'bot_1',
+      clientId: 'after',
+      text: 'continue after stop',
+    }),
+  )
+  await settle(world)
+  assert.equal(world.host.count('prompt'), 1)
+  world.host.append(S1, 'turn/start', { turn: 4 })
+  await settle(world)
+  assert.equal(
+    world.host.count('cancel'),
+    1,
+    'the old stop does not cancel the new turn',
+  )
+  const view = world.views.at(-1)
+  assert.equal(view?.botId, 'bot_1')
+  assert.equal(view?.stopState, undefined)
+})
+
+test('cancelTurn: switching Bot keeps a stale-turn watch without a second follow', async (t) => {
+  const world = await setup(t)
+  world.host.rows = [sessionRow(S1)]
+  world.chat.attachRuntime(world.host.runtime())
+  ok(world.chat.select('bot_1'))
+  await settle(world)
+  ok(await world.chat.cancelTurn({ botId: 'bot_1' }))
+  await settle(world)
+  ok(world.chat.select('bot_2'))
+  await settle(world)
+  assert.equal(
+    world.host.openFollows(S1),
+    1,
+    'the warm stream stays as a control watch',
+  )
+  const viewsBefore = world.views.length
+  world.host.append(S1, 'turn/start', { turn: 2 })
+  world.host.append(S1, 'step/start', { turn: 2, step: 0 })
+  await settle(world)
+  assert.equal(world.host.count('cancel'), 2)
+  assert.ok(world.audits.some((audit) => audit.kind === 'stale-turn'))
+  assert.ok(
+    !world.views.slice(viewsBefore).some((view) => view.botId === 'bot_1'),
+    'Bot 2 does not receive Bot 1 output',
+  )
+  const follows = world.host.count('follow')
+  world.host.dropFollows()
+  world.host.append(S1, 'turn/start', { turn: 3 })
+  world.host.append(S1, 'step/start', { turn: 3, step: 0 })
+  world.scheduled.shift()?.()
+  await settle(world)
+  assert.equal(
+    world.host.count('follow'),
+    follows,
+    'a cold Session is not followed again',
+  )
+  assert.equal(world.host.openFollows(S1), 0)
+  assert.ok(world.host.count('page') >= 1)
+  assert.equal(world.host.count('cancel'), 3)
+})
+
+test('cancelTurn: a Host generation change keeps the stop unknown', async (t) => {
+  const world = await setup(t)
+  world.host.rows = [sessionRow(S1)]
+  world.chat.attachRuntime(world.host.runtime())
+  ok(world.chat.select('bot_1'))
+  await settle(world)
+  ok(await world.chat.cancelTurn({ botId: 'bot_1' }))
+  await settle(world)
+  world.chat.detachRuntime()
+  assert.equal(
+    code(
+      await world.chat.sendMessage({
+        botId: 'bot_1',
+        clientId: 'after-detach',
+        text: 'still fenced',
+      }),
+    ),
+    'unavailable',
+  )
+  world.chat.attachRuntime(world.host.runtime())
+  await settle(world)
+  assert.equal(
+    code(
+      await world.chat.sendMessage({
+        botId: 'bot_1',
+        clientId: 'after-attach',
+        text: 'still fenced',
+      }),
+    ),
+    'unavailable',
+  )
+  assert.equal(world.host.count('prompt'), 0)
+})
+
+test('stopForegroundTree: child budget keeps the parent reserve and abandons a hung RPC', async () => {
+  assert.equal(parentReserveMs(STOP_DEADLINE_MS), STOP_PARENT_RESERVE_MS)
+  let now = 0
+  const waiters: { at: number; resolve: () => void }[] = []
+  const sleep = (ms: number) =>
+    new Promise<void>((resolve) => {
+      waiters.push({ at: now + ms, resolve })
+    })
+  const advance = async (ms: number) => {
+    now += ms
+    const due = waiters.filter((waiter) => waiter.at <= now)
+    for (const waiter of due) {
+      waiters.splice(waiters.indexOf(waiter), 1)
+      waiter.resolve()
+    }
+    for (let turn = 0; turn < 20; turn += 1)
+      await new Promise<void>((resolve) => queueMicrotask(resolve))
+  }
+  let parentCancels = 0
+  let cancelledAt = -1
+  let interrupts = 0
+  const stopping = stopForegroundTree(
+    {
+      sessions: {
+        sessionRows: async () => [
+          sessionRow(S1),
+          sessionRow('child', { parent: S1, running: true }),
+        ],
+        interruptChild: async () => {
+          interrupts += 1
+          return new Promise<void>(() => {})
+        },
+        cancel: async () => {
+          parentCancels += 1
+          cancelledAt = now
+        },
+      },
+      jobs: { list: async () => [], kill: async () => 'requested' },
+    },
+    S1,
+    {
+      deadlineMs: STOP_DEADLINE_MS,
+      maxPasses: 5,
+      passDelayMs: 0,
+      now: () => now,
+      sleep,
+    },
+  )
+  for (let step = 0; step < 5 && parentCancels === 0; step += 1)
+    await advance(1_000)
+  assert.equal(interrupts, 1)
+  assert.equal(parentCancels, 1)
+  assert.ok(
+    cancelledAt <= STOP_DEADLINE_MS - STOP_PARENT_RESERVE_MS,
+    `parent cancel at ${cancelledAt}, reserve was not kept`,
+  )
+  const report = await stopping
+  assert.equal(report.outcome, 'stop_partial')
+  assert.equal(report.parentCancel, 'cancelled')
+  assert.equal(report.unsettled, 1)
+})
+
 test('forgetSession: a retired binding drops its follow and approvals', async (t) => {
   const world = await setup(t)
   world.chat.attachRuntime(world.host.runtime())
@@ -296,4 +587,159 @@ test('forgetSession: a retired binding drops its follow and approvals', async (t
   assert.deepEqual(world.broker.forgotten, [S1])
   assert.equal(world.host.openFollows(S1), 0)
   assert.equal(world.chat.view('bot_1'), undefined)
+})
+
+test('a stale cancel still in flight refuses the next send', async (t) => {
+  const world = await setup(t)
+  t.after(() => world.chat.dispose())
+  world.host.rows = [sessionRow(S1)]
+  const base = world.host.runtime()
+  let release!: () => void
+  const held = new Promise<void>((resolve) => {
+    release = resolve
+  })
+  let cancels = 0
+  world.chat.attachRuntime({
+    ...base,
+    sessions: {
+      ...base.sessions,
+      cancel: async (...args) => {
+        cancels += 1
+        if (cancels === 2) await held
+        return base.sessions.cancel(...args)
+      },
+    },
+  })
+  ok(world.chat.select('bot_1'))
+  await settle(world)
+  ok(await world.chat.cancelTurn({ botId: 'bot_1' }))
+  await settle(world)
+  world.host.append(S1, 'turn/start', { turn: 2 })
+  for (let step = 0; step < 4; step += 1) await setImmediate()
+  assert.equal(cancels, 2)
+  const send = await world.chat.sendMessage({
+    botId: 'bot_1',
+    clientId: 'new',
+    text: 'new user prompt',
+  })
+  assert.equal(send.ok, false)
+  assert.equal(world.host.count('prompt'), 0)
+  release()
+  await settle(world)
+})
+
+test('an older stop verification cannot confirm the next stop', async () => {
+  let calls = 0
+  let releaseRows!: () => void
+  let enteredRows!: () => void
+  const entered = new Promise<void>((resolve) => {
+    enteredRows = resolve
+  })
+  const holdRows = new Promise<void>((resolve) => {
+    releaseRows = resolve
+  })
+  const verifyWaiters: (() => void)[] = []
+  const tasks: Promise<unknown>[] = []
+  const runtime = {
+    sessions: {
+      sessionRows: async () => {
+        calls += 1
+        if (calls === 2) {
+          enteredRows()
+          await holdRows
+        }
+        return [sessionRow(S1)]
+      },
+      cancel: async () => {},
+      interruptChild: async () => {},
+      projections: async () => ({ asOfSeq: -1, values: {} }),
+      updateQueue: async () => ({}),
+      page: async () => ({ records: [], hasMore: false }),
+      prompt: async () => ({}),
+    },
+    jobs: { list: async () => [], kill: async () => 'requested' as const },
+    openFollow: () => ({ close: () => {} }),
+  }
+  const stopper = new ChatStopper({
+    approvals: { stopTurn: () => {}, resumeSession: () => {} },
+    runtime: () => runtime,
+    cursor: () => -1,
+    onAudit: () => {},
+    track: (task) => {
+      tasks.push(task)
+    },
+    log: () => {},
+    now: Date.now,
+    sleep: (ms) =>
+      ms === 2000
+        ? new Promise<void>((resolve) => {
+            verifyWaiters.push(resolve)
+          })
+        : Promise.resolve(),
+    schedule: () => () => {},
+    timing: { verifyDelayMs: 2000, stop: { passDelayMs: 0 } },
+    onPending: () => {},
+    onPhase: () => {},
+    onColdEvents: () => {},
+  })
+  ok(await stopper.stop(runtime, 'bot_1', S1))
+  assert.equal(verifyWaiters.length, 1)
+  const second = stopper.stop(runtime, 'bot_1', S1)
+  await entered
+  verifyWaiters.shift()?.()
+  for (let step = 0; step < 4; step += 1) await setImmediate()
+  assert.equal(stopper.blocksDispatch(S1), true)
+  assert.equal(stopper.phase('bot_1'), 'stopping')
+  releaseRows()
+  await second
+  for (const resolve of verifyWaiters) resolve()
+  await Promise.allSettled(tasks)
+})
+
+test('cold reconcile uses the projection cursor and cancels a stale turn', async (t) => {
+  const world = await setup(t)
+  t.after(() => world.chat.dispose())
+  world.host.rows = [sessionRow(S1)]
+  world.chat.attachRuntime(world.host.runtime())
+  ok(world.chat.select('bot_1'))
+  await settle(world)
+  ok(await world.chat.cancelTurn({ botId: 'bot_1' }))
+  await settle(world)
+  ok(world.chat.select('bot_2'))
+  await settle(world)
+  const follows = world.host.count('follow')
+  world.host.dropFollows()
+  world.host.append(S1, 'turn/start', { turn: 8 })
+  world.host.append(S1, 'step/start', { turn: 8, step: 0 })
+  const cancelsBefore = world.host.count('cancel')
+  world.scheduled.shift()?.()
+  await settle(world)
+  const cursor = world.host.journal(S1).at(-1)?.seq ?? -1
+  const cuts = world.host.calls
+    .filter((call) => call.op === 'page')
+    .map((call) => Number(call.target))
+  assert.ok(cuts.length > 0)
+  for (const cut of cuts) assert.ok(cut <= cursor)
+  assert.equal(world.host.count('cancel'), cancelsBefore + 1)
+  assert.equal(world.host.count('follow'), follows)
+})
+
+test('dispose clears the cold timer and does not rearm it', async (t) => {
+  const world = await setup(t)
+  world.host.rows = [sessionRow(S1)]
+  world.chat.attachRuntime(world.host.runtime())
+  ok(world.chat.select('bot_1'))
+  await settle(world)
+  ok(await world.chat.cancelTurn({ botId: 'bot_1' }))
+  await settle(world)
+  ok(world.chat.select('bot_2'))
+  await settle(world)
+  world.host.dropFollows()
+  ok(world.chat.select(null))
+  assert.equal(world.scheduled.length, 1)
+  world.chat.dispose()
+  assert.equal(world.scheduled.length, 0)
+  world.scheduled.shift()?.()
+  for (let step = 0; step < 4; step += 1) await setImmediate()
+  assert.equal(world.scheduled.length, 0)
 })
