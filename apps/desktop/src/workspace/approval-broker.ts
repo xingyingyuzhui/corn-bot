@@ -109,10 +109,11 @@ interface ApprovalRecord {
   /** The timeout fired while detached; the redelivery is rejected. */
   timeoutDue: boolean
   /**
-   * Ledger epoch this request may bind to. `-1` after that epoch ended
-   * unmatched, so a later turn's ask cannot be captured.
+   * Ledger epoch this request may bind to. Absent until a durable baseline
+   * exists: a historical `turn/end` must not retire it. `-1` after its own
+   * epoch ended unmatched, so a later turn's ask cannot be captured.
    */
-  bindEpoch: number
+  bindEpoch: number | undefined
   entry: AskedEntry | undefined
   outcome: DurableOutcome | undefined
   timer: ReturnType<typeof setTimeout> | undefined
@@ -155,6 +156,8 @@ export class ApprovalBroker {
   readonly #retired = new Map<string, string>()
   readonly #ledgers = new Map<string, ApprovalLedger>()
   readonly #stopped = new Set<string>()
+  /** Gateway event ids already closed. A late copy is not answerable. */
+  readonly #finishedEvents: string[] = []
 
   constructor(options: ApprovalBrokerOptions) {
     this.#openEvents = options.openEvents
@@ -378,6 +381,12 @@ export class ApprovalBroker {
       this.#delegate(request.eventId)
       return
     }
+    const ledger = this.#ledgers.get(request.sessionId)
+    const ended = this.#finishedEvents.includes(request.eventId)
+      ? ({ outcome: 'cancelled' } as const)
+      : ledger?.endedByCallId(request.callId)
+    const terminal = ended !== undefined && ended !== 'ambiguous'
+    const stopped = this.#stopped.has(request.sessionId)
     const record: ApprovalRecord = {
       eventId: request.eventId,
       cardId: `approval-${randomUUID()}`,
@@ -386,7 +395,7 @@ export class ApprovalBroker {
       request,
       generation,
       handle: '',
-      phase: this.#stopped.has(request.sessionId) ? 'closed' : 'open',
+      phase: stopped || terminal ? 'closed' : 'open',
       answer: undefined,
       attempt: 0,
       inFlight: false,
@@ -394,11 +403,12 @@ export class ApprovalBroker {
       resent: false,
       timedOut: false,
       timeoutDue: false,
-      bindEpoch: this.#ledgers.get(request.sessionId)?.bindEpoch() ?? 0,
+      bindEpoch: ledger?.established() ? ledger.bindEpoch() : undefined,
       entry: undefined,
-      outcome: undefined,
+      outcome: terminal ? ended.outcome : undefined,
       timer: undefined,
     }
+    if (terminal) record.phase = 'decided'
     this.#records.set(record.eventId, record)
     this.#mintHandle(record)
     if (record.phase === 'open')
@@ -581,13 +591,25 @@ export class ApprovalBroker {
     if (ledger === undefined) return false
     let changed = false
     for (const record of this.#sessionRecords(sessionId)) {
-      if (record.entry !== undefined) continue
-      const entry = ledger.claim(
-        record.eventId,
-        record.request.callId,
-        record.bindEpoch,
-      )
+      if (record.entry !== undefined || record.phase === 'decided') continue
+      const ended = ledger.endedByCallId(record.request.callId)
+      if (ended === 'ambiguous') continue
+      if (ended !== undefined) {
+        this.#decide(record, ended.outcome)
+        changed = true
+        continue
+      }
+      // Unplaced until the baseline exists: bind only to the turn open now,
+      // never to an earlier turn that this same window already closed.
+      const epoch =
+        record.bindEpoch ??
+        (ledger.established() && ledger.isOpen()
+          ? ledger.bindEpoch()
+          : undefined)
+      if (epoch === undefined) continue
+      const entry = ledger.claim(record.eventId, record.request.callId, epoch)
       if (entry === undefined) continue
+      record.bindEpoch = entry.epoch
       record.entry = entry
       changed = true
       if (entry.outcome !== undefined) this.#decide(record, entry.outcome)
@@ -617,7 +639,11 @@ export class ApprovalBroker {
   #retireUnmatched(sessionId: string, ledger: ApprovalLedger): boolean {
     let changed = false
     for (const record of this.#sessionRecords(sessionId)) {
-      if (record.entry !== undefined || !ledger.hasEnded(record.bindEpoch))
+      if (
+        record.bindEpoch === undefined ||
+        record.entry !== undefined ||
+        !ledger.hasEnded(record.bindEpoch)
+      )
         continue
       record.bindEpoch = -1
       if (record.phase === 'decided' || record.phase === 'closed') continue
@@ -658,11 +684,18 @@ export class ApprovalBroker {
     clearTimeout(record.timer)
     record.timer = undefined
     this.#records.delete(record.eventId)
+    this.#rememberEvent(record.eventId)
     for (const [handle, owner] of this.#handles) {
       if (owner !== record) continue
       this.#handles.delete(handle)
       this.#retired.set(handle, record.botId)
     }
+  }
+
+  #rememberEvent(eventId: string): void {
+    if (this.#finishedEvents.includes(eventId)) return
+    this.#finishedEvents.push(eventId)
+    if (this.#finishedEvents.length > 64) this.#finishedEvents.shift()
   }
 
   #sessionRecords(sessionId: string): ApprovalRecord[] {

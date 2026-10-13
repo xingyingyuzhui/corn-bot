@@ -713,6 +713,58 @@ test('disconnect closes everything and stops reconnecting', async (t) => {
   assert.equal(channels.length, 1)
 })
 
+test('a current waterfall survives older turns in the first snapshot', async (t) => {
+  const { broker, connectReady, card } = setup(t)
+  const channel = connectReady()
+  channel.approval('evt-now', { callId: 'call-now' })
+  assert.equal(card().status, 'pending')
+  broker.observe(SESSION, [
+    turnStart(1),
+    turnEnd(1),
+    turnStart(2),
+    asked('ask-old', 'call-old'),
+    decided('ask-old', 'cancelled'),
+    turnEnd(2),
+    turnStart(3),
+    asked('ask-now', 'call-now'),
+  ])
+  assert.equal(card().status, 'pending')
+  assert.equal(card().askedId, 'ask-now')
+  assert.deepEqual(
+    await broker.answer(BOT, card().handle, 'allowed-once'),
+    okResult,
+  )
+  assert.deepEqual(channel.answers, [
+    { eventId: 'evt-now', value: 'allowed-once' },
+  ])
+  t.mock.timers.tick(APPROVAL_TIMEOUT_MS)
+  assert.equal(channel.answers.length, 1)
+  assert.equal(channel.delegated.length, 0)
+})
+
+test('a waterfall for an already finished ask cannot be approved', async (t) => {
+  const { broker, connectReady, card } = setup(t)
+  const channel = connectReady()
+  broker.observe(SESSION, [
+    turnStart(1),
+    asked('ask-old', 'call-old'),
+    decided('ask-old', 'cancelled'),
+    turnEnd(1),
+  ])
+  channel.approval('evt-old', { callId: 'call-old' })
+  assert.notEqual(card().status, 'pending')
+  assert.deepEqual(
+    await broker.answer(BOT, card().handle, 'allowed-once'),
+    failed('stale'),
+  )
+  assert.deepEqual(
+    await broker.answer(BOT, card().handle, 'rejected'),
+    failed('stale'),
+  )
+  assert.equal(channel.answers.length, 0)
+  assert.equal(channel.delegated.length, 0)
+})
+
 test('a failed open is retried until the stream comes up', (t) => {
   const { broker, channels, setOpenFails } = setup(t)
   setOpenFails(true)
