@@ -207,7 +207,7 @@ export class ChatService {
     this.#disposed = true
     this.#runtime = undefined
     this.#generation += 1
-    this.#stopper.invalidate()
+    this.#stopper.dispose()
     this.#follower.dispose()
   }
 
@@ -309,7 +309,9 @@ export class ChatService {
     // A concurrent repeat resolves to the original message; only a new row is delivered.
     if (admitted.ok && admitted.value === messageIdFor(requestId))
       this.#track(
-        this.#lane(target.sessionId, () => this.#deliver(target, requestId)),
+        this.#lane(target.sessionId, () =>
+          this.#deliver(target, requestId, 'automatic'),
+        ),
       )
     return admitted
   }
@@ -397,16 +399,24 @@ export class ChatService {
   // -------------------------------------------------------------------------
 
   /** Model alignment (11A), then the prompt with bounded same-generation retries. */
-  async #deliver(target: ChatTarget, requestId: string): Promise<void> {
+  async #deliver(
+    target: ChatTarget,
+    requestId: string,
+    intent: 'automatic' | 'explicit',
+  ): Promise<void> {
     const current = this.#ledger.read(target, requestId)
     // Withdrawn or already recorded: do not lift a stop, align a model, or prompt.
+    // Automatic recovery never revives a message that was refused before send.
+    // An explicit resend may, after this re-read.
     if (
       current === null ||
       current.state === 'withdrawn' ||
       current.state === 'observed' ||
       current.state === 'accepted' ||
       current.state === 'sending' ||
-      (current.state === 'rejected' && current.lastError === 'not_sent')
+      (intent === 'automatic' &&
+        current.state === 'rejected' &&
+        current.lastError === 'not_sent')
     )
       return
     if (this.#stopper.blocksDispatch(target.sessionId)) return
@@ -506,8 +516,10 @@ export class ChatService {
       const located = await this.#locate(runtime, target.sessionId, row)
       if (!this.#ledger.applyLocated(target, requestId, located)) return
     }
-    if (row.state === 'rejected' || row.state === 'unknown')
-      await this.#deliver(target, requestId)
+    const current = this.#ledger.read(target, requestId)
+    if (current === null) return
+    if (current.state === 'rejected' || current.state === 'unknown')
+      await this.#deliver(target, requestId, 'explicit')
   }
 
   async #withdrawInLane(

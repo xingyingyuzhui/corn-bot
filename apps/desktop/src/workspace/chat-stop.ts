@@ -1,6 +1,7 @@
 import type { WorkspaceResult } from '../../../../packages/contracts/src/workspace.ts'
 import type { WireEvent } from '../../../../packages/dsh-adapter/src/session-wire.ts'
 import type { ApprovalBroker } from './approval-broker.ts'
+import { parseSessionProbe } from './chat-admissions.ts'
 import {
   type ChatAudit,
   type ChatRuntime,
@@ -28,6 +29,8 @@ export type StopPhase = (typeof STOP_PHASES)[number]
 /** Cold reconcile interval while a protected Session has no warm follow. */
 export const COLD_RECONCILE_MS = 1_000
 const COLD_RPC_BUDGET_MS = 1_000
+/** Pages read in one cold pass. A later pass continues from the cursor. */
+const COLD_PAGE_LIMIT = 4
 
 export interface ChatStopperOptions {
   readonly approvals: Pick<ApprovalBroker, 'stopTurn' | 'resumeSession'>
@@ -63,6 +66,8 @@ interface SessionControl {
   confirmed: boolean
   /** Host generation this stop belongs to. Mismatched completions are ignored. */
   generation: number
+  /** One id per real stop. A later stop on the same Host does not reuse it. */
+  operation: number
   unsettled: number
   botId: string
 }
@@ -73,15 +78,24 @@ export class ChatStopper {
   readonly #stopping = new Map<string, Promise<WorkspaceResult<null>>>()
   readonly #controls = new Map<string, SessionControl>()
   readonly #cold = new Map<string, () => void>()
+  readonly #coldPasses = new Set<string>()
+  /** Last durable seq this Session's cold watch has folded. */
+  readonly #processed = new Map<string, number>()
   #generation = 0
+  #operation = 0
+  #disposed = false
 
   constructor(options: ChatStopperOptions) {
     this.#options = options
   }
 
-  /** Host attach/detach/dispose. In-flight stop completions from the old generation do not count. */
+  /**
+   * Host detach. In-flight completions from the old generation do not count.
+   * Cold timers stop; a later ready call arms them once. The fence stays.
+   */
   invalidate(): void {
     this.#generation += 1
+    for (const sessionId of [...this.#cold.keys()]) this.#clearCold(sessionId)
     for (const [sessionId, control] of this.#controls) {
       if (control.phase === 'idle') continue
       control.phase = 'unknown'
@@ -90,6 +104,12 @@ export class ChatStopper {
       this.#options.onPhase(control.botId, 'unknown')
       void sessionId
     }
+  }
+
+  /** Quit. Cancels timers and refuses every later callback. Does not pretend an in-flight Host call was cancelled. */
+  dispose(): void {
+    this.#disposed = true
+    this.invalidate()
   }
 
   phase(botId: string): StopPhase {
@@ -177,11 +197,23 @@ export class ChatStopper {
 
   /** The warm follow died. Watch by cold page only; do not open another follow. */
   armCold(botId: string, sessionId: string): void {
-    if (!this.protects(sessionId) || this.#cold.has(sessionId)) return
+    if (
+      this.#disposed ||
+      !this.protects(sessionId) ||
+      this.#cold.has(sessionId)
+    )
+      return
     const cancel = this.#options.schedule(() => {
       this.#cold.delete(sessionId)
+      const generation = this.#generation
       const pass = this.#coldPass(botId, sessionId).finally(() => {
-        if (this.protects(sessionId)) this.armCold(botId, sessionId)
+        if (
+          this.#disposed ||
+          generation !== this.#generation ||
+          !this.protects(sessionId)
+        )
+          return
+        this.armCold(botId, sessionId)
       })
       this.#options.track(pass)
     }, COLD_RECONCILE_MS)
@@ -197,12 +229,51 @@ export class ChatStopper {
         case 'stale-turn': {
           this.#audit({ kind: 'stale-turn', botId, turn: signal.turn })
           const runtime = this.#options.runtime()
-          if (runtime === undefined) break
-          this.#options.track(
-            runtime.sessions.cancel(sessionId).catch(() => {
+          const control = this.#controls.get(sessionId)
+          const operation = control?.operation
+          if (control !== undefined) {
+            control.confirmed = false
+            control.phase = 'stopping'
+            this.#options.onPhase(control.botId, 'stopping')
+          }
+          if (runtime === undefined || operation === undefined) {
+            if (control !== undefined) {
+              control.phase = 'unknown'
+              control.confirmed = false
+              this.#options.onPhase(control.botId, 'unknown')
+            }
+            break
+          }
+          let result: 'ok' | 'unknown' = 'unknown'
+          const cancel = runtime.sessions.cancel(sessionId).then(
+            () => {
+              result = 'ok'
+            },
+            () => {
               this.#options.log('Corn chat: stale turn cancel failed')
-            }),
+              result = 'unknown'
+            },
           )
+          this.#retain(sessionId, cancel, () => {
+            const current = this.#controls.get(sessionId)
+            if (
+              current === undefined ||
+              this.#disposed ||
+              current.operation !== operation
+            )
+              return
+            if (result !== 'ok' || current.unsettled > 0) {
+              current.confirmed = false
+              current.phase = 'unknown'
+              this.#options.onPhase(current.botId, 'unknown')
+              return
+            }
+            if (current.phase === 'stopping') {
+              current.phase = 'stopped'
+              current.confirmed = true
+              this.#options.onPhase(current.botId, 'stopped')
+            }
+          })
           break
         }
         case 'leaked-request':
@@ -228,12 +299,13 @@ export class ChatStopper {
   ): Promise<WorkspaceResult<null>> {
     const { approvals, now, sleep, timing } = this.#options
     const generation = this.#generation
+    const operation = ++this.#operation
     approvals.stopTurn(sessionId)
     this.#fences.set(
       sessionId,
       new StaleTurnFence(this.#options.cursor(sessionId), now()),
     )
-    const control = this.#control(sessionId, botId, generation)
+    const control = this.#control(sessionId, botId, generation, operation)
     control.phase = 'stopping'
     control.confirmed = false
     this.#options.onPhase(botId, 'stopping')
@@ -257,7 +329,7 @@ export class ChatStopper {
           }),
         )
         .then((verification) => {
-          if (!this.#current(sessionId, generation)) return
+          if (!this.#owns(sessionId, generation, operation)) return
           this.#audit({ kind: 'stop-verify', botId, verification })
           this.#applyVerification(sessionId, report, verification)
         }),
@@ -269,17 +341,20 @@ export class ChatStopper {
     sessionId: string,
     botId: string,
     generation: number,
+    operation: number,
   ): SessionControl {
     const existing = this.#controls.get(sessionId)
     if (existing !== undefined) {
       existing.botId = botId
       existing.generation = generation
+      existing.operation = operation
       return existing
     }
     const created: SessionControl = {
       phase: 'stopping',
       confirmed: false,
       generation,
+      operation,
       unsettled: 0,
       botId,
     }
@@ -296,14 +371,29 @@ export class ChatStopper {
     )
   }
 
-  #retain(sessionId: string, work: Promise<unknown>): void {
+  /** Host generation and this stop's own id. An older verification cannot confirm the next stop. */
+  #owns(sessionId: string, generation: number, operation: number): boolean {
+    if (this.#disposed) return false
     const control = this.#controls.get(sessionId)
-    if (control === undefined) return
+    return (
+      this.#current(sessionId, generation) &&
+      control !== undefined &&
+      control.operation === operation
+    )
+  }
+
+  #retain(sessionId: string, work: Promise<unknown>, after?: () => void): void {
+    const control = this.#controls.get(sessionId)
+    if (control === undefined) {
+      this.#options.track(work.finally(() => after?.()))
+      return
+    }
     control.unsettled += 1
     const tracked = work.finally(() => {
       const current = this.#controls.get(sessionId)
-      if (current === undefined) return
-      current.unsettled = Math.max(0, current.unsettled - 1)
+      if (current !== undefined)
+        current.unsettled = Math.max(0, current.unsettled - 1)
+      if (!this.#disposed) after?.()
     })
     this.#options.track(tracked)
   }
@@ -349,33 +439,77 @@ export class ChatStopper {
   }
 
   async #coldPass(botId: string, sessionId: string): Promise<void> {
-    const runtime = this.#options.runtime()
+    if (this.#disposed || this.#coldPasses.has(sessionId)) return
+    this.#coldPasses.add(sessionId)
     const generation = this.#generation
-    if (runtime === undefined) {
-      this.#mark(sessionId, 'unknown', false)
-      return
-    }
-    let ignoreLate = false
     try {
-      const page = await Promise.race([
-        runtime.sessions.page(
-          { sessionId, throughSeq: Number.MAX_SAFE_INTEGER },
+      const runtime = this.#options.runtime()
+      if (runtime === undefined) {
+        this.#mark(sessionId, 'unknown', false)
+        return
+      }
+      const probe = await this.#probe(runtime, sessionId)
+      if (
+        !this.#current(sessionId, generation) ||
+        this.#disposed ||
+        probe === undefined ||
+        probe === null
+      ) {
+        if (this.#current(sessionId, generation) && !this.#disposed)
+          this.#mark(sessionId, 'unknown', false)
+        return
+      }
+      const known = this.#processed.get(sessionId)
+      const collected: WireEvent[] = []
+      let beforeSeq: number | undefined
+      let connected = known === undefined
+      for (let index = 0; index < COLD_PAGE_LIMIT; index += 1) {
+        const page = await runtime.sessions.page(
+          {
+            sessionId,
+            throughSeq: probe.asOfSeq,
+            ...(beforeSeq === undefined ? {} : { beforeSeq }),
+          },
           { timeoutMs: COLD_RPC_BUDGET_MS },
-        ),
-        this.#options.sleep(COLD_RPC_BUDGET_MS).then(() => {
-          if (!ignoreLate) throw new Error('cold reconcile budget')
-          return undefined
-        }),
-      ])
-      if (page === undefined) throw new Error('cold reconcile budget')
-      if (!this.#current(sessionId, generation)) return
-      this.#options.onColdEvents(sessionId, page.records)
-      this.watch(botId, sessionId, page.records)
+        )
+        if (!this.#current(sessionId, generation) || this.#disposed) return
+        const records = [...page.records].sort(
+          (left, right) => left.seq - right.seq,
+        )
+        collected.push(...records)
+        const oldest = records[0]
+        if (!page.hasMore || oldest === undefined) {
+          connected = true
+          break
+        }
+        if (known !== undefined && oldest.seq <= known + 1) {
+          connected = true
+          break
+        }
+        beforeSeq = oldest.seq
+      }
+      const fresh = contiguousEvents(collected, known, connected)
+      const last = fresh.at(-1)
+      if (last !== undefined) this.#processed.set(sessionId, last.seq)
+      if (fresh.length === 0) return
+      this.#options.onColdEvents(sessionId, fresh)
+      this.watch(botId, sessionId, fresh)
     } catch {
-      if (this.#current(sessionId, generation))
+      if (this.#current(sessionId, generation) && !this.#disposed)
         this.#mark(sessionId, 'unknown', false)
     } finally {
-      ignoreLate = true
+      this.#coldPasses.delete(sessionId)
+    }
+  }
+
+  async #probe(
+    runtime: ChatRuntime,
+    sessionId: string,
+  ): Promise<{ readonly asOfSeq: number } | undefined | null> {
+    try {
+      return parseSessionProbe(await runtime.sessions.projections(sessionId))
+    } catch {
+      return undefined
     }
   }
 
@@ -399,4 +533,32 @@ export class ChatStopper {
       // Auditing must not break the stop path.
     }
   }
+}
+
+/**
+ * Events strictly after `known`, in seq order, stopping at the first hole.
+ * An unconnected page must not jump the cursor over events it did not read.
+ */
+function contiguousEvents(
+  events: readonly WireEvent[],
+  known: number | undefined,
+  connected: boolean,
+): WireEvent[] {
+  const unique: WireEvent[] = []
+  for (const event of [...events].sort((left, right) => left.seq - right.seq)) {
+    if (unique.at(-1)?.seq === event.seq) continue
+    unique.push(event)
+  }
+  if (!connected && known === undefined) return []
+  const fresh = unique.filter(
+    (event) => known === undefined || event.seq > known,
+  )
+  const out: WireEvent[] = []
+  let previous = known
+  for (const event of fresh) {
+    if (previous !== undefined && event.seq !== previous + 1) break
+    out.push(event)
+    previous = event.seq
+  }
+  return out
 }
