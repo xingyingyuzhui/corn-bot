@@ -34,6 +34,7 @@ import {
   POLICY_PRESETS,
   type PolicyPreset,
   type SessionBindingRow,
+  type SqlExecutor,
   setBotModelOverride,
   setBotProvisioning,
   setSessionBindingAppliedModel,
@@ -394,7 +395,8 @@ export class BotProvisioner {
       case 'model_applied':
         return this.#markReady(loaded)
       case 'ready':
-        return loaded.binding.lastError === null
+        return loaded.binding.lastError === null &&
+          loaded.bot.provisioning === 'ready'
           ? Promise.resolve(this.#ready(loaded))
           : this.#markReady(loaded)
       case 'retired':
@@ -683,11 +685,27 @@ export class BotProvisioner {
             lastError: clawSynced ? null : 'claw_state_failed',
           },
         )
+        if (clawSynced) this.#markBotReady(tx, loaded.bot.botId, now)
       })
       if (!clawSynced)
         throw new ProvisionerError('host_error', 'Claw ready sync failed')
+    } else if (
+      binding.stage === 'ready' &&
+      binding.lastError === null &&
+      loaded.bot.provisioning !== 'ready'
+    ) {
+      this.#write((tx) => {
+        this.#markBotReady(tx, loaded.bot.botId, this.#now())
+      })
     }
     return { status: 'aligned', selection: desired, changed }
+  }
+
+  /** Same transaction as the binding write that made the pair ready. */
+  #markBotReady(tx: SqlExecutor, botId: string, now: number): void {
+    const bot = getBot(tx, botId)
+    if (bot !== null && bot.provisioning !== 'ready')
+      setBotProvisioning(tx, botId, 'ready', { now })
   }
 
   #assertHome(binding: SessionBindingRow): void {

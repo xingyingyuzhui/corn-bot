@@ -12,6 +12,7 @@ import {
   type ModelChoice,
   openLocalDb,
   type SessionBindingRow,
+  setBotProvisioning,
   setSessionBindingStage,
 } from '../../../packages/local-db/src/index.ts'
 import {
@@ -926,4 +927,34 @@ test('a ready binding left with claw_state_failed is synced before it is aligned
   )
   assert.equal(binding(world, botId).stage, 'ready')
   assert.equal(binding(world, botId).lastError, null)
+})
+
+test('align marks the Bot ready in the same transaction as the binding', async (t) => {
+  const world = await setup(t)
+  world.host.fail('registry/session/state', DROPPED)
+  const created = await world.provisioner.create(draft())
+  assert.equal(created.status, 'needs_repair')
+  const botId = created.botId
+  assert.equal(bot(world, botId).provisioning, 'needs_repair')
+  assert.equal(binding(world, botId).stage, 'model_applied')
+  assert.equal(
+    (await world.provisioner.alignModel(botId, null)).status,
+    'aligned',
+  )
+  assert.equal(binding(world, botId).stage, 'ready')
+  assert.equal(binding(world, botId).lastError, null)
+  assert.equal(bot(world, botId).provisioning, 'ready')
+})
+
+test('repair corrects a ready binding whose Bot was left needs_repair', async (t) => {
+  const world = await setup(t)
+  const { botId } = await world.provisioner.create(draft())
+  world.db.write((tx) => {
+    setBotProvisioning(tx, botId, 'needs_repair', { now: T0 })
+  })
+  const calls = world.host.count('registry/session/state')
+  assert.equal((await world.provisioner.repair(botId)).status, 'ready')
+  assert.equal(bot(world, botId).provisioning, 'ready')
+  assert.equal(binding(world, botId).stage, 'ready')
+  assert.ok(world.host.count('registry/session/state') > calls)
 })
